@@ -1,0 +1,12 @@
+{
+  "ATLA-2026-BETA-0001": {
+    "active": true,
+    "plan": "beta",
+    "expires_at": "2026-12-31T23:59:59"
+  },
+  "ATLA-2026-TRIAL-0001": {
+    "active": true,
+    "plan": "trial",
+    "expires_at": "2026-08-31T23:59:59"
+  }
+}
