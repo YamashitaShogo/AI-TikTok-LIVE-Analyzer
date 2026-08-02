@@ -147,6 +147,11 @@ class MainWindow(ctk.CTk):
         )
 
         self.show_dashboard()
+
+        # app.py 側で起動前ライセンス認証済みなので、
+        # メイン画面表示時にライセンス表示を更新
+        self.refresh_license_status()
+
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
     # ==================================================
