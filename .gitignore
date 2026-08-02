@@ -34,3 +34,6 @@ images/
 Thumbs.db
 
 license_server/licenses.json
+
+# Installer build output
+installer/
