@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+import os
 import json
-from pathlib import Path
 from datetime import datetime
 
 
@@ -10,22 +10,30 @@ app = FastAPI(
     version="1.0.0"
 )
 
-BASE_DIR = Path(__file__).resolve().parent
-LICENSE_FILE = BASE_DIR / "licenses.json"
-
 
 class LicenseRequest(BaseModel):
     license_key: str
 
 
 def load_licenses():
-    if not LICENSE_FILE.exists():
+    """
+    Renderの環境変数 LICENSES_JSON から
+    ライセンス情報を読み込む。
+    """
+    licenses_json = os.getenv("LICENSES_JSON")
+
+    if not licenses_json:
+        print("WARNING: LICENSES_JSON is not set.")
         return {}
 
-    with LICENSE_FILE.open("r", encoding="utf-8") as f:
-        data = json.load(f)
+    try:
+        data = json.loads(licenses_json)
+    except json.JSONDecodeError as e:
+        print(f"ERROR: LICENSES_JSON is invalid JSON: {e}")
+        return {}
 
     if not isinstance(data, dict):
+        print("ERROR: LICENSES_JSON must contain a JSON object.")
         return {}
 
     return data
