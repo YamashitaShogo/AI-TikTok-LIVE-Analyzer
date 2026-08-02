@@ -3,7 +3,7 @@ from urllib import error, request
 
 
 class LicenseClient:
-    VERIFY_URL = "https://公開したURL/license/verify"
+    VERIFY_URL = "https://ai-tiktok-live-analyzer.onrender.com/license/verify"
     TIMEOUT = 10
 
     @classmethod
