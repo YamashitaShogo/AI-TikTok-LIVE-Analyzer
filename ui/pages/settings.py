@@ -50,7 +50,6 @@ class SettingsPage(ctk.CTkFrame):
         self._event_queue = queue.Queue()
         self._poll_job = None
         self._password_visible = False
-        self._api_key_visible = False
 
         self._build_ui()
         self.load_settings()
@@ -206,13 +205,6 @@ class SettingsPage(ctk.CTkFrame):
         self.api_key_entry.grid(
             row=0, column=0, sticky="ew"
         )
-
-        ctk.CTkButton(
-            api_row,
-            text="表示",
-            width=65,
-            command=self.toggle_api_key,
-        ).grid(row=0, column=1, padx=(8, 0))
 
         self.openai_test_button = ctk.CTkButton(
             body,
@@ -1002,12 +994,6 @@ class SettingsPage(ctk.CTkFrame):
         self._password_visible = not self._password_visible
         self.obs_password_entry.configure(
             show="" if self._password_visible else "●"
-        )
-
-    def toggle_api_key(self):
-        self._api_key_visible = not self._api_key_visible
-        self.api_key_entry.configure(
-            show="" if self._api_key_visible else "●"
         )
 
     def select_screenshot_path(self):
