@@ -2,13 +2,11 @@ import json
 import os
 import queue
 import threading
+import customtkinter as ctk
 from pathlib import Path
 from tkinter import filedialog, messagebox
-
-import customtkinter as ctk
-
 from core.license_client import LicenseClient
-
+from core.secure_storage import SecureStorage
 
 class SettingsPage(ctk.CTkFrame):
     """AI TikTok LIVE Analyzer 設定画面。"""
@@ -29,7 +27,6 @@ class SettingsPage(ctk.CTkFrame):
         "obs_host": "localhost",
         "obs_port": 4455,
         "obs_password": "",
-        "openai_api_key": "",
         "license_key": "",
         "license_status": "未認証",
         "analysis_interval": 30,
@@ -234,8 +231,7 @@ class SettingsPage(ctk.CTkFrame):
         ctk.CTkLabel(
             body,
             text=(
-                "APIキーは settings.json に保存されます。"
-                "配布時はキーを削除してください。"
+                "APIキーはWindows Credential Managerに安全に保存されます。"
             ),
             justify="left",
             anchor="w",
@@ -442,12 +438,17 @@ class SettingsPage(ctk.CTkFrame):
             self.obs_password_entry,
             settings.get("obs_password", ""),
         )
+        try:
+            api_key = SecureStorage.get_openai_api_key()
+        except Exception:
+            api_key = ""
+
+        if not api_key:
+            api_key = os.getenv("OPENAI_API_KEY", "")
+
         self._set_entry(
             self.api_key_entry,
-            settings.get(
-                "openai_api_key",
-                os.getenv("OPENAI_API_KEY", ""),
-            ),
+            api_key,
         )
         self._set_entry(
             self.license_key_entry,
@@ -544,10 +545,26 @@ class SettingsPage(ctk.CTkFrame):
     def save_settings(self):
         try:
             new_settings = self.collect_settings()
+            api_key = new_settings.pop(
+                "openai_api_key",
+                "",
+            )
+
+            # APIキーはJSONではなくWindows Credential Managerへ保存
+            SecureStorage.save_openai_api_key(api_key)
+
             current = self._read_settings_file()
 
-            # 既存の未知キーを消さずに更新
+            # 過去に保存された平文APIキーも削除
+            current.pop(
+                "openai_api_key",
+                None,
+            )
+
+            # その他の設定だけJSONへ保存
             current.update(new_settings)
+
+
 
             self._get_settings_path().parent.mkdir(
                 parents=True,
@@ -570,11 +587,6 @@ class SettingsPage(ctk.CTkFrame):
             temp_path.replace(self._get_settings_path())
 
             # 現在のプロセスにも反映
-            api_key = new_settings["openai_api_key"]
-            if api_key:
-                os.environ["OPENAI_API_KEY"] = api_key
-            else:
-                os.environ.pop("OPENAI_API_KEY", None)
 
             screenshot = Path(
                 new_settings["screenshot_path"]
@@ -632,7 +644,7 @@ class SettingsPage(ctk.CTkFrame):
         )
         self._set_entry(
             self.api_key_entry,
-            defaults["openai_api_key"],
+            "",
         )
         self._set_entry(
             self.license_key_entry,

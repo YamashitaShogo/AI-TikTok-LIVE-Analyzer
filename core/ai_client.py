@@ -8,7 +8,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from openai import APIStatusError, OpenAI
 
-from core.settings import Settings
+from core.secure_storage import SecureStorage
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -21,32 +21,25 @@ class AIClient:
         self.client: Optional[OpenAI] = None
         self._current_api_key: Optional[str] = None
 
-    def _load_api_key_from_settings(self) -> Optional[str]:
-        try:
-            data = Settings.load()
-
-            if not isinstance(data, dict):
-                return None
-
-            value = data.get("openai_api_key", "")
-
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-
-        except Exception as exc:
-            logger.warning(
-                "AppDataの設定からAPIキーを読み込めませんでした: %s",
-                exc,
-            )
-
-        return None
-
     def _get_api_key(self) -> Optional[str]:
+        # 開発者が環境変数を設定している場合は最優先
         api_key = os.getenv("OPENAI_API_KEY", "").strip()
         if api_key:
             return api_key
 
-        return self._load_api_key_from_settings()
+        # 通常のアプリ利用ではWindows Credential Managerから取得
+        try:
+            api_key = SecureStorage.get_openai_api_key()
+            if api_key:
+                return api_key
+        except Exception as exc:
+            logger.warning(
+                "Windows Credential Managerから"
+                "OpenAI APIキーを読み込めませんでした: %s",
+                exc,
+            )
+
+        return None
 
     def has_api_key(self) -> bool:
         return bool(self._get_api_key())
