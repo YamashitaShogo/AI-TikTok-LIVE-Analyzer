@@ -32,10 +32,14 @@ def resource_path(relative_path: str) -> str:
 class MainWindow(ctk.CTk):
     """AI TikTok LIVE Analyzer メインウィンドウ。"""
 
-    LICENSE_CHECK_DELAY_MS = 500
 
     def __init__(self):
         super().__init__()
+
+        # ライセンスオンライン確認用
+        self._license_check_running = False
+        self._license_online_valid = None
+        self._closing = False
 
         self.title("AI TikTok LIVE Analyzer")
         self.geometry("1200x900")
@@ -46,8 +50,6 @@ class MainWindow(ctk.CTk):
         self.obs = OBSClient()
         self.current_page = None
 
-        self._license_check_running = False
-        self._license_online_valid = None
         self._closing = False
 
         title = ctk.CTkLabel(
@@ -146,12 +148,6 @@ class MainWindow(ctk.CTk):
 
         self.show_dashboard()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
-
-        # 起動直後に保存済みライセンスをオンライン確認
-        self.after(
-            self.LICENSE_CHECK_DELAY_MS,
-            self.start_online_license_check,
-        )
 
     # ==================================================
     # App icon
