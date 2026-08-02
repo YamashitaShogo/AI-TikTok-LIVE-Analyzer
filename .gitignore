@@ -32,3 +32,5 @@ images/
 # OS
 .DS_Store
 Thumbs.db
+
+license_server/licenses.json
