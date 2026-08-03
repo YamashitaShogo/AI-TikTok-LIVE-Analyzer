@@ -37,3 +37,6 @@ license_server/licenses.json
 
 # Installer build output
 installer/
+
+# Runtime database
+database/history.db
