@@ -398,8 +398,9 @@ class MainWindow(ctk.CTk):
     def show_settings(self):
         self.clear_page()
         self.current_page = SettingsPage(
-            self.content,
-        )
+        self.content,
+        self.obs,
+    )
         self.current_page.pack(
             fill="both",
             expand=True,

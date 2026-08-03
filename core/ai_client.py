@@ -4,11 +4,12 @@ import logging
 import os
 from pathlib import Path
 from typing import Optional
-
 from dotenv import load_dotenv
 from openai import APIStatusError, OpenAI
-
 from core.secure_storage import SecureStorage
+from core.obs_client import OBSClient
+from io import BytesIO
+from PIL import Image
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -109,7 +110,7 @@ class AIClient:
     def analyze_image(self, image_path, prompt):
         try:
             client = self._get_client()
-            image_path = Path(image_path)
+            image_path = OBSClient.resolve_screenshot_path(image_path)
 
             if not image_path.exists():
                 raise FileNotFoundError(
@@ -119,10 +120,29 @@ class AIClient:
             if image_path.stat().st_size <= 0:
                 raise ValueError("分析画像のファイルサイズが0です。")
 
-            with image_path.open("rb") as file:
-                image_base64 = base64.b64encode(
-                    file.read()
-                ).decode("utf-8")
+            # OpenAI送信用に画像をRGB JPEGへ変換して軽量化
+            with Image.open(image_path) as image:
+                image = image.convert("RGB")
+
+                # 必要以上に大きい画像は縮小
+                image.thumbnail(
+                    (1280, 1280),
+                    Image.Resampling.LANCZOS,
+                )
+
+                buffer = BytesIO()
+                image.save(
+                    buffer,
+                    format="JPEG",
+                    quality=85,
+                    optimize=True,
+                )
+
+                image_bytes = buffer.getvalue()
+
+            image_base64 = base64.b64encode(
+                image_bytes
+            ).decode("utf-8")
 
             prompt = str(prompt or "").strip()
             if not prompt:
@@ -141,7 +161,7 @@ class AIClient:
                             {
                                 "type": "input_image",
                                 "image_url": (
-                                    "data:image/png;base64,"
+                                    "data:image/jpeg;base64,"
                                     f"{image_base64}"
                                 ),
                             },

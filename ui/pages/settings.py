@@ -40,8 +40,10 @@ class SettingsPage(ctk.CTkFrame):
         ),
     }
 
-    def __init__(self, parent):
+    def __init__(self, parent, obs_client=None):
         super().__init__(parent)
+
+        self.obs_client = obs_client
 
         self._destroying = False
         self._event_queue = queue.Queue()
@@ -873,24 +875,42 @@ class SettingsPage(ctk.CTkFrame):
         ).start()
 
     def _obs_test_worker(self, host, port, password):
-        client = None
-
         try:
-            from obsws_python import ReqClient
+            if self.obs_client is None:
+                self._event_queue.put(
+                    (
+                        "obs_error",
+                        "❌ OBSクライアントが初期化されていません。",
+                    )
+                )
+                return
 
-            client = ReqClient(
-                host=host,
-                port=port,
-                password=password,
-                timeout=5,
+            connected = self.obs_client.connect(
+                host,
+                port,
+                password,
             )
 
-            version = client.get_version()
-            obs_version = getattr(
-                version,
-                "obs_version",
-                "不明",
-            )
+            if not connected:
+                self._event_queue.put(
+                    (
+                        "obs_error",
+                        "❌ OBSへ接続できませんでした。",
+                    )
+                )
+                return
+
+            client = self.obs_client.client
+
+            if client is not None:
+                version = client.get_version()
+                obs_version = getattr(
+                    version,
+                    "obs_version",
+                    "不明",
+                )
+            else:
+                obs_version = "不明"
 
             self._event_queue.put(
                 (
@@ -906,13 +926,6 @@ class SettingsPage(ctk.CTkFrame):
                     f"❌ 接続失敗：{exc}",
                 )
             )
-        finally:
-            if client is not None:
-                try:
-                    if hasattr(client, "disconnect"):
-                        client.disconnect()
-                except Exception:
-                    pass
 
     def test_openai_connection(self):
         api_key = self.api_key_entry.get().strip()
