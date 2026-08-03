@@ -79,11 +79,50 @@ class SettingsPage(ctk.CTkFrame):
         self.scroll.pack(fill="both", expand=True, padx=20, pady=(0, 20))
         self.scroll.grid_columnconfigure(0, weight=1)
 
+        self._build_quick_setup_section()
         self._build_obs_section()
         self._build_ai_section()
         self._build_license_section()
         self._build_analysis_section()
         self._build_action_section()
+
+    def _build_quick_setup_section(self):
+        frame = ctk.CTkFrame(self.scroll)
+        frame.pack(fill="x", padx=4, pady=(8, 14))
+
+        ctk.CTkLabel(
+            frame,
+            text="🚀 初回セットアップ",
+            font=("Yu Gothic UI", 20, "bold"),
+        ).pack(
+            anchor="w",
+            padx=16,
+            pady=(14, 8),
+        )
+
+        guide_text = (
+            "初めて利用する場合は、次の順番で設定してください。\n\n"
+            "① OBS Studioを起動してWebSocketを有効にする\n"
+            "② OBSのホスト・ポート・パスワードを設定する\n"
+            "③ 「OBS接続テスト」で接続を確認する\n"
+            "④ OpenAI APIキーを入力する\n"
+            "⑤ 「OpenAI接続テスト」で接続を確認する\n"
+            "⑥ ライセンスが認証済みであることを確認する\n"
+            "⑦ 「設定を保存」を押す\n"
+            "⑧ DashboardからAI分析を開始する"
+        )
+
+        ctk.CTkLabel(
+            frame,
+            text=guide_text,
+            justify="left",
+            anchor="w",
+            font=("Yu Gothic UI", 14),
+        ).pack(
+            fill="x",
+            padx=16,
+            pady=(0, 14),
+        )
 
     def _section(self, title):
         frame = ctk.CTkFrame(self.scroll)
@@ -93,11 +132,26 @@ class SettingsPage(ctk.CTkFrame):
             frame,
             text=title,
             font=("Yu Gothic UI", 18, "bold"),
-        ).pack(anchor="w", padx=16, pady=(14, 10))
+        ).pack(
+            anchor="w",
+            padx=16,
+            pady=(14, 10),
+        )
 
-        body = ctk.CTkFrame(frame, fg_color="transparent")
-        body.pack(fill="x", padx=16, pady=(0, 16))
-        body.grid_columnconfigure(1, weight=1)
+        body = ctk.CTkFrame(
+            frame,
+            fg_color="transparent",
+        )
+        body.pack(
+            fill="x",
+            padx=16,
+            pady=(0, 16),
+        )
+        body.grid_columnconfigure(
+            1,
+            weight=1,
+        )
+
         return body
 
     @staticmethod
