@@ -1,5 +1,6 @@
 import json
 import queue
+import os
 from pathlib import Path
 from typing import Any, Optional
 
@@ -867,7 +868,21 @@ class DashboardPage(ctk.CTkFrame):
     # ==================================================
 
     def _get_screenshot_path(self):
-        default = Path("images/current.png")
+        base = os.getenv("LOCALAPPDATA")
+
+        if not base:
+            base = os.path.join(
+                os.path.expanduser("~"),
+                "AppData",
+                "Local",
+            )
+
+        default = (
+            Path(base)
+            / "AI-TikTok-LIVE-Analyzer"
+            / "images"
+            / "current.png"
+        )
 
         if not self.SETTINGS_PATH.exists():
             return default
@@ -881,9 +896,19 @@ class DashboardPage(ctk.CTkFrame):
 
             configured = settings.get(
                 "screenshot_path",
-                str(default),
+                "images/current.png",
             )
-            return Path(configured)
+
+            configured_path = Path(configured)
+
+            if configured_path.is_absolute():
+                return configured_path
+
+            return (
+                Path(base)
+                / "AI-TikTok-LIVE-Analyzer"
+                / configured_path
+            )
 
         except Exception:
             return default

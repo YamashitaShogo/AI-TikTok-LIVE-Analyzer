@@ -1,12 +1,18 @@
+import base64
 import json
 import os
 import queue
 import threading
 import customtkinter as ctk
+from io import BytesIO
 from pathlib import Path
 from tkinter import filedialog, messagebox
+from urllib import error, request
+
+from PIL import Image
+
+from core.ai_client import AIClient
 from core.license_client import LicenseClient
-from core.secure_storage import SecureStorage
 
 class SettingsPage(ctk.CTkFrame):
     """AI TikTok LIVE Analyzer 設定画面。"""
@@ -86,10 +92,11 @@ class SettingsPage(ctk.CTkFrame):
         self._build_analysis_section()
         self._build_action_section()
 
+
     def _build_quick_setup_section(self):
         frame = ctk.CTkFrame(self.scroll)
         frame.pack(fill="x", padx=4, pady=(8, 14))
-
+    
         ctk.CTkLabel(
             frame,
             text="🚀 初回セットアップ",
@@ -99,19 +106,18 @@ class SettingsPage(ctk.CTkFrame):
             padx=16,
             pady=(14, 8),
         )
-
+    
         guide_text = (
             "初めて利用する場合は、次の順番で設定してください。\n\n"
             "① OBS Studioを起動してWebSocketを有効にする\n"
             "② OBSのホスト・ポート・パスワードを設定する\n"
             "③ 「OBS接続テスト」で接続を確認する\n"
-            "④ OpenAI APIキーを入力する\n"
-            "⑤ 「OpenAI接続テスト」で接続を確認する\n"
-            "⑥ ライセンスが認証済みであることを確認する\n"
-            "⑦ 「設定を保存」を押す\n"
-            "⑧ DashboardからAI分析を開始する"
+            "④ ライセンスキーを入力して認証する\n"
+            "⑤ 「AIサーバー接続テスト」で接続を確認する\n"
+            "⑥ 「設定を保存」を押す\n"
+            "⑦ DashboardからAI分析を開始する"
         )
-
+    
         ctk.CTkLabel(
             frame,
             text=guide_text,
@@ -123,7 +129,7 @@ class SettingsPage(ctk.CTkFrame):
             padx=16,
             pady=(0, 14),
         )
-
+    
     def _section(self, title):
         frame = ctk.CTkFrame(self.scroll)
         frame.pack(fill="x", padx=4, pady=8)
@@ -239,31 +245,32 @@ class SettingsPage(ctk.CTkFrame):
             pady=(5, 0),
         )
 
+
     def _build_ai_section(self):
-        body = self._section("🤖 OpenAI")
-
-        self._field_label(body, "APIキー", 0)
-
-        api_row = ctk.CTkFrame(body, fg_color="transparent")
-        api_row.grid(
-            row=0, column=1, sticky="ew", pady=7
+        body = self._section("🤖 AIサーバー")
+    
+        ctk.CTkLabel(
+            body,
+            text=(
+                "AI分析はサーバー経由で実行されます。\n"
+                "このPCにOpenAI APIキーを設定する必要はありません。"
+            ),
+            justify="left",
+            anchor="w",
+            font=("Yu Gothic UI", 14),
+        ).grid(
+            row=0,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(0, 10),
         )
-        api_row.grid_columnconfigure(0, weight=1)
-
-        self.api_key_entry = ctk.CTkEntry(
-            api_row,
-            show="●",
-            placeholder_text="sk-...",
-        )
-        self.api_key_entry.grid(
-            row=0, column=0, sticky="ew"
-        )
-
+    
         self.openai_test_button = ctk.CTkButton(
             body,
-            text="OpenAI接続テスト",
-            width=160,
-            command=self.test_openai_connection,
+            text="AIサーバー接続テスト",
+            width=180,
+            command=self.test_ai_server_connection,
         )
         self.openai_test_button.grid(
             row=1,
@@ -271,7 +278,7 @@ class SettingsPage(ctk.CTkFrame):
             sticky="w",
             pady=(10, 0),
         )
-
+    
         self.openai_test_label = ctk.CTkLabel(
             body,
             text="",
@@ -283,22 +290,7 @@ class SettingsPage(ctk.CTkFrame):
             sticky="w",
             pady=(5, 0),
         )
-
-        ctk.CTkLabel(
-            body,
-            text=(
-                "APIキーはWindows Credential Managerに安全に保存されます。"
-            ),
-            justify="left",
-            anchor="w",
-            text_color=("gray35", "gray70"),
-        ).grid(
-            row=3,
-            column=1,
-            sticky="w",
-            pady=(8, 0),
-        )
-
+    
     def _build_license_section(self):
         body = self._section("🔑 ライセンス")
 
@@ -337,7 +329,7 @@ class SettingsPage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             body,
-            text="現在は動作確認用のローカル認証です。",
+            text="ライセンスはオンラインで認証されます。",
             anchor="w",
             text_color=("gray35", "gray70"),
         ).grid(
@@ -479,9 +471,10 @@ class SettingsPage(ctk.CTkFrame):
 
         return settings
 
+
     def load_settings(self):
         settings = self._read_settings_file()
-
+    
         self._set_entry(
             self.obs_host_entry,
             settings.get("obs_host", "localhost"),
@@ -494,18 +487,6 @@ class SettingsPage(ctk.CTkFrame):
             self.obs_password_entry,
             settings.get("obs_password", ""),
         )
-        try:
-            api_key = SecureStorage.get_openai_api_key()
-        except Exception:
-            api_key = ""
-
-        if not api_key:
-            api_key = os.getenv("OPENAI_API_KEY", "")
-
-        self._set_entry(
-            self.api_key_entry,
-            api_key,
-        )
         self._set_entry(
             self.license_key_entry,
             settings.get("license_key", ""),
@@ -513,7 +494,7 @@ class SettingsPage(ctk.CTkFrame):
         self.license_status_label.configure(
             text=settings.get("license_status", "未認証")
         )
-
+    
         self._set_entry(
             self.interval_entry,
             settings.get("analysis_interval", 30),
@@ -525,7 +506,7 @@ class SettingsPage(ctk.CTkFrame):
                 "images/current.png",
             ),
         )
-
+    
         self.prompt_text.delete("1.0", "end")
         self.prompt_text.insert(
             "1.0",
@@ -534,101 +515,91 @@ class SettingsPage(ctk.CTkFrame):
                 self.DEFAULTS["ai_prompt"],
             ),
         )
-
+    
         self.status_label.configure(
             text="設定を読み込みました"
         )
-
+    
+    
     def collect_settings(self):
         host = self.obs_host_entry.get().strip()
         port_text = self.obs_port_entry.get().strip()
         password = self.obs_password_entry.get()
-        api_key = self.api_key_entry.get().strip()
         license_key = self.license_key_entry.get().strip()
         interval_text = self.interval_entry.get().strip()
         screenshot_path = self.screenshot_path_entry.get().strip()
         prompt = self.prompt_text.get("1.0", "end").strip()
-
+    
         if not host:
             raise ValueError("OBSホストを入力してください。")
-
+    
         try:
             port = int(port_text)
         except ValueError as exc:
             raise ValueError(
                 "OBSポートは数字で入力してください。"
             ) from exc
-
+    
         if not 1 <= port <= 65535:
             raise ValueError(
                 "OBSポートは1～65535で設定してください。"
             )
-
+    
         try:
             interval = int(interval_text)
         except ValueError as exc:
             raise ValueError(
                 "分析間隔は数字で入力してください。"
             ) from exc
-
+    
         if not 10 <= interval <= 3600:
             raise ValueError(
                 "分析間隔は10～3600秒で設定してください。"
             )
-
+    
         if not screenshot_path:
             raise ValueError(
                 "スクリーンショット保存先を入力してください。"
             )
-
+    
         if not prompt:
             raise ValueError(
                 "AI分析プロンプトを入力してください。"
             )
-
+    
         return {
             "obs_host": host,
             "obs_port": port,
             "obs_password": password,
-            "openai_api_key": api_key,
             "license_key": license_key,
             "license_status": self.license_status_label.cget("text"),
             "analysis_interval": interval,
             "screenshot_path": screenshot_path,
             "ai_prompt": prompt,
         }
-
+    
+    
     def save_settings(self):
         try:
             new_settings = self.collect_settings()
-            api_key = new_settings.pop(
-                "openai_api_key",
-                "",
-            )
-
-            # APIキーはJSONではなくWindows Credential Managerへ保存
-            SecureStorage.save_openai_api_key(api_key)
-
             current = self._read_settings_file()
-
-            # 過去に保存された平文APIキーも削除
+    
+            # 旧バージョンでsettings.jsonに保存されていた
+            # OpenAI APIキーがあれば削除します。
             current.pop(
                 "openai_api_key",
                 None,
             )
-
-            # その他の設定だけJSONへ保存
+    
             current.update(new_settings)
-
-
-
+    
             self._get_settings_path().parent.mkdir(
                 parents=True,
                 exist_ok=True,
             )
-
+    
             temp_path = self._get_settings_path().with_suffix(".json.tmp")
-
+    
             with temp_path.open(
                 "w",
                 encoding="utf-8",
@@ -639,11 +610,9 @@ class SettingsPage(ctk.CTkFrame):
                     ensure_ascii=False,
                     indent=4,
                 )
-
+    
             temp_path.replace(self._get_settings_path())
-
-            # 現在のプロセスにも反映
-
+    
             screenshot = Path(
                 new_settings["screenshot_path"]
             )
@@ -652,18 +621,18 @@ class SettingsPage(ctk.CTkFrame):
                     parents=True,
                     exist_ok=True,
                 )
-
+    
             self.status_label.configure(
                 text="✅ 保存しました"
             )
-
+    
             messagebox.showinfo(
                 "設定保存",
                 "設定を保存しました。\n\n"
                 "自動分析が動作中の場合は、"
                 "いったん停止してから再開してください。",
             )
-
+    
         except ValueError as exc:
             messagebox.showwarning(
                 "入力エラー",
@@ -674,7 +643,8 @@ class SettingsPage(ctk.CTkFrame):
                 "保存エラー",
                 f"設定を保存できませんでした。\n\n{exc}",
             )
-
+    
+    
     def restore_defaults(self):
         confirmed = messagebox.askyesno(
             "初期値に戻す",
@@ -683,9 +653,9 @@ class SettingsPage(ctk.CTkFrame):
         )
         if not confirmed:
             return
-
+    
         defaults = dict(self.DEFAULTS)
-
+    
         self._set_entry(
             self.obs_host_entry,
             defaults["obs_host"],
@@ -699,17 +669,13 @@ class SettingsPage(ctk.CTkFrame):
             defaults["obs_password"],
         )
         self._set_entry(
-            self.api_key_entry,
-            "",
-        )
-        self._set_entry(
             self.license_key_entry,
             defaults["license_key"],
         )
         self.license_status_label.configure(
             text=defaults["license_status"]
         )
-
+    
         self._set_entry(
             self.interval_entry,
             defaults["analysis_interval"],
@@ -718,17 +684,17 @@ class SettingsPage(ctk.CTkFrame):
             self.screenshot_path_entry,
             defaults["screenshot_path"],
         )
-
+    
         self.prompt_text.delete("1.0", "end")
         self.prompt_text.insert(
             "1.0",
             defaults["ai_prompt"],
         )
-
+    
         self.status_label.configure(
             text="初期値を入力しました"
         )
-
+    
     def verify_license(self):
         """オンラインライセンス認証。"""
         raw_key = self.license_key_entry.get()
@@ -981,56 +947,112 @@ class SettingsPage(ctk.CTkFrame):
                 )
             )
 
-    def test_openai_connection(self):
-        api_key = self.api_key_entry.get().strip()
 
-        if not api_key:
+    def test_ai_server_connection(self):
+        raw_key = self.license_key_entry.get()
+        key = "".join(raw_key.split()).upper()
+    
+        if not key:
             messagebox.showwarning(
-                "OpenAI接続テスト",
-                "OpenAI APIキーを入力してください。",
+                "AIサーバー接続テスト",
+                "先にライセンスキーを入力してください。",
             )
             return
-
+    
         self.openai_test_button.configure(state="disabled")
         self.openai_test_label.configure(
             text="接続確認中..."
         )
-
+    
         threading.Thread(
-            target=self._openai_test_worker,
-            args=(api_key,),
+            target=self._ai_server_test_worker,
+            args=(key,),
             daemon=True,
         ).start()
-
-    def _openai_test_worker(self, api_key):
+    
+    
+    def _ai_server_test_worker(self, license_key):
         try:
-            from openai import OpenAI
-
-            client = OpenAI(
-                api_key=api_key,
-                timeout=10.0,
+            # 小さなテスト画像を生成し、実際のAI分析経路を確認します。
+            image = Image.new(
+                "RGB",
+                (64, 64),
+                "white",
             )
-            client.models.list()
-
+            buffer = BytesIO()
+            image.save(
+                buffer,
+                format="JPEG",
+                quality=80,
+            )
+    
+            payload = json.dumps(
+                {
+                    "license_key": license_key,
+                    "prompt": "接続テストです。『接続成功』とだけ返してください。",
+                    "image_base64": base64.b64encode(
+                        buffer.getvalue()
+                    ).decode("utf-8"),
+                }
+            ).encode("utf-8")
+    
+            req = request.Request(
+                AIClient.SERVER_ANALYZE_URL,
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                method="POST",
+            )
+    
+            with request.urlopen(
+                req,
+                timeout=AIClient.SERVER_TIMEOUT,
+            ) as response:
+                result = json.loads(
+                    response.read().decode("utf-8")
+                )
+    
+            if not isinstance(result, dict) or not result.get("success"):
+                raise RuntimeError(
+                    "AIサーバーから正常な応答を取得できませんでした。"
+                )
+    
             self._event_queue.put(
                 (
-                    "openai_success",
-                    "✅ OpenAI API接続成功",
+                    "ai_server_success",
+                    "✅ AIサーバー接続成功",
                 )
             )
-
+    
+        except error.HTTPError as exc:
+            try:
+                response_data = json.loads(
+                    exc.read().decode("utf-8")
+                )
+                message = response_data.get(
+                    "detail",
+                    f"HTTPエラー: {exc.code}",
+                )
+            except Exception:
+                message = f"HTTPエラー: {exc.code}"
+    
+            self._event_queue.put(
+                (
+                    "ai_server_error",
+                    f"❌ 接続失敗：{message}",
+                )
+            )
+    
         except Exception as exc:
             self._event_queue.put(
                 (
-                    "openai_error",
+                    "ai_server_error",
                     f"❌ 接続失敗：{exc}",
                 )
             )
-
-    # ==================================================
-    # Events
-    # ==================================================
-
+    
     def _start_event_polling(self):
         if self._destroying:
             return
@@ -1052,7 +1074,7 @@ class SettingsPage(ctk.CTkFrame):
                 self.obs_test_label.configure(text=message)
                 self.obs_test_button.configure(state="normal")
 
-            elif event.startswith("openai_"):
+            elif event.startswith("ai_server_"):
                 self.openai_test_label.configure(text=message)
                 self.openai_test_button.configure(state="normal")
 
