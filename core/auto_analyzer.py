@@ -6,7 +6,7 @@ import time
 import traceback
 from datetime import datetime
 from typing import Any, Callable, Optional
-
+from PIL import Image
 from core.ai_client import AIClient
 from core.history import HistoryDB
 
@@ -192,6 +192,19 @@ class AutoAnalyzer:
 
         if os.path.getsize(self.image_path) <= 0:
             raise RuntimeError("保存されたスクリーンショットが空です。")
+
+        # スクリーンショットの書き込み完了を待つ
+        for _ in range(10):
+            try:
+                with Image.open(self.image_path) as img:
+                    img.verify()
+                break
+            except (OSError, IOError):
+                time.sleep(0.2)
+        else:
+            raise RuntimeError(
+                "スクリーンショットの読み込みに失敗しました。"
+            )
 
         prompt = self._load_prompt()
 

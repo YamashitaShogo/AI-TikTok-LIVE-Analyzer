@@ -10,6 +10,8 @@ from core.secure_storage import SecureStorage
 from core.obs_client import OBSClient
 from io import BytesIO
 from PIL import Image
+from urllib import error, request
+from core.license_manager import LicenseManager
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -17,6 +19,10 @@ logger = logging.getLogger(__name__)
 
 class AIClient:
     MODEL = "gpt-5"
+    SERVER_ANALYZE_URL = (
+    "https://ai-tiktok-live-analyzer-dev.onrender.com/ai/analyze"
+    )
+    SERVER_TIMEOUT = 120
 
     def __init__(self):
         self.client: Optional[OpenAI] = None
@@ -109,7 +115,6 @@ class AIClient:
 
     def analyze_image(self, image_path, prompt):
         try:
-            client = self._get_client()
             image_path = OBSClient.resolve_screenshot_path(image_path)
 
             if not image_path.exists():
@@ -148,32 +153,82 @@ class AIClient:
             if not prompt:
                 raise ValueError("AI分析プロンプトが空です。")
 
-            response = client.responses.create(
-                model=self.MODEL,
-                input=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "input_text",
-                                "text": prompt,
-                            },
-                            {
-                                "type": "input_image",
-                                "image_url": (
-                                    "data:image/jpeg;base64,"
-                                    f"{image_base64}"
-                                ),
-                            },
-                        ],
-                    }
-                ],
+            license_data = LicenseManager.get_license_data()
+            license_key = str(
+                license_data.get("license_key", "")
+            ).strip()
+
+            if not prompt:
+                raise ValueError("AI分析プロンプトが空です.")
+
+            license_data = LicenseManager.get_license_data()
+
+            if not license_key:
+                raise ValueError(
+                    "ライセンスキーが保存されていません。"
+                )
+
+            payload = json.dumps(
+                {
+                    "license_key": license_key,
+                    "prompt": prompt,
+                    "image_base64": image_base64,
+                }
+            ).encode("utf-8")
+
+            req = request.Request(
+                self.SERVER_ANALYZE_URL,
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                method="POST",
             )
 
-            output_text = getattr(response, "output_text", "")
+            try:
+                with request.urlopen(
+                    req,
+                    timeout=self.SERVER_TIMEOUT,
+                ) as response:
+                    result = json.loads(
+                        response.read().decode("utf-8")
+                    )
+
+            except error.HTTPError as exc:
+                try:
+                    error_data = json.loads(
+                        exc.read().decode("utf-8")
+                    )
+                    message = error_data.get(
+                        "detail",
+                        f"HTTPエラー: {exc.code}",
+                    )
+                except Exception:
+                    message = f"HTTPエラー: {exc.code}"
+
+                raise RuntimeError(message) from exc
+
+            if not isinstance(result, dict):
+                raise RuntimeError(
+                    "AIサーバーから不正な応答が返されました。"
+                )
+
+            if not result.get("success"):
+                raise RuntimeError(
+                    result.get(
+                        "message",
+                        "AI分析に失敗しました。",
+                    )
+                )
+
+            output_text = str(
+                result.get("result", "")
+            ).strip()
+
             if not output_text:
                 raise RuntimeError(
-                    "OpenAIから分析結果が返されませんでした。"
+                    "AIサーバーから分析結果が返されませんでした。"
                 )
 
             return output_text
