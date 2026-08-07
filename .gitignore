@@ -40,3 +40,4 @@ installer/
 
 # Runtime database
 database/history.db
+release/
