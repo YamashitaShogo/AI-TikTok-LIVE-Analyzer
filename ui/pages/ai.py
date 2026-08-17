@@ -279,7 +279,7 @@ class AIPage(ctk.CTkFrame):
                 score=score,
                 prompt=prompt_text,
                 answer=answer,
-                image_path=analysis_image_path,
+                image_path=frames[-1],
             )
 
             self._safe_after(
