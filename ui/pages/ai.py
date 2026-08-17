@@ -10,6 +10,9 @@ import customtkinter as ctk
 from core.ai_client import AIClient
 from core.history import HistoryDB
 
+import time
+
+from core.video_analyzer import extract_frames
 
 class AIPage(ctk.CTkFrame):
     """手動AI分析ページ完成版。"""
@@ -190,37 +193,102 @@ class AIPage(ctk.CTkFrame):
 
     def _analysis_worker(self, prompt_text: str):
         try:
-            scene = self.obs.get_current_scene()
-            if not scene:
-                raise RuntimeError("OBSの現在シーンを取得できませんでした。")
+            # 保存前の最新リプレイを記録
+            previous_replay_path = self.obs.get_last_replay_path()
 
-            os.makedirs(os.path.dirname(self.IMAGE_PATH) or ".", exist_ok=True)
-
-            screenshot_result = self.obs.save_screenshot(scene, self.IMAGE_PATH)
-            if screenshot_result is False:
-                raise RuntimeError("スクリーンショット取得に失敗しました。")
-
-            if not os.path.exists(self.IMAGE_PATH):
-                raise FileNotFoundError(
-                    f"画像が見つかりません: {self.IMAGE_PATH}"
+            # Replay Buffer確認
+            if not self.obs.is_replay_buffer_active():
+                raise RuntimeError(
+                    "OBSのReplay Bufferが開始されていません。"
                 )
 
-            if os.path.getsize(self.IMAGE_PATH) <= 0:
-                raise RuntimeError("保存された画像が空です。")
+            self._safe_after(
+                lambda: self.status_label.configure(
+                    text="🎬 Replay Buffer保存中..."
+                )
+            )
+
+            # Replay Buffer保存
+            if not self.obs.save_replay_buffer():
+                raise RuntimeError(
+                    "Replay Bufferの保存に失敗しました。"
+                )
+
+            # OBS側で保存完了するまで少し待つ
+            replay_path = None
+
+            for _ in range(20):
+                time.sleep(0.25)
+
+                candidate = self.obs.get_last_replay_path()
+
+                if (
+                    candidate
+                    and candidate != previous_replay_path
+                    and os.path.exists(candidate)
+                ):
+                    replay_path = candidate
+                    break
+
+            if not replay_path:
+                raise RuntimeError(
+                    "保存したReplay動画のパスを取得できませんでした。"
+                )
+
+            print(f"[AIPage] replay_path={replay_path}")
+
+            self._safe_after(
+                lambda: self.status_label.configure(
+                    text="🎞️ 動画からフレーム抽出中..."
+                )
+            )
+
+            frames = extract_frames(
+                replay_path,
+                interval_seconds=5,
+                max_frames=12,
+            )
+
+            if not frames:
+                raise RuntimeError(
+                    "Replay動画からフレームを抽出できませんでした。"
+                )
+
+            print(f"[AIPage] extracted_frames={len(frames)}")
+
+            for frame_path in frames:
+                print(f"[AIPage] frame={frame_path}")
+                # 今回は抽出した最後のフレームをAI分析に使用
 
             self._safe_after(self._show_analyzing)
 
-            answer = self.ai.analyze_image(self.IMAGE_PATH, prompt_text)
+            answer = self.ai.analyze_images(
+                frames,
+                prompt_text,
+            )
+
             if not answer or not str(answer).strip():
-                raise RuntimeError("AIから分析結果が返されませんでした。")
+                raise RuntimeError(
+                    "AIから分析結果が返されませんでした。"
+                )
 
             answer = str(answer).strip()
             score = self._extract_score(answer)
 
-            self._save_history(score=score, prompt=prompt_text, answer=answer)
+            self._save_history(
+                score=score,
+                prompt=prompt_text,
+                answer=answer,
+                image_path=analysis_image_path,
+            )
 
-            self._safe_after(lambda: self._show_success(answer, score))
-
+            self._safe_after(
+                lambda: self._show_success(
+                    answer,
+                    score,
+                )
+            )
+        
         except Exception as exc:
             traceback.print_exc()
             error_text = f"{type(exc).__name__}: {exc}"
@@ -264,16 +332,38 @@ class AIPage(ctk.CTkFrame):
         self.analysis_button.configure(state="normal", text="▶ AI分析開始")
         self.save_button.configure(state="normal")
 
-    def _save_history(self, score: Optional[int], prompt: str, answer: str):
+    def _save_history(
+        self,
+        score: Optional[int],
+        prompt: str,
+        answer: str,
+        image_path: Optional[str] = None,
+    ):
+        self.history.save(
+            score=score,
+            prompt=prompt,
+            result=answer,
+            image_path=image_path,
+        )
         save = getattr(self.history, "save", None)
         if not callable(save):
             raise AttributeError("HistoryDBにsaveメソッドがありません。")
 
         attempts = [
-            lambda: save(score, prompt, answer),
-            lambda: save(prompt, answer, score),
-            lambda: save(score=score, prompt=prompt, answer=answer),
+            lambda: save(
+                score=score,
+                prompt=prompt,
+                result=answer,
+                image_path=image_path,
+            ),
+            lambda: save(
+                score=score,
+                prompt=prompt,
+                answer=answer,
+                image_path=image_path,
+            ),
             lambda: save(score=score, prompt=prompt, result=answer),
+            lambda: save(score, prompt, answer),
         ]
 
         last_error = None

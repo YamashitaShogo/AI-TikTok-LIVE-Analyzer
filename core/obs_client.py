@@ -173,6 +173,116 @@ class OBSClient:
             logger.debug("録画状態取得エラー: %s", exc)
             return False
 
+    def is_replay_buffer_active(self):
+        if self.client is None:
+            return False
+
+        try:
+            status = self.client.get_replay_buffer_status()
+            return bool(status.output_active)
+
+        except Exception as exc:
+            logger.debug(
+                "リプレイバッファ状態取得エラー: %s",
+                exc,
+            )
+            return False
+
+    def start_replay_buffer(self):
+        if not self.is_connected():
+            logger.warning(
+                "OBS未接続のためリプレイバッファを開始できません。"
+            )
+            return False
+
+        try:
+            if self.is_replay_buffer_active():
+                return True
+
+            self.client.start_replay_buffer()
+
+            logger.info(
+                "OBSリプレイバッファを開始しました。"
+            )
+            return True
+
+        except Exception as exc:
+            logger.error(
+                "OBSリプレイバッファ開始エラー: %s",
+                exc,
+            )
+            return False
+
+    def save_replay_buffer(self):
+        if not self.is_connected():
+            logger.warning(
+                "OBS未接続のためリプレイを保存できません。"
+            )
+            return False
+
+        try:
+            if not self.is_replay_buffer_active():
+                logger.warning(
+                    "リプレイバッファが開始されていません。"
+                )
+                return False
+
+            self.client.save_replay_buffer()
+
+            logger.info(
+                "OBSリプレイバッファを保存しました。"
+            )
+            return True
+
+        except Exception as exc:
+            logger.error(
+                "OBSリプレイ保存エラー: %s",
+                exc,
+            )
+            return False
+
+    def stop_replay_buffer(self):
+        if not self.is_connected():
+            return False
+
+        try:
+            if not self.is_replay_buffer_active():
+                return True
+
+            self.client.stop_replay_buffer()
+
+            logger.info(
+                "OBSリプレイバッファを停止しました。"
+            )
+            return True
+
+        except Exception as exc:
+            logger.error(
+                "OBSリプレイバッファ停止エラー: %s",
+                exc,
+            )
+            return False
+
+    def get_last_replay_path(self):
+        if not self.is_connected():
+            return None
+
+        try:
+            replay = self.client.get_last_replay_buffer_replay()
+
+            return getattr(
+                replay,
+                "saved_replay_path",
+                None,
+            )
+
+        except Exception as exc:
+            logger.error(
+                "最後のリプレイパス取得エラー: %s",
+                exc,
+            )
+            return None   
+
     def start_stream(self):
         if not self.is_connected():
             logger.warning("OBS未接続のため開始処理を実行できません。")

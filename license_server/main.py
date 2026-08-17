@@ -18,7 +18,8 @@ class LicenseRequest(BaseModel):
 class AIAnalyzeRequest(BaseModel):
     license_key: str
     prompt: str
-    image_base64: str
+    image_base64: str | None = None
+    images_base64: list[str] | None = None
 
 def load_licenses():
     """
@@ -165,38 +166,75 @@ def analyze_ai(request: AIAnalyzeRequest):
             detail="AI分析プロンプトが空です。",
         )
 
-    image_base64 = request.image_base64.strip()
+    images_base64 = []
 
-    if not image_base64:
+    # 新しい複数画像形式
+    if request.images_base64:
+        images_base64 = [
+            str(image).strip()
+            for image in request.images_base64
+            if str(image).strip()
+        ]
+
+    # 従来の1画像形式との後方互換
+    elif request.image_base64:
+        image_base64 = request.image_base64.strip()
+
+        if image_base64:
+            images_base64 = [image_base64]
+
+    if not images_base64:
         raise HTTPException(
             status_code=400,
             detail="画像データが空です。",
         )
 
+    # Replay解析側の上限と合わせる
+    if len(images_base64) > 12:
+        raise HTTPException(
+            status_code=400,
+            detail="一度に分析できる画像は最大12枚です。",
+        )
+
     try:
         client = OpenAI(api_key=api_key)
+
+        content = [
+            {
+                "type": "input_text",
+                "text": (
+                    prompt
+                    + "\n\n"
+                    + "以下の画像はReplay Bufferから抽出した"
+                    + "時系列フレームです。"
+                    + "最初の画像が最も古く、最後の画像が最も新しいです。"
+                    + "各画像を個別に見るだけでなく、"
+                    + "時間経過による変化も含めて分析してください。"
+                ),
+            }
+        ]
+
+        for image_base64 in images_base64:
+            content.append(
+                {
+                    "type": "input_image",
+                    "image_url": (
+                        "data:image/jpeg;base64,"
+                        + image_base64
+                    ),
+                }
+            )
 
         response = client.responses.create(
             model="gpt-5",
             input=[
                 {
                     "role": "user",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": prompt,
-                        },
-                        {
-                            "type": "input_image",
-                            "image_url": (
-                                "data:image/jpeg;base64,"
-                                + image_base64
-                            ),
-                        },
-                    ],
+                    "content": content,
                 }
             ],
         )
+        
 
         output_text = getattr(
             response,
