@@ -3,8 +3,8 @@ from pydantic import BaseModel
 from openai import OpenAI
 import os
 import json
-import smtplib
-from email.message import EmailMessage
+import urllib.request
+import urllib.error
 from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -47,58 +47,96 @@ def send_contact_email(
     category: str,
     message: str,
 ):
-    smtp_user = os.getenv("SMTP_USER", "").strip()
-    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
-    contact_to = os.getenv("CONTACT_TO_EMAIL", "").strip()
+    resend_api_key = os.getenv(
+        "RESEND_API_KEY",
+        "",
+    ).strip()
 
-    if not smtp_user:
-        raise RuntimeError("SMTP_USER が設定されていません。")
+    contact_to = os.getenv(
+        "CONTACT_TO_EMAIL",
+        "",
+    ).strip()
 
-    if not smtp_password:
-        raise RuntimeError("SMTP_PASSWORD が設定されていません。")
-
-    if not contact_to:
-        raise RuntimeError("CONTACT_TO_EMAIL が設定されていません。")
-
-    mail = EmailMessage()
-
-    mail["Subject"] = (
-        f"[AI TikTok LIVE Analyzer] お問い合わせ: {category}"
-    )
-    mail["From"] = smtp_user
-    mail["To"] = contact_to
-    mail["Reply-To"] = email
-
-    mail.set_content(
-        f"""
-AI TikTok LIVE Analyzer
-お問い合わせフォームから新しい問い合わせが届きました。
-
-お名前:
-{name}
-
-メールアドレス:
-{email}
-
-お問い合わせ種別:
-{category}
-
-お問い合わせ内容:
-{message}
-""".strip()
-    )
-
-    with smtplib.SMTP_SSL(
-        "smtp.gmail.com",
-        465,
-        timeout=20,
-    ) as smtp:
-        smtp.login(
-            smtp_user,
-            smtp_password,
+    if not resend_api_key:
+        raise RuntimeError(
+            "RESEND_API_KEY が設定されていません。"
         )
 
-        smtp.send_message(mail)
+    if not contact_to:
+        raise RuntimeError(
+            "CONTACT_TO_EMAIL が設定されていません。"
+        )
+
+    payload = {
+        "from": (
+            "AI TikTok LIVE Analyzer "
+            "<onboarding@resend.dev>"
+        ),
+        "to": [
+            contact_to
+        ],
+        "subject": (
+            "[AI TikTok LIVE Analyzer] "
+            f"お問い合わせ: {category}"
+        ),
+        "reply_to": email,
+        "text": (
+            "AI TikTok LIVE Analyzer\n"
+            "お問い合わせフォームから"
+            "新しい問い合わせが届きました。\n\n"
+
+            f"お名前:\n{name}\n\n"
+
+            f"メールアドレス:\n{email}\n\n"
+
+            f"お問い合わせ種別:\n{category}\n\n"
+
+            f"お問い合わせ内容:\n{message}"
+        ),
+    }
+
+    body = json.dumps(
+        payload,
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+    request = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": (
+                f"Bearer {resend_api_key}"
+            ),
+            "Content-Type": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=20,
+        ) as response:
+
+            result = response.read().decode(
+                "utf-8"
+            )
+
+            print(
+                f"[CONTACT EMAIL] {result}"
+            )
+
+    except urllib.error.HTTPError as exc:
+        error_body = exc.read().decode(
+            "utf-8",
+            errors="replace",
+        )
+
+        raise RuntimeError(
+            f"Resend API error "
+            f"{exc.code}: {error_body}"
+        ) from exc
+    
 
 def load_licenses():
     """
