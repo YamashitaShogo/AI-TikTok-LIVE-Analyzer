@@ -109,6 +109,7 @@ def send_contact_email(
                 f"Bearer {resend_api_key}"
             ),
             "Content-Type": "application/json",
+            "User-Agent": "AI-TikTok-LIVE-Analyzer/1.0",
         },
     )
 
