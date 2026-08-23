@@ -3,12 +3,26 @@ from pydantic import BaseModel
 from openai import OpenAI
 import os
 import json
+import smtplib
+from email.message import EmailMessage
 from datetime import datetime
+from fastapi.middleware.cors import CORSMiddleware
 
 
 app = FastAPI(
     title="AI TikTok LIVE Analyzer License Server",
     version="1.0.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5500",
+        "http://127.0.0.1:5500",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -20,6 +34,71 @@ class AIAnalyzeRequest(BaseModel):
     prompt: str
     image_base64: str | None = None
     images_base64: list[str] | None = None
+
+class ContactRequest(BaseModel):
+    name: str
+    email: str
+    category: str
+    message: str
+
+def send_contact_email(
+    name: str,
+    email: str,
+    category: str,
+    message: str,
+):
+    smtp_user = os.getenv("SMTP_USER", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+    contact_to = os.getenv("CONTACT_TO_EMAIL", "").strip()
+
+    if not smtp_user:
+        raise RuntimeError("SMTP_USER が設定されていません。")
+
+    if not smtp_password:
+        raise RuntimeError("SMTP_PASSWORD が設定されていません。")
+
+    if not contact_to:
+        raise RuntimeError("CONTACT_TO_EMAIL が設定されていません。")
+
+    mail = EmailMessage()
+
+    mail["Subject"] = (
+        f"[AI TikTok LIVE Analyzer] お問い合わせ: {category}"
+    )
+    mail["From"] = smtp_user
+    mail["To"] = contact_to
+    mail["Reply-To"] = email
+
+    mail.set_content(
+        f"""
+AI TikTok LIVE Analyzer
+お問い合わせフォームから新しい問い合わせが届きました。
+
+お名前:
+{name}
+
+メールアドレス:
+{email}
+
+お問い合わせ種別:
+{category}
+
+お問い合わせ内容:
+{message}
+""".strip()
+    )
+
+    with smtplib.SMTP_SSL(
+        "smtp.gmail.com",
+        465,
+        timeout=20,
+    ) as smtp:
+        smtp.login(
+            smtp_user,
+            smtp_password,
+        )
+
+        smtp.send_message(mail)
 
 def load_licenses():
     """
@@ -261,3 +340,59 @@ def analyze_ai(request: AIAnalyzeRequest):
             status_code=500,
             detail=f"AI分析に失敗しました: {exc}",
         )
+
+@app.post("/contact")
+def contact(request: ContactRequest):
+
+    name = request.name.strip()
+    email = request.email.strip()
+    category = request.category.strip()
+    message = request.message.strip()
+
+    if not name:
+        raise HTTPException(
+            status_code=400,
+            detail="お名前を入力してください。",
+        )
+
+    if not email or "@" not in email:
+        raise HTTPException(
+            status_code=400,
+            detail="メールアドレスが正しくありません。",
+        )
+
+    if not category:
+        raise HTTPException(
+            status_code=400,
+            detail="お問い合わせ種別を選択してください。",
+        )
+
+    if not message:
+        raise HTTPException(
+            status_code=400,
+            detail="お問い合わせ内容を入力してください。",
+        )
+
+    try:
+        send_contact_email(
+            name=name,
+            email=email,
+            category=category,
+            message=message,
+        )
+
+    except Exception as exc:
+        print(
+            f"[CONTACT ERROR] "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="お問い合わせメールの送信に失敗しました。",
+        )
+
+    return {
+        "ok": True,
+        "message": "お問い合わせを受け付けました。",
+    }
