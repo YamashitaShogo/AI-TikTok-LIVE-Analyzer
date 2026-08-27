@@ -9,6 +9,7 @@ from typing import Any, Callable, Optional
 from PIL import Image
 from core.ai_client import AIClient
 from core.history import HistoryDB
+from core.settings import Settings
 
 
 class AutoAnalyzer:
@@ -256,45 +257,41 @@ class AutoAnalyzer:
 
     def _load_prompt(self) -> str:
         """
-        settings.json内のpromptを優先。
-        読み込めない場合は標準プロンプトを使用。
+        AppDataのsettings.jsonに保存された
+        AIプロンプトを優先する。
         """
-        candidates = [
-            "settings.json",
-            os.path.join("config", "settings.json"),
-        ]
 
-        for path in candidates:
-            if not os.path.exists(path):
-                continue
+        try:
+            settings = Settings.load()
 
-            try:
-                with open(path, "r", encoding="utf-8") as file:
-                    settings = json.load(file)
+            for key in (
+                "analysis_prompt",
+                "prompt",
+                "ai_prompt",
+            ):
+                value = settings.get(key)
 
-                for key in (
-                    "analysis_prompt",
-                    "prompt",
-                    "ai_prompt",
+                if (
+                    isinstance(value, str)
+                    and value.strip()
                 ):
-                    value = settings.get(key)
-                    if isinstance(value, str) and value.strip():
-                        return value.strip()
+                    return value.strip()
 
-                ai_settings = settings.get("ai")
-                if isinstance(ai_settings, dict):
-                    value = ai_settings.get("prompt")
-                    if isinstance(value, str) and value.strip():
-                        return value.strip()
+            ai_settings = settings.get("ai")
 
-            except Exception as exc:
-                print(
-                    f"設定ファイル読込エラー ({path}):",
-                    repr(exc),
-                )
+            if isinstance(ai_settings, dict):
+                value = ai_settings.get("prompt")
+
+                if (
+                    isinstance(value, str)
+                    and value.strip()
+                ):
+                    return value.strip()
+
+        except Exception:
+            pass
 
         return self.DEFAULT_PROMPT
-
     @staticmethod
     def _extract_score(answer: str) -> Optional[int]:
         patterns = [
@@ -332,12 +329,17 @@ class AutoAnalyzer:
             )
 
         attempts = [
-            lambda: save(score, prompt, answer),
-            lambda: save(prompt, answer, score),
+            lambda: save(
+                score=score,
+                prompt=prompt,
+                result=answer,
+                image_path=image_path,
+            ),
             lambda: save(
                 score=score,
                 prompt=prompt,
                 answer=answer,
+                image_path=image_path,
             ),
             lambda: save(
                 score=score,
@@ -345,10 +347,9 @@ class AutoAnalyzer:
                 result=answer,
             ),
             lambda: save(
-                score=score,
-                prompt=prompt,
-                answer=answer,
-                image_path=image_path,
+                score,
+                prompt,
+                answer,
             ),
         ]
 
