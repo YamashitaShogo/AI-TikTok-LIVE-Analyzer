@@ -1,6 +1,8 @@
 import os
 import sqlite3
 import sys
+import shutil
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -71,14 +73,66 @@ class HistoryDB:
                 """
             )
 
+            columns = {
+                row[1]
+                for row in conn.execute(
+                    "PRAGMA table_info(ai_history)"
+                ).fetchall()
+            }
+
+            if "image_path" not in columns:
+                conn.execute(
+                    "ALTER TABLE ai_history ADD COLUMN image_path TEXT"
+                )
+
     # ==================================================
     # Create
     # ==================================================
 
-    def save(self, score, prompt, result):
+    def save(
+    self,
+    score,
+    prompt,
+    result,
+    image_path=None,
+    ):
         created_at = datetime.now().strftime(
             "%Y-%m-%d %H:%M:%S"
         )
+
+        saved_image_path = None
+
+        if image_path:
+            source = Path(image_path)
+
+            if source.exists():
+                history_images_dir = (
+                    Path(self.db).parent
+                    / "history_images"
+                )
+                history_images_dir.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+
+                extension = source.suffix or ".png"
+
+                filename = (
+                    datetime.now().strftime("%Y%m%d_%H%M%S_")
+                    + uuid.uuid4().hex[:8]
+                    + extension
+                )
+
+                destination = (
+                    history_images_dir / filename
+                )
+
+                shutil.copy2(
+                    source,
+                    destination,
+                )
+
+                saved_image_path = str(destination)
 
         with self._connect() as conn:
             conn.execute(
@@ -87,16 +141,18 @@ class HistoryDB:
                     created_at,
                     score,
                     prompt,
-                    result
+                    result,
+                    image_path
                 )
-                VALUES (?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
                     created_at,
                     score,
                     prompt,
-                    result
-                )
+                    result,
+                    saved_image_path,
+                ),
             )
 
     # ==================================================
@@ -196,6 +252,32 @@ class HistoryDB:
                 """,
                 (history_id,)
             )
+            return cursor.fetchone()
+
+    def get_by_id_with_image(
+        self,
+        history_id: int,
+    ) -> Optional[tuple]:
+        """
+        履歴詳細画面用。
+        id / created_at / score / prompt / result / image_path を返す。
+        """
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                SELECT
+                    id,
+                    created_at,
+                    score,
+                    prompt,
+                    result,
+                    image_path
+                FROM ai_history
+                WHERE id = ?
+                """,
+                (history_id,),
+            )
+
             return cursor.fetchone()
 
     # ==================================================
