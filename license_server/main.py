@@ -1,3 +1,6 @@
+import time
+from collections import defaultdict, deque
+from threading import Lock
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from openai import OpenAI
@@ -8,6 +11,11 @@ import urllib.error
 from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
 
+AI_RATE_LIMIT = 5          # 回
+AI_RATE_WINDOW = 60       # 60秒
+
+_ai_request_history = defaultdict(deque)
+_ai_rate_lock = Lock()
 
 app = FastAPI(
     title="AI TikTok LIVE Analyzer License Server",
@@ -163,6 +171,23 @@ def load_licenses():
 
     return data
 
+def check_ai_rate_limit(license_key: str):
+    now = time.time()
+
+    with _ai_rate_lock:
+        history = _ai_request_history[license_key]
+
+        while history and now - history[0] >= AI_RATE_WINDOW:
+            history.popleft()
+
+        if len(history) >= AI_RATE_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail="AI分析の利用回数が多すぎます。しばらく待ってから再試行してください。",
+            )
+
+        history.append(now)
+
 
 @app.get("/")
 def root():
@@ -268,6 +293,8 @@ def analyze_ai(request: AIAnalyzeRequest):
                 status_code=500,
                 detail="ライセンスの有効期限データが不正です。",
             )
+
+    check_ai_rate_limit(key)
 
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
 
