@@ -41,3 +41,13 @@ installer/
 # Runtime database
 database/history.db
 release/
+
+# SQLite temporary files
+database/*.db-shm
+database/*.db-wal
+
+# Runtime history images
+database/history_images/
+
+# Old build output
+dist_old/
