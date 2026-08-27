@@ -291,7 +291,7 @@ class AIPage(ctk.CTkFrame):
         
         except Exception as exc:
             traceback.print_exc()
-            error_text = f"{type(exc).__name__}: {exc}"
+            error_text = str(exc).strip() or "不明なエラーが発生しました。"
             self._safe_after(lambda text=error_text: self._show_error(text))
 
     def _show_analyzing(self):
