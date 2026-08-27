@@ -190,6 +190,7 @@ class AIClient:
                 )
 
             images_base64 = []
+            frame_labels = []
 
             for image_path in image_paths:
                 image_path = OBSClient.resolve_screenshot_path(
@@ -234,12 +235,40 @@ class AIClient:
                     image_base64
                 )
 
+                timestamp_text = image_path.stem.rsplit("_", 1)[-1]
+
+                if timestamp_text.endswith("s"):
+                    timestamp_text = timestamp_text[:-1]
+
+                frame_labels.append(timestamp_text)
+
             prompt = str(prompt or "").strip()
 
             if not prompt:
                 raise ValueError(
                     "AI分析プロンプトが空です。"
                 )
+
+            timeline_text = "\n".join(
+                f"画像{i}: {timestamp}秒時点"
+                for i, timestamp in enumerate(
+                    frame_labels,
+                    start=1,
+                )
+            )
+
+            prompt = (
+                prompt
+                + "\n\n"
+                + "【Replay動画の時系列情報】\n"
+                + "以下の画像は同じReplay動画から"
+                "時間順に抽出したフレームです。\n"
+                + timeline_text
+                + "\n"
+                + "画像1が最も古く、最後の画像が最も新しいです。\n"
+                + "各画像単体だけでなく、"
+                "時間経過による変化も含めて分析してください。"
+            )
 
             license_data = (
                 LicenseManager.get_license_data()
