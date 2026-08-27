@@ -110,54 +110,49 @@ class AIPage(ctk.CTkFrame):
         prompt_text = self.DEFAULT_PROMPT
 
         try:
-            settings = Settings.load()
+            if os.path.exists("settings.json"):
+                with open("settings.json", "r", encoding="utf-8") as file:
+                    settings = json.load(file)
 
-            saved_prompt = settings.get("ai_prompt")
-
-            if (
-                isinstance(saved_prompt, str)
-                and saved_prompt.strip()
-            ):
-                prompt_text = saved_prompt.strip()
+                saved_prompt = settings.get("ai_prompt")
+                if isinstance(saved_prompt, str) and saved_prompt.strip():
+                    prompt_text = saved_prompt.strip()
 
         except Exception as exc:
-            print(
-                "プロンプト読込エラー:",
-                repr(exc),
-            )
+            print("プロンプト読込エラー:", repr(exc))
 
         self.prompt.delete("1.0", "end")
         self.prompt.insert("1.0", prompt_text)
 
     def save_prompt(self):
-        prompt_text = self.prompt.get(
-            "1.0",
-            "end",
-        ).strip()
+        prompt_text = self.prompt.get("1.0", "end").strip()
 
         if not prompt_text:
-            self.status_label.configure(
-                text="❌ プロンプトが空です"
-            )
+            self.status_label.configure(text="❌ プロンプトが空です")
             return
 
         try:
-            settings = Settings.load()
+            settings = {}
+
+            if os.path.exists("settings.json"):
+                try:
+                    with open("settings.json", "r", encoding="utf-8") as file:
+                        loaded = json.load(file)
+                    if isinstance(loaded, dict):
+                        settings = loaded
+                except json.JSONDecodeError:
+                    settings = {}
 
             settings["ai_prompt"] = prompt_text
 
-            Settings.save(settings)
+            with open("settings.json", "w", encoding="utf-8") as file:
+                json.dump(settings, file, ensure_ascii=False, indent=4)
 
-            self.status_label.configure(
-                text="✅ プロンプトを保存しました"
-            )
+            self.status_label.configure(text="✅ プロンプトを保存しました")
 
         except Exception as exc:
             self.status_label.configure(
-                text=(
-                    f"❌ 保存エラー: "
-                    f"{type(exc).__name__}: {exc}"
-                )
+                text=f"❌ 保存エラー：{type(exc).__name__}: {exc}"
             )
 
     def start_analysis_thread(self):
