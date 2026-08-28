@@ -9,13 +9,13 @@ from PIL import Image
 
 from core.auto_analyzer import AutoAnalyzer
 from core.history import HistoryDB
+from core.settings import Settings
 
 
 class DashboardPage(ctk.CTkFrame):
     """AI TikTok LIVE Analyzer ダッシュボード完成版。"""
 
     DEFAULT_INTERVAL = 30
-    SETTINGS_PATH = Path("settings.json")
     GRAPH_LIMIT = 20
     SCREENSHOT_REFRESH_MS = 3000
     DASHBOARD_REFRESH_MS = 5000
@@ -191,6 +191,15 @@ class DashboardPage(ctk.CTkFrame):
             height=38,
             command=lambda: self.refresh_dashboard(force=True),
         ).pack(side="left", padx=6)
+
+        self.highlight_button = ctk.CTkButton(
+            button_row,
+            text="🔥 盛り上がり保存",
+            width=170,
+            height=38,
+            command=self.save_highlight_replay,
+        )
+        self.highlight_button.pack(side="left", padx=6)    
 
     def _build_content(self):
         content = ctk.CTkScrollableFrame(
@@ -525,9 +534,11 @@ class DashboardPage(ctk.CTkFrame):
 
             self.start_button.configure(state="normal")
             self.stop_button.configure(state="disabled")
+
             self.status.configure(
                 text="⏹ AI分析を停止しました"
             )
+
             self.countdown_label.configure(
                 text="次の分析まで：--秒"
             )
@@ -540,9 +551,42 @@ class DashboardPage(ctk.CTkFrame):
                 )
             )
 
-    # ==================================================
-    # Background events
-    # ==================================================
+    def save_highlight_replay(self):
+        try:
+            if not self.obs.is_connected():
+                self.status.configure(
+                    text="❌ OBSに接続されていません"
+                )
+                return
+
+            if not self.obs.is_replay_buffer_active():
+                self.status.configure(
+                    text="⚠️ リプレイバッファが開始されていません"
+                )
+                return
+
+            success = self.obs.save_replay_buffer()
+
+            if success:
+                self.status.configure(
+                    text="🔥 盛り上がり映像を保存しました"
+                )
+            else:
+                self.status.configure(
+                    text="❌ 盛り上がり映像の保存に失敗しました"
+                )
+
+        except Exception as exc:
+            self.status.configure(
+                text=(
+                    "❌ リプレイ保存エラー："
+                    f"{type(exc).__name__}: {exc}"
+                )
+            )
+
+# ==================================================
+# Background events
+# ==================================================    
 
     def on_auto_analyzer_event(self, event, data):
         if self._destroying:
@@ -884,15 +928,8 @@ class DashboardPage(ctk.CTkFrame):
             / "current.png"
         )
 
-        if not self.SETTINGS_PATH.exists():
-            return default
-
         try:
-            with self.SETTINGS_PATH.open(
-                "r",
-                encoding="utf-8",
-            ) as file:
-                settings = json.load(file)
+            settings = Settings.load()
 
             configured = settings.get(
                 "screenshot_path",
@@ -1017,15 +1054,8 @@ class DashboardPage(ctk.CTkFrame):
     # ==================================================
 
     def _load_interval(self):
-        if not self.SETTINGS_PATH.exists():
-            return self.DEFAULT_INTERVAL
-
         try:
-            with self.SETTINGS_PATH.open(
-                "r",
-                encoding="utf-8",
-            ) as file:
-                settings = json.load(file)
+            settings = Settings.load()
 
             interval = int(
                 settings.get(
@@ -1034,13 +1064,13 @@ class DashboardPage(ctk.CTkFrame):
                 )
             )
 
-            if 10 <= interval <= 3600:
-                return interval
+            if interval <= 0:
+                return self.DEFAULT_INTERVAL
+
+            return interval
 
         except Exception:
-            pass
-
-        return self.DEFAULT_INTERVAL
+            return self.DEFAULT_INTERVAL
 
     def _set_obs_status(self, connected):
         if connected:
