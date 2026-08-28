@@ -2,6 +2,7 @@ import csv
 from datetime import datetime
 from pathlib import Path
 import customtkinter as ctk
+from PIL import Image
 from tkinter import filedialog, messagebox
 from typing import Optional
 
@@ -148,8 +149,12 @@ class HistoryPage(ctk.CTkFrame):
             pady=(0, 8)
         )
 
-        # 右側：詳細
-        detail_panel = ctk.CTkFrame(body)
+        # 右側：詳細（スクロール対応）
+        detail_panel = ctk.CTkScrollableFrame(
+            body,
+            scrollbar_button_color=("gray70", "gray35"),
+            scrollbar_button_hover_color=("gray60", "gray45")
+        )
         detail_panel.grid(
             row=0,
             column=1,
@@ -197,27 +202,47 @@ class HistoryPage(ctk.CTkFrame):
             pady=(0, 8)
         )
 
+        # ==================================================
+        # 分析時スクリーンショット
+        # ==================================================
+
         ctk.CTkLabel(
             detail_panel,
-            text="プロンプト",
+            text="分析時スクリーンショット",
             font=("Yu Gothic UI", 14, "bold")
         ).pack(
             anchor="w",
             padx=14,
-            pady=(2, 4)
+            pady=(6, 4)
         )
 
-        self.prompt_text = ctk.CTkTextbox(
+        self.history_image_frame = ctk.CTkFrame(
             detail_panel,
-            height=150
+            height=280
         )
-        self.prompt_text.pack(
+        self.history_image_frame.pack(
             fill="x",
             padx=14,
             pady=(0, 10)
         )
-        self.prompt_text.configure(state="disabled")
 
+        self.history_image_frame.pack_propagate(False)
+
+        self.history_image_label = ctk.CTkLabel(
+            self.history_image_frame,
+            text="画像は保存されていません"
+        )
+        self.history_image_label.pack(
+            fill="both",
+            expand=True,
+            padx=8,
+            pady=8
+        )
+
+        # CTkImageの参照保持用
+        self._history_ctk_image = None
+
+        # AI分析結果
         ctk.CTkLabel(
             detail_panel,
             text="AI分析結果",
@@ -239,6 +264,28 @@ class HistoryPage(ctk.CTkFrame):
         )
         self.result_text.configure(state="disabled")
 
+        # プロンプト
+        ctk.CTkLabel(
+            detail_panel,
+            text="プロンプト",
+            font=("Yu Gothic UI", 14, "bold")
+        ).pack(
+            anchor="w",
+            padx=14,
+            pady=(2, 4)
+        )
+
+        self.prompt_text = ctk.CTkTextbox(
+            detail_panel,
+            height=80
+        )
+        self.prompt_text.pack(
+            fill="x",
+            padx=14,
+            pady=(0, 10)
+        )
+        self.prompt_text.configure(state="disabled")
+           
     # ==================================================
     # Load / display
     # ==================================================
@@ -300,6 +347,70 @@ class HistoryPage(ctk.CTkFrame):
             self.show_detail(selected)
         else:
             self.show_detail(rows[0])
+
+    def _show_history_image(self, image_path):
+        self._history_ctk_image = None
+
+        if not image_path:
+            self.history_image_label.configure(
+                text="画像は保存されていません"
+            )
+            return
+
+        path = Path(image_path)
+
+        if not path.exists():
+            self.history_image_label.configure(
+                text="保存画像が見つかりません"
+            )
+            return
+
+        try:
+            with Image.open(path) as source:
+                image = source.convert("RGB").copy()
+
+            max_width = 420
+            max_height = 250
+
+            width, height = image.size
+
+            scale = min(
+                max_width / width,
+                max_height / height,
+                1.0
+            )
+
+            display_width = max(
+                1,
+                int(width * scale)
+            )
+            display_height = max(
+                1,
+                int(height * scale)
+            )
+
+            new_image = ctk.CTkImage(
+                light_image=image,
+                dark_image=image,
+                size=(
+                    display_width,
+                    display_height
+                )
+            )
+
+            # 先に参照を保持する
+            self._history_ctk_image = new_image
+
+            self.history_image_label.configure(
+                text="",
+                image=new_image
+            )
+
+        except Exception as exc:
+            print(
+                f"履歴画像の表示に失敗しました: "
+                f"{type(exc).__name__}: {exc}"
+            )
 
     def _create_history_item(self, row):
         history_id = row[0]
@@ -364,10 +475,27 @@ class HistoryPage(ctk.CTkFrame):
 
         self._selected_id = row[0]
 
-        created_at = row[1]
-        score = row[2]
-        prompt = row[3] if len(row) > 3 else ""
-        result = row[4] if len(row) > 4 else ""
+        # 詳細表示では画像パス付きデータを取得
+        detail = self.history.get_by_id_with_image(
+            self._selected_id
+        )
+
+        if detail:
+            created_at = detail[1]
+            score = detail[2]
+            prompt = detail[3] or ""
+            result = detail[4] or ""
+            image_path = (
+                detail[5]
+                if len(detail) > 5
+                else None
+            )
+        else:
+            created_at = row[1]
+            score = row[2]
+            prompt = row[3] if len(row) > 3 else ""
+            result = row[4] if len(row) > 4 else ""
+            image_path = None
 
         score_text = "--" if score is None else str(score)
 
@@ -379,10 +507,15 @@ class HistoryPage(ctk.CTkFrame):
             )
         )
 
+        self._show_history_image(
+            image_path
+        )
+
         self._show_text(
             self.prompt_text,
             prompt or "プロンプトがありません。"
         )
+
         self._show_text(
             self.result_text,
             result or "分析結果がありません。"
@@ -392,10 +525,19 @@ class HistoryPage(ctk.CTkFrame):
             state="normal"
         )
 
+
     def _clear_detail(self):
         self.meta_label.configure(
             text="履歴を選択してください"
         )
+
+        self._history_ctk_image = None
+
+        self.history_image_label.configure(
+            image=None,
+            text="画像は保存されていません"
+        )
+
         self._show_text(
             self.prompt_text,
             ""
