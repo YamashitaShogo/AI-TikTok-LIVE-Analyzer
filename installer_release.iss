@@ -1,5 +1,5 @@
 #define MyAppName "AI TikTok LIVE Analyzer"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "Yamashita Shogo"
 #define MyAppExeName "AI-TikTok-LIVE-Analyzer.exe"
 

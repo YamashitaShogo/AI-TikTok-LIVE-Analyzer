@@ -17,7 +17,7 @@ for folder_name in ("assets", "images", "icons", "prompts", "config"):
     if folder.exists():
         datas.append((str(folder), folder_name))
 
-for file_name in ("settings.json", ".env.example"):
+for file_name in (".env.example",):
     file_path = project_root / file_name
     if file_path.exists():
         datas.append((str(file_path), "."))
