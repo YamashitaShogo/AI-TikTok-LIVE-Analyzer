@@ -1,5 +1,5 @@
 #define MyAppName "Livemetry Pulse"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.3.0"
 #define MyAppPublisher "Shogo Yamashita"
 #define MyAppExeName "LivemetryPulse.exe"
 
@@ -20,7 +20,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 
 OutputDir=D:\Projects\AI-TikTok-LIVE-Analyzer\installer_output
-OutputBaseFilename=LivemetryPulse-Setup-1.0.0
+OutputBaseFilename=LivemetryPulse-Setup-v{#MyAppVersion}
 
 SetupIconFile=D:\Projects\AI-TikTok-LIVE-Analyzer\LivemetryPulse.ico
 
