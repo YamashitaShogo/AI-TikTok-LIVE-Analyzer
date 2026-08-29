@@ -1,5 +1,5 @@
 #define MyAppName "Livemetry Pulse"
-#define MyAppVersion "1.2.0"
+#define MyAppVersion "1.3.0"
 #define MyAppPublisher "Yamashita Shogo"
 #define MyAppExeName "LivemetryPulse.exe"
 
