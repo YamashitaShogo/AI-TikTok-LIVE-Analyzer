@@ -13,7 +13,7 @@ from core.settings import Settings
 
 
 class DashboardPage(ctk.CTkFrame):
-    """AI TikTok LIVE Analyzer ダッシュボード完成版。"""
+    """Livemetry Pulse ダッシュボード完成版。"""
 
     DEFAULT_INTERVAL = 30
     GRAPH_LIMIT = 20

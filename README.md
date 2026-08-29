@@ -1,4 +1,4 @@
-# AI TikTok LIVE Analyzer
+# Livemetry Pulse
 
 AI-powered analytics application for TikTok LIVE creators.
 

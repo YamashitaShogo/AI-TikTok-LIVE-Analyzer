@@ -3,7 +3,7 @@ from core.settings import Settings
 
 
 class LicenseManager:
-    """AI TikTok LIVE Analyzer のオンラインライセンス管理。"""
+    """Livemetry Pulse のオンラインライセンス管理。"""
 
     @classmethod
     def get_license_data(cls) -> dict:

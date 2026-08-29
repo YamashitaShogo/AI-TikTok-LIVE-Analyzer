@@ -5,7 +5,7 @@ import tempfile
 
 class Settings:
     """
-    AI TikTok LIVE Analyzer 設定管理
+    Livemetry Pulse 設定管理
 
     設定ファイルはWindowsのユーザー用AppDataに保存します。
 

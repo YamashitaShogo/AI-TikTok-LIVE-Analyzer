@@ -30,7 +30,7 @@ def resource_path(relative_path: str) -> str:
 
 
 class MainWindow(ctk.CTk):
-    """AI TikTok LIVE Analyzer メインウィンドウ。"""
+    """Livemetry Pulse メインウィンドウ。"""
 
 
     def __init__(self):
@@ -41,7 +41,7 @@ class MainWindow(ctk.CTk):
         self._license_online_valid = None
         self._closing = False
 
-        self.title("AI TikTok LIVE Analyzer")
+        self.title("Livemetry Pulse")
         self.geometry("1200x900")
         self.minsize(1000, 700)
 
@@ -54,7 +54,7 @@ class MainWindow(ctk.CTk):
 
         title = ctk.CTkLabel(
             self,
-            text="AI TikTok LIVE Analyzer",
+            text="Livemetry Pulse",
             font=("Yu Gothic UI", 28, "bold"),
         )
         title.pack(pady=(20, 0))
@@ -163,7 +163,7 @@ class MainWindow(ctk.CTk):
         icon_path = resource_path(
             os.path.join(
                 "assets",
-                "AI_TikTok_LIVE_Analyzer.ico",
+                "LivemetryPulse.ico",
             )
         )
 

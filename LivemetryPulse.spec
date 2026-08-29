@@ -46,7 +46,8 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="AI-TikTok-LIVE-Analyzer",
+    name="LivemetryPulse",
+    version="version_info.txt",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -64,5 +65,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name="AI-TikTok-LIVE-Analyzer",
+    name="LivemetryPulse",
 )

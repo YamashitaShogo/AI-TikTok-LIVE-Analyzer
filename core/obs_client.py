@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class OBSClient:
     DEFAULT_HOST = "localhost"
     DEFAULT_PORT = 4455
-    APP_NAME = "AI-TikTok-LIVE-Analyzer"
+    APP_NAME = "LivemetryPulse"
 
     def __init__(self):
         self.client: Optional[ReqClient] = None

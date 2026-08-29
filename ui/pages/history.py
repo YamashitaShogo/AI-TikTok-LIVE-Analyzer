@@ -746,15 +746,15 @@ class HistoryPage(ctk.CTkFrame):
                 leftMargin=15 * mm,
                 topMargin=15 * mm,
                 bottomMargin=15 * mm,
-                title="AI TikTok LIVE Analyzer レポート",
-                author="AI TikTok LIVE Analyzer"
+                title="Livemetry Pulse レポート",
+                author="Livemetry Pulse"
             )
 
             story = []
 
             story.append(
                 Paragraph(
-                    "AI TikTok LIVE Analyzer<br/>分析レポート",
+                    "Livemetry Pulse<br/>分析レポート",
                     title_style
                 )
             )

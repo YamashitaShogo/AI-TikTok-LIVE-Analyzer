@@ -1,7 +1,7 @@
-#define MyAppName "AI TikTok LIVE Analyzer"
+#define MyAppName "Livemetry Pulse"
 #define MyAppVersion "1.1.0"
 #define MyAppPublisher "Shogo Yamashita"
-#define MyAppExeName "AI-TikTok-LIVE-Analyzer.exe"
+#define MyAppExeName "LivemetryPulse.exe"
 
 [Setup]
 AppId={{C6153542-DD00-4AEA-B6A8-7F81031FB1E2}
@@ -9,7 +9,7 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 
-DefaultDirName={autopf}\AI TikTok LIVE Analyzer
+DefaultDirName={autopf}\Livemetry Pulse
 DefaultGroupName={#MyAppName}
 
 UninstallDisplayIcon={app}\{#MyAppExeName}
@@ -20,9 +20,9 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 
 OutputDir=D:\Projects\AI-TikTok-LIVE-Analyzer\installer_output
-OutputBaseFilename=AI-TikTok-LIVE-Analyzer-Setup-1.0.0
+OutputBaseFilename=LivemetryPulse-Setup-1.0.0
 
-SetupIconFile=D:\Projects\AI-TikTok-LIVE-Analyzer\AI_TikTok_LIVE_Analyzer.ico
+SetupIconFile=D:\Projects\AI-TikTok-LIVE-Analyzer\LivemetryPulse.ico
 
 Compression=lzma2
 SolidCompression=yes
@@ -37,12 +37,12 @@ Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 Name: "desktopicon"; Description: "デスクトップにアイコンを作成"; GroupDescription: "追加アイコン:"; Flags: unchecked
 
 [Files]
-Source: "D:\Projects\AI-TikTok-LIVE-Analyzer\dist\AI-TikTok-LIVE-Analyzer\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "D:\Projects\AI-TikTok-LIVE-Analyzer\dist\LivemetryPulse\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "AI TikTok LIVE Analyzerを起動"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Livemetry Pulseを起動"; Flags: nowait postinstall skipifsilent
 

@@ -1,19 +1,19 @@
-#define MyAppName "AI TikTok LIVE Analyzer"
+#define MyAppName "Livemetry Pulse"
 #define MyAppVersion "1.2.0"
 #define MyAppPublisher "Yamashita Shogo"
-#define MyAppExeName "AI-TikTok-LIVE-Analyzer.exe"
+#define MyAppExeName "LivemetryPulse.exe"
 
 [Setup]
 AppId={{A58F6A53-1EFA-4AA8-9D58-513EC513AC21}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={localappdata}\Programs\AI TikTok LIVE Analyzer
+DefaultDirName={localappdata}\Programs\Livemetry Pulse
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=installer
-OutputBaseFilename=AI_TikTok_LIVE_Analyzer_Setup_v{#MyAppVersion}
-SetupIconFile=assets\AI_TikTok_LIVE_Analyzer.ico
+OutputBaseFilename=LivemetryPulse-Setup-v{#MyAppVersion}
+SetupIconFile=assets\LivemetryPulse.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2
 SolidCompression=yes
@@ -30,7 +30,7 @@ Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 Name: "desktopicon"; Description: "デスクトップにショートカットを作成"; GroupDescription: "追加アイコン:"; Flags: unchecked
 
 [Files]
-Source: "dist\AI-TikTok-LIVE-Analyzer\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\LivemetryPulse\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

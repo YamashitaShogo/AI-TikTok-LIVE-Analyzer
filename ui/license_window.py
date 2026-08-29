@@ -14,7 +14,7 @@ class LicenseWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("AI TikTok LIVE Analyzer - ライセンス認証")
+        self.title("Livemetry Pulse - ライセンス認証")
         self.geometry("520x280")
         self.resizable(False, False)
 
@@ -53,7 +53,7 @@ class LicenseWindow(ctk.CTk):
         ctk.CTkLabel(
             self,
             text=(
-                "AI TikTok LIVE Analyzer を使用するには\n"
+                "Livemetry Pulse を使用するには\n"
                 "ライセンスキーを入力してください。"
             ),
             font=("Yu Gothic UI", 14),

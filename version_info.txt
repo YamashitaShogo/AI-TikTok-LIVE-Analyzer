@@ -17,12 +17,12 @@ VSVersionInfo(
           '041104B0',
           [
             StringStruct('CompanyName', 'Yamashita Shogo'),
-            StringStruct('FileDescription', 'AI TikTok LIVE Analyzer'),
+            StringStruct('FileDescription', 'Livemetry Pulse'),
             StringStruct('FileVersion', '1.0.0'),
-            StringStruct('InternalName', 'AI-TikTok-LIVE-Analyzer'),
+            StringStruct('InternalName', 'LivemetryPulse'),
             StringStruct('LegalCopyright', 'Copyright (C) 2026 Yamashita Shogo'),
-            StringStruct('OriginalFilename', 'AI-TikTok-LIVE-Analyzer.exe'),
-            StringStruct('ProductName', 'AI TikTok LIVE Analyzer'),
+            StringStruct('OriginalFilename', 'LivemetryPulse.exe'),
+            StringStruct('ProductName', 'Livemetry Pulse'),
             StringStruct('ProductVersion', '1.0.0')
           ]
         )

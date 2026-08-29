@@ -15,7 +15,7 @@ from core.ai_client import AIClient
 from core.license_client import LicenseClient
 
 class SettingsPage(ctk.CTkFrame):
-    """AI TikTok LIVE Analyzer 設定画面。"""
+    """Livemetry Pulse 設定画面。"""
 
     APP_NAME = "AI-TikTok-LIVE-Analyzer"
 

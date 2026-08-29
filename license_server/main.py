@@ -18,7 +18,7 @@ _ai_request_history = defaultdict(deque)
 _ai_rate_lock = Lock()
 
 app = FastAPI(
-    title="AI TikTok LIVE Analyzer License Server",
+    title="Livemetry Pulse License Server",
     version="1.0.0"
 )
 
@@ -78,19 +78,19 @@ def send_contact_email(
 
     payload = {
         "from": (
-            "AI TikTok LIVE Analyzer "
+            "Livemetry Pulse "
             "<onboarding@resend.dev>"
         ),
         "to": [
             contact_to
         ],
         "subject": (
-            "[AI TikTok LIVE Analyzer] "
+            "[Livemetry Pulse] "
             f"お問い合わせ: {category}"
         ),
         "reply_to": email,
         "text": (
-            "AI TikTok LIVE Analyzer\n"
+            "Livemetry Pulse\n"
             "お問い合わせフォームから"
             "新しい問い合わせが届きました。\n\n"
 
@@ -118,7 +118,7 @@ def send_contact_email(
                 f"Bearer {resend_api_key}"
             ),
             "Content-Type": "application/json",
-            "User-Agent": "AI-TikTok-LIVE-Analyzer/1.0",
+            "User-Agent": "LivemetryPulse/1.0",
         },
     )
 
@@ -193,7 +193,7 @@ def check_ai_rate_limit(license_key: str):
 def root():
     return {
         "status": "ok",
-        "service": "AI TikTok LIVE Analyzer License Server"
+        "service": "Livemetry Pulse License Server"
     }
 
 
