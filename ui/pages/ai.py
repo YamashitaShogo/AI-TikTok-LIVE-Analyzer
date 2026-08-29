@@ -345,7 +345,7 @@ class AIPage(ctk.CTkFrame):
             frames = extract_frames(
                 replay_path,
                 interval_seconds=5,
-                max_frames=12,
+                max_frames=6,
             )
 
             if not frames:
@@ -357,7 +357,7 @@ class AIPage(ctk.CTkFrame):
 
             for frame_path in frames:
                 print(f"[AIPage] frame={frame_path}")
-                # 今回は抽出した最後のフレームをAI分析に使用
+                # 抽出したフレームを確認用にログ出力
 
             self._safe_after(self._show_analyzing)
 

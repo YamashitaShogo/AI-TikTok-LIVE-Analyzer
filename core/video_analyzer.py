@@ -1,3 +1,4 @@
+from math import ceil
 from pathlib import Path
 
 import cv2
@@ -6,37 +7,26 @@ import cv2
 def extract_frames(
     video_path: str,
     interval_seconds: int = 5,
-    max_frames: int = 12,
+    max_frames: int = 6,
 ) -> list[str]:
-    """
-    動画から一定間隔でフレームを抽出してJPEG保存する。
-
-    Args:
-        video_path:
-            対象動画のパス
-
-        interval_seconds:
-            何秒ごとにフレームを取得するか
-            デフォルト: 5秒
-
-        max_frames:
-            最大何枚保存するか
-            デフォルト: 12枚
-            5秒 × 12枚 = 約60秒分
-
-    Returns:
-        保存した画像ファイルのパス一覧
-    """
+    """動画全体からフレームを均等に抽出してJPEG保存する。"""
 
     video_path_obj = Path(video_path)
 
-    if not video_path_obj.exists():
+    if not video_path_obj.is_file():
         raise FileNotFoundError(
             f"動画ファイルが見つかりません: {video_path_obj}"
         )
 
     if interval_seconds <= 0:
-        raise ValueError("interval_seconds は1以上にしてください")
+        raise ValueError(
+            "interval_secondsは1以上にしてください。"
+        )
+
+    if max_frames <= 0:
+        raise ValueError(
+            "max_framesは1以上にしてください。"
+        )
 
     cap = cv2.VideoCapture(str(video_path_obj))
 
@@ -58,9 +48,9 @@ def extract_frames(
         )
 
         duration_seconds = (
-            total_frames / fps
-            if total_frames > 0
-            else 0
+            (total_frames - 1) / fps
+            if total_frames > 1
+            else 0.0
         )
 
         print(f"[VideoAnalyzer] video={video_path_obj}")
@@ -75,69 +65,112 @@ def extract_frames(
             video_path_obj.parent
             / f"{video_path_obj.stem}_frames"
         )
-
-        output_dir.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-        frame_interval = max(
-            1,
-            int(round(fps * interval_seconds)),
-        )
+        output_dir.mkdir(parents=True, exist_ok=True)
 
         saved_paths: list[str] = []
 
-        frame_index = 0
-        saved_count = 0
+        def save_frame(
+            frame,
+            saved_index: int,
+            elapsed_seconds: float,
+        ) -> None:
+            output_path = (
+                output_dir
+                / (
+                    f"frame_{saved_index:03d}_"
+                    f"{elapsed_seconds:06.2f}s.jpg"
+                )
+            )
 
-        while True:
-            success, frame = cap.read()
+            encode_success, encoded = cv2.imencode(
+                ".jpg",
+                frame,
+                [cv2.IMWRITE_JPEG_QUALITY, 88],
+            )
 
-            if not success:
-                break
-
-            if frame_index % frame_interval == 0:
-                elapsed_seconds = frame_index / fps
-
-                output_path = (
-                    output_dir
-                    / (
-                        f"frame_{saved_count:03d}_"
-                        f"{elapsed_seconds:06.2f}s.jpg"
-                    )
+            if not encode_success:
+                raise RuntimeError(
+                    f"画像のJPEG変換に失敗しました: {output_path}"
                 )
 
-                write_success = cv2.imwrite(
-                    str(output_path),
+            encoded.tofile(str(output_path))
+            saved_paths.append(str(output_path))
+
+            print(
+                f"[VideoAnalyzer] saved "
+                f"{elapsed_seconds:.2f}s "
+                f"-> {output_path}"
+            )
+
+        if total_frames > 0:
+            sample_count = min(
+                max_frames,
+                max(
+                    1,
+                    ceil(
+                        duration_seconds
+                        / interval_seconds
+                    ) + 1,
+                ),
+            )
+
+            if sample_count == 1:
+                frame_indexes = [0]
+            else:
+                last_frame_index = total_frames - 1
+                frame_indexes = sorted(
+                    {
+                        round(
+                            last_frame_index
+                            * index
+                            / (sample_count - 1)
+                        )
+                        for index in range(sample_count)
+                    }
+                )
+
+            for frame_index in frame_indexes:
+                cap.set(
+                    cv2.CAP_PROP_POS_FRAMES,
+                    frame_index,
+                )
+
+                success, frame = cap.read()
+
+                if not success:
+                    print(
+                        "[VideoAnalyzer] skipped "
+                        f"frame_index={frame_index}"
+                    )
+                    continue
+
+                save_frame(
                     frame,
+                    len(saved_paths),
+                    frame_index / fps,
                 )
 
-                if not write_success:
-                    raise RuntimeError(
-                        f"画像保存に失敗しました: "
-                        f"{output_path}"
-                    )
+        else:
+            frame_interval = max(
+                1,
+                int(round(fps * interval_seconds)),
+            )
+            frame_index = 0
 
-                saved_paths.append(
-                    str(output_path)
-                )
+            while len(saved_paths) < max_frames:
+                success, frame = cap.read()
 
-                print(
-                    f"[VideoAnalyzer] saved "
-                    f"{elapsed_seconds:.2f}s "
-                    f"-> {output_path}"
-                )
-
-                saved_count += 1
-
-                if (
-                    max_frames > 0
-                    and saved_count >= max_frames
-                ):
+                if not success:
                     break
 
-            frame_index += 1
+                if frame_index % frame_interval == 0:
+                    save_frame(
+                        frame,
+                        len(saved_paths),
+                        frame_index / fps,
+                    )
+
+                frame_index += 1
 
         print(
             f"[VideoAnalyzer] "
