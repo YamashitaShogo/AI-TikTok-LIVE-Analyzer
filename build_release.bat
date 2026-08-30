@@ -37,7 +37,7 @@ if errorlevel 1 (
 if exist "build" rmdir /s /q "build"
 if exist "dist" rmdir /s /q "dist"
 
-python -m PyInstaller --noconfirm --clean "AI-TikTok-LIVE-Analyzer-Release.spec"
+python -m PyInstaller --noconfirm --clean "LivemetryPulse.spec"
 if errorlevel 1 (
   echo [エラー] ビルドに失敗しました。
   pause
@@ -46,6 +46,6 @@ if errorlevel 1 (
 
 echo.
 echo 完成:
-echo %cd%\dist\AI-TikTok-LIVE-Analyzer\AI-TikTok-LIVE-Analyzer.exe
+echo %cd%\dist\LivemetryPulse\LivemetryPulse.exe
 echo.
 pause
