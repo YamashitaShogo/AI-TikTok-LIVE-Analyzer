@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 > nul
 cd /d "%~dp0"
-title AI TikTok LIVE Analyzer v1.0.0 Build
+title Livemetry Pulse v1.0.0 Build
 
 echo ==========================================
-echo AI TikTok LIVE Analyzer v1.0.0
+echo Livemetry Pulse v1.0.0
 echo 配布用 One Folder EXE 作成
 echo ==========================================
 echo.

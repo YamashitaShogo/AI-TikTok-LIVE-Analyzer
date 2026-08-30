@@ -1,11 +1,11 @@
 @echo off
 chcp 65001 > nul
-title AI TikTok LIVE Analyzer - インストーラー作成
+title Livemetry Pulse - インストーラー作成
 
 cd /d "%~dp0"
 
 echo ==========================================
-echo AI TikTok LIVE Analyzer インストーラー作成
+echo Livemetry Pulse インストーラー作成
 echo ==========================================
 echo.
 
