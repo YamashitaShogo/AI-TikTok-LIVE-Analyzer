@@ -77,7 +77,7 @@ class DashboardPage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             header,
-            text="📊 AI TikTok LIVE Dashboard",
+            text="📊 Livemetry Pulse Dashboard",
             font=("Yu Gothic UI", 24, "bold"),
         ).grid(row=0, column=0, sticky="w")
 
