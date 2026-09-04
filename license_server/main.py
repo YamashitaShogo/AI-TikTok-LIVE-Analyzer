@@ -364,6 +364,10 @@ def analyze_ai(request: AIAnalyzeRequest):
             }
         ]
 
+        # A single image is not a Replay Buffer time series.
+        if len(images_base64) == 1:
+            content[0]["text"] = prompt
+
         for image_base64 in images_base64:
             content.append(
                 {
