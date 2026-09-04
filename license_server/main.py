@@ -343,7 +343,11 @@ def analyze_ai(request: AIAnalyzeRequest):
         )
 
     try:
-        client = OpenAI(api_key=api_key)
+        client = OpenAI(
+            api_key=api_key,
+            timeout=90.0,
+            max_retries=0,
+        )
 
         content = [
             {
@@ -371,6 +375,8 @@ def analyze_ai(request: AIAnalyzeRequest):
                 }
             )
 
+        ai_started_at = time.perf_counter()
+
         response = client.responses.create(
             model="gpt-5",
             input=[
@@ -381,6 +387,13 @@ def analyze_ai(request: AIAnalyzeRequest):
             ],
         )
         
+
+        ai_elapsed = time.perf_counter() - ai_started_at
+
+        print(
+            f"[AI ANALYZE] OpenAI response: "
+            f"{ai_elapsed:.2f} sec"
+        )
 
         output_text = getattr(
             response,
