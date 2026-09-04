@@ -1,6 +1,6 @@
-# Livemetry Pulse
+# Livemetry Pulse（ライブメトリーパルス）
 
-[Livemetry Pulse](https://livemetry.jp/)は、OBS Studioと連携し、ライブ配信映像をAIで分析するWindows向け配信分析ツールです。
+[Livemetry Pulse（ライブメトリーパルス）](https://livemetry.jp/)（通称：ライブメトリー）は、OBS Studioと連携し、ライブ配信映像をAIで分析するWindows向け配信分析ツールです。
 
 Livemetry Pulse is an AI-powered live-stream analysis tool for Windows that integrates with OBS Studio.
 
