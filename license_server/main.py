@@ -379,7 +379,7 @@ def analyze_ai(request: AIAnalyzeRequest):
 
         response = client.responses.create(
             model="gpt-5",
-            reasoning={"effort": "low"},
+            reasoning={"effort": "minimal"},
             input=[
                 {
                     "role": "user",
