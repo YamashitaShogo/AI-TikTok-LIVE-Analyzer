@@ -1,0 +1,4 @@
+﻿image,category,expected_min_score,expected_max_score,subject_boundary_issue,content_obstruction_issue,layout_imbalance,readability_issue,subject_separation_issue,focus_confusion,notes
+test01.png,clean,90,96,true,false,false,false,false,false,"被写体は右端寄りだが、顔は明瞭。UIは多いが主要内容は隠していない。"
+test02.png,dark,86,90,true,false,false,false,false,false,"全体的に暗いが文字と顔は認識可能。暗さはBrightnessAnalyzerで評価し、AI側では二重減点しない。"
+test03.png,text_heavy,96,100,false,false,false,false,false,false,"UIとコメントは多いが、主要な被写体の顔は十分見えている。情報量はInformationAnalyzer側で評価する。"

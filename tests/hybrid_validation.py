@@ -53,6 +53,51 @@ def parse_issues(raw_answer: str) -> dict[str, bool]:
     }
 
 
+def load_validation_labels(path: Path) -> dict[str, dict]:
+    if not path.exists():
+        return {}
+
+    labels = {}
+
+    with path.open(
+        "r",
+        newline="",
+        encoding="utf-8-sig",
+    ) as file:
+        reader = csv.DictReader(file)
+
+        for row in reader:
+            image_name = str(
+                row.get("image", "")
+            ).strip()
+
+            if not image_name:
+                continue
+
+            labels[image_name] = {
+                "category": str(
+                    row.get("category", "")
+                ).strip(),
+                "expected_min_score": int(
+                    row["expected_min_score"]
+                ),
+                "expected_max_score": int(
+                    row["expected_max_score"]
+                ),
+                "issues": {
+                    name: str(
+                        row.get(name, "")
+                    ).strip().lower() == "true"
+                    for name in ISSUE_NAMES
+                },
+                "notes": str(
+                    row.get("notes", "")
+                ).strip(),
+            }
+
+    return labels
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Validate Livemetry Pulse hybrid scoring."
@@ -76,6 +121,21 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+
+    labels_path = (
+        ROOT
+        / "tests"
+        / "validation_labels.csv"
+    )
+
+    validation_labels = load_validation_labels(
+        labels_path
+    )
+
+    print(
+        f"Validation labels: "
+        f"{len(validation_labels)}"
+    )
 
     image_dir = Path(args.images).resolve()
 
@@ -102,6 +162,22 @@ def main() -> None:
     ai = AIClient()
     rows = []
 
+    labeled_runs = 0
+    total_issue_checks = 0
+    correct_issue_checks = 0
+    score_range_checks = 0
+    score_range_hits = 0
+
+    per_issue_checks = {
+        name: 0
+        for name in ISSUE_NAMES
+    }
+
+    per_issue_correct = {
+        name: 0
+        for name in ISSUE_NAMES
+    }
+
     request_number = 0
     total_requests = len(images) * repeats
 
@@ -127,9 +203,19 @@ def main() -> None:
             for name in ISSUE_NAMES
         }
 
+        image_key = (
+            image_path
+            .relative_to(image_dir)
+            .as_posix()
+        )
+
+        expected = validation_labels.get(
+            image_key
+        )
+
         print(
             f"=== {image_index}/{len(images)} "
-            f"{image_path.name} ==="
+            f"{image_key} ==="
         )
         print(
             "Brightness:",
@@ -168,6 +254,29 @@ def main() -> None:
                 if active
             ]
 
+            if expected is not None:
+                labeled_runs += 1
+
+                for name in ISSUE_NAMES:
+                    total_issue_checks += 1
+                    per_issue_checks[name] += 1
+
+                    if (
+                        issues[name]
+                        == expected["issues"][name]
+                    ):
+                        correct_issue_checks += 1
+                        per_issue_correct[name] += 1
+
+                score_range_checks += 1
+
+                if (
+                    expected["expected_min_score"]
+                    <= total_score
+                    <= expected["expected_max_score"]
+                ):
+                    score_range_hits += 1
+
             for name in active_issues:
                 issue_counts[name] += 1
 
@@ -175,7 +284,7 @@ def main() -> None:
             image_times.append(elapsed)
 
             rows.append({
-                "image": image_path.name,
+                "image": image_key,
                 "run": run,
                 "total_score": total_score,
                 "composition": scores["composition"],
@@ -230,6 +339,56 @@ def main() -> None:
                 f"  {name}: "
                 f"{issue_counts[name]}/{repeats} "
                 f"({rate:.0f}%)"
+            )
+
+        print()
+
+    if labeled_runs > 0:
+        issue_accuracy = (
+            correct_issue_checks
+            / total_issue_checks
+            * 100
+        )
+
+        score_accuracy = (
+            score_range_hits
+            / score_range_checks
+            * 100
+        )
+
+        print("=== Human-label accuracy ===")
+        print(
+            f"Flag accuracy: "
+            f"{correct_issue_checks}/"
+            f"{total_issue_checks} "
+            f"({issue_accuracy:.1f}%)"
+        )
+        print(
+            f"Score in expected range: "
+            f"{score_range_hits}/"
+            f"{score_range_checks} "
+            f"({score_accuracy:.1f}%)"
+        )
+
+        print("Per-issue accuracy:")
+
+        for name in ISSUE_NAMES:
+            checks = per_issue_checks[name]
+
+            if checks == 0:
+                continue
+
+            accuracy = (
+                per_issue_correct[name]
+                / checks
+                * 100
+            )
+
+            print(
+                f"  {name}: "
+                f"{per_issue_correct[name]}/"
+                f"{checks} "
+                f"({accuracy:.1f}%)"
             )
 
         print()
