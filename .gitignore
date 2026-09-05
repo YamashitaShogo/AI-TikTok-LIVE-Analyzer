@@ -51,3 +51,13 @@ database/history_images/
 
 # Old build output
 dist_old/
+
+# Local backups
+*.bak
+
+# AI validation images
+test_images/
+test_images_test03/
+
+# AI validation results
+tests/results/
