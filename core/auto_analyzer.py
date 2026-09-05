@@ -8,6 +8,11 @@ from datetime import datetime
 from typing import Any, Callable, Optional
 from PIL import Image
 from core.ai_client import AIClient
+from core.brightness_analyzer import BrightnessAnalyzer
+from core.information_analyzer import InformationAnalyzer
+from core.hybrid_score_calculator import HybridScoreCalculator
+from core.hybrid_analysis_formatter import HybridAnalysisFormatter
+from core.simplified_hybrid_prompt import SIMPLIFIED_HYBRID_PROMPT
 from core.history import HistoryDB
 from core.settings import Settings
 
@@ -257,22 +262,84 @@ class AutoAnalyzer:
                 "スクリーンショットの読み込みに失敗しました。"
             )
 
-        prompt = self._load_prompt()
+        prompt = SIMPLIFIED_HYBRID_PROMPT
 
         self._emit("status", "AI分析中...")
 
-        answer = self.ai.analyze_image(
+        brightness = BrightnessAnalyzer.analyze(
+            self.image_path
+        )
+
+        information = InformationAnalyzer.analyze(
+            self.image_path
+        )
+
+        raw_answer = self.ai.analyze_image(
             self.image_path,
             prompt,
         )
 
-        if not answer or not str(answer).strip():
-            raise RuntimeError("AIから分析結果が返されませんでした。")
+        if not raw_answer or not str(raw_answer).strip():
+            raise RuntimeError(
+                "AIから分析結果が返されませんでした。"
+            )
 
-        answer = str(answer).strip()
-        print("AI応答取得成功")
+        raw_answer = str(raw_answer).strip()
 
-        score = self._extract_score(answer)
+        match = re.search(
+            r"\{.*\}",
+            raw_answer,
+            flags=re.DOTALL,
+        )
+
+        if not match:
+            raise RuntimeError(
+                "AI分析結果のJSONを取得できませんでした。"
+            )
+
+        ai_data = json.loads(
+            match.group(0)
+        )
+
+        issue_names = (
+            "subject_boundary_issue",
+            "content_obstruction_issue",
+            "layout_imbalance",
+            "readability_issue",
+            "subject_separation_issue",
+            "focus_confusion",
+        )
+
+        issues = {
+            name: ai_data.get(name) is True
+            for name in issue_names
+        }
+
+        scores = HybridScoreCalculator.calculate(
+            issues,
+            brightness_score=brightness["score"],
+            information_score=information["score"],
+        )
+
+        score = scores["total"]
+
+        answer = HybridAnalysisFormatter.format(
+            issues,
+            brightness_score=brightness["score"],
+            information_score=information["score"],
+        )
+
+        print(
+            "[Hybrid Analysis]",
+            "score=",
+            score,
+            "issues=",
+            [
+                name
+                for name, active in issues.items()
+                if active
+            ],
+        )
 
         self._save_history(
             score=score,
