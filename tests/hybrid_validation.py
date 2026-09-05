@@ -86,7 +86,7 @@ def main() -> None:
 
     images = sorted(
         path
-        for path in image_dir.iterdir()
+        for path in image_dir.rglob("*")
         if path.is_file()
         and path.suffix.lower() in IMAGE_EXTENSIONS
     )
