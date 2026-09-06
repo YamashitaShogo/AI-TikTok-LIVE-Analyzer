@@ -396,6 +396,58 @@ class HistoryDB:
 
             return cursor.fetchone()
 
+    def get_gift_history(
+        self,
+        limit: int = 100,
+    ):
+        limit = max(
+            1,
+            min(
+                1000,
+                int(limit),
+            ),
+        )
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                SELECT
+                    id,
+                    created_at,
+                    gift_id,
+                    gift_name,
+                    quantity,
+                    coins_each,
+                    total_coins,
+                    confidence,
+                    is_known,
+                    image_path
+                FROM gift_history
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+
+            return cursor.fetchall()
+
+    def get_gift_total_coins(self) -> int:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                SELECT COALESCE(
+                    SUM(total_coins),
+                    0
+                )
+                FROM gift_history
+                WHERE is_known = 1
+                """
+            )
+
+            value = cursor.fetchone()[0]
+
+        return int(value or 0)
+
     # ==================================================
     # Delete
     # ==================================================
