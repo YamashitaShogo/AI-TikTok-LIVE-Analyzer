@@ -1,0 +1,4 @@
+﻿image,gift_visible,expected_gift_id,expected_quantity,notes
+test01.png,false,,,ギフトなし配信画像
+test02.png,false,,,暗めのギフトなし配信画像
+test03.png,false,,,UI・文字量が多いギフトなし配信画像
