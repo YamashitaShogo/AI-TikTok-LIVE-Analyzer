@@ -61,3 +61,6 @@ test_images_test03/
 
 # AI validation results
 tests/results/
+
+# Gift validation results
+tests/gift_validation/results/

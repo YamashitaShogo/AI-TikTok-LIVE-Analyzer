@@ -18,6 +18,8 @@ from core.gift_analyzer import GiftAnalyzer
 ROOT = Path(__file__).resolve().parent
 IMAGE_DIR = ROOT / "images"
 LABELS_PATH = ROOT / "labels.csv"
+RESULTS_DIR = ROOT / "results"
+
 CATALOG_PATH = (
     ROOT.parent.parent
     / "data"
@@ -265,6 +267,39 @@ def main():
         else 0.0
     )
 
+    RESULTS_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    timestamp = time.strftime(
+        "%Y%m%d-%H%M%S"
+    )
+
+    result_path = (
+        RESULTS_DIR
+        / f"gift_validation_{timestamp}.csv"
+    )
+
+    with result_path.open(
+        "w",
+        encoding="utf-8-sig",
+        newline="",
+    ) as file:
+        writer = csv.DictWriter(
+            file,
+            fieldnames=[
+                "image",
+                "pass",
+                "reason",
+            ],
+        )
+
+        writer.writeheader()
+        writer.writerows(
+            results
+        )
+
     print()
     print("=" * 50)
     print(
@@ -272,6 +307,9 @@ def main():
     )
     print(
         f"CASE ACCURACY = {accuracy:.1f}%"
+    )
+    print(
+        f"RESULT CSV = {result_path}"
     )
     print("=" * 50)
 
