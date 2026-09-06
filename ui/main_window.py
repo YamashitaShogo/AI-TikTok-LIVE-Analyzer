@@ -12,6 +12,7 @@ from ui.pages.ai import AIPage
 from ui.pages.analytics import AnalyticsPage
 from ui.pages.dashboard import DashboardPage
 from ui.pages.history import HistoryPage
+from ui.pages.gifts import GiftPage
 from ui.pages.obs import OBSPage
 from ui.pages.settings import SettingsPage
 
@@ -123,6 +124,13 @@ class MainWindow(ctk.CTk):
         )
         self.history_button.pack(pady=5)
 
+        self.gifts_button = ctk.CTkButton(
+            menu,
+            text="🎁 ギフト",
+            width=160,
+            command=self.show_gifts,
+        )
+        self.gifts_button.pack(pady=5)
         self.analytics_button = ctk.CTkButton(
             menu,
             text="📈 Analytics",
@@ -382,6 +390,18 @@ class MainWindow(ctk.CTk):
             expand=True,
         )
 
+    def show_gifts(self):
+        if not self.require_license():
+            return
+
+        self.clear_page()
+        self.current_page = GiftPage(
+            self.content,
+        )
+        self.current_page.pack(
+            fill="both",
+            expand=True,
+        )
     def show_analytics(self):
         if not self.require_license():
             return

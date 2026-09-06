@@ -12,7 +12,7 @@ for package in ("customtkinter", "openai", "httpx", "pydantic", "obsws_python", 
     except Exception:
         pass
 
-for folder_name in ("assets", "images", "icons", "prompts", "config"):
+for folder_name in ("assets", "images", "icons", "prompts", "config", "data"):
     folder = project_root / folder_name
     if folder.exists():
         datas.append((str(folder), folder_name))
