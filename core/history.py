@@ -3,6 +3,7 @@ import sqlite3
 import sys
 import shutil
 import uuid
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -46,18 +47,31 @@ class HistoryDB:
 
         return base_dir / self.DB_NAME
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self):
         conn = sqlite3.connect(
             self.db,
             timeout=30
         )
-        conn.execute(
-            "PRAGMA journal_mode=WAL"
-        )
-        conn.execute(
-            "PRAGMA foreign_keys=ON"
-        )
-        return conn
+
+        try:
+            conn.execute(
+                "PRAGMA journal_mode=WAL"
+            )
+            conn.execute(
+                "PRAGMA foreign_keys=ON"
+            )
+
+            yield conn
+
+            conn.commit()
+
+        except Exception:
+            conn.rollback()
+            raise
+
+        finally:
+            conn.close()
 
     def _create_table(self):
         with self._connect() as conn:
@@ -85,6 +99,22 @@ class HistoryDB:
                     "ALTER TABLE ai_history ADD COLUMN image_path TEXT"
                 )
 
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS gift_history(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    gift_id TEXT NOT NULL,
+                    gift_name TEXT,
+                    quantity INTEGER NOT NULL,
+                    coins_each INTEGER,
+                    total_coins INTEGER,
+                    confidence REAL,
+                    is_known INTEGER NOT NULL DEFAULT 1,
+                    image_path TEXT
+                )
+                """
+            )
     # ==================================================
     # Create
     # ==================================================
@@ -154,6 +184,92 @@ class HistoryDB:
                     saved_image_path,
                 ),
             )
+
+    def save_gift(
+        self,
+        gift_id: str,
+        gift_name: Optional[str],
+        quantity: int,
+        coins_each: Optional[int],
+        total_coins: Optional[int],
+        confidence: Optional[float],
+        is_known: bool = True,
+        image_path: Optional[str] = None,
+    ) -> int:
+        created_at = datetime.now().strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+
+        saved_image_path = None
+
+        if image_path:
+            source = Path(image_path)
+
+            if source.exists():
+                history_images_dir = (
+                    Path(self.db).parent
+                    / "gift_history_images"
+                )
+
+                history_images_dir.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+
+                extension = source.suffix or ".png"
+
+                filename = (
+                    datetime.now().strftime(
+                        "%Y%m%d_%H%M%S_"
+                    )
+                    + uuid.uuid4().hex[:8]
+                    + extension
+                )
+
+                destination = (
+                    history_images_dir
+                    / filename
+                )
+
+                shutil.copy2(
+                    source,
+                    destination,
+                )
+
+                saved_image_path = str(
+                    destination
+                )
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO gift_history(
+                    created_at,
+                    gift_id,
+                    gift_name,
+                    quantity,
+                    coins_each,
+                    total_coins,
+                    confidence,
+                    is_known,
+                    image_path
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    created_at,
+                    gift_id,
+                    gift_name,
+                    int(quantity),
+                    coins_each,
+                    total_coins,
+                    confidence,
+                    1 if is_known else 0,
+                    saved_image_path,
+                ),
+            )
+
+            return int(cursor.lastrowid)
 
     # ==================================================
     # Read
