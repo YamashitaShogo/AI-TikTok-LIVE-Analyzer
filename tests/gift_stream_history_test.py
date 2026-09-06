@@ -1,4 +1,4 @@
-﻿import json
+import json
 import sqlite3
 import sys
 import tempfile
@@ -89,13 +89,20 @@ def test_stream_history_delta():
         ) as conn:
             rows = conn.execute(
                 """
-                SELECT quantity, total_coins
+                SELECT
+                    quantity,
+                    total_coins,
+                    sender_text,
+                    bbox_json
                 FROM gift_history
                 ORDER BY id ASC
                 """
             ).fetchall()
 
-        assert rows == [
+        assert [
+            (row[0], row[1])
+            for row in rows
+        ] == [
             (1, 100),
             (1, 100),
             (1, 100),
@@ -105,6 +112,18 @@ def test_stream_history_delta():
             row[1]
             for row in rows
         ) == 300
+
+        for row in rows:
+            assert row[2] == "user123"
+
+            assert json.loads(
+                row[3]
+            ) == [
+                0.08,
+                0.62,
+                0.38,
+                0.12,
+            ]
 
 
 if __name__ == "__main__":

@@ -101,6 +101,12 @@ class GiftAnalyzer:
                         if image_path is not None
                         else None
                     ),
+                    sender_text=detection.get(
+                        "sender_text"
+                    ),
+                    bbox=detection.get(
+                        "bbox"
+                    ),
                 )
 
                 history_ids.append(

@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 import sys
@@ -111,10 +112,31 @@ class HistoryDB:
                     total_coins INTEGER,
                     confidence REAL,
                     is_known INTEGER NOT NULL DEFAULT 1,
-                    image_path TEXT
+                    image_path TEXT,
+                    sender_text TEXT,
+                    bbox_json TEXT
                 )
                 """
             )
+
+            gift_columns = {
+                row[1]
+                for row in conn.execute(
+                    "PRAGMA table_info(gift_history)"
+                ).fetchall()
+            }
+
+            if "sender_text" not in gift_columns:
+                conn.execute(
+                    "ALTER TABLE gift_history "
+                    "ADD COLUMN sender_text TEXT"
+                )
+
+            if "bbox_json" not in gift_columns:
+                conn.execute(
+                    "ALTER TABLE gift_history "
+                    "ADD COLUMN bbox_json TEXT"
+                )
     # ==================================================
     # Create
     # ==================================================
@@ -195,12 +217,22 @@ class HistoryDB:
         confidence: Optional[float],
         is_known: bool = True,
         image_path: Optional[str] = None,
+        sender_text: Optional[str] = None,
+        bbox: Optional[list[float]] = None,
     ) -> int:
         created_at = datetime.now().strftime(
             "%Y-%m-%d %H:%M:%S"
         )
 
         saved_image_path = None
+
+        if bbox is None:
+            bbox_json = None
+        else:
+            bbox_json = json.dumps(
+                bbox,
+                ensure_ascii=False,
+            )
 
         if image_path:
             source = Path(image_path)
@@ -252,9 +284,11 @@ class HistoryDB:
                     total_coins,
                     confidence,
                     is_known,
-                    image_path
+                    image_path,
+                    sender_text,
+                    bbox_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     created_at,
@@ -266,6 +300,8 @@ class HistoryDB:
                     confidence,
                     1 if is_known else 0,
                     saved_image_path,
+                    sender_text,
+                    bbox_json,
                 ),
             )
 

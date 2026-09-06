@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 from typing import Any
 
 from core.ai_client import AIClient
@@ -137,6 +137,12 @@ class GiftStreamAnalyzer:
                             str(image_path)
                             if image_path is not None
                             else None
+                        ),
+                        sender_text=detection.get(
+                            "sender_text"
+                        ),
+                        bbox=detection.get(
+                            "bbox"
                         ),
                     )
                 )
