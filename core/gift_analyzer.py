@@ -1,9 +1,11 @@
 ﻿from pathlib import Path
 from typing import Any
 
+from core.ai_client import AIClient
 from core.gift_calculator import GiftCalculator
 from core.gift_catalog import GiftCatalog
 from core.gift_detection_parser import GiftDetectionParser
+from core.gift_detection_prompt import GIFT_DETECTION_PROMPT
 from core.history import HistoryDB
 
 
@@ -13,6 +15,7 @@ class GiftAnalyzer:
         catalog_path: str | Path,
         min_confidence: float = 0.80,
         history_db: HistoryDB | None = None,
+        ai_client: AIClient | None = None,
     ):
         self.catalog = GiftCatalog(
             catalog_path
@@ -31,10 +34,26 @@ class GiftAnalyzer:
         )
 
         self.history_db = history_db
+        self.ai_client = ai_client or AIClient()
+
+    def analyze_image(
+        self,
+        image_path: str | Path,
+    ) -> dict[str, Any]:
+        raw_answer = self.ai_client.analyze_image(
+            image_path,
+            GIFT_DETECTION_PROMPT,
+        )
+
+        return self.analyze_response(
+            raw_answer,
+            image_path=image_path,
+        )
 
     def analyze_response(
         self,
         raw_answer: str,
+        image_path: str | Path | None = None,
     ) -> dict[str, Any]:
         detections = GiftDetectionParser.parse(
             raw_answer
@@ -73,6 +92,11 @@ class GiftAnalyzer:
                     total_coins=item["total_coins"],
                     confidence=detection["confidence"],
                     is_known=item["found"],
+                    image_path=(
+                        str(image_path)
+                        if image_path is not None
+                        else None
+                    ),
                 )
 
                 history_ids.append(
