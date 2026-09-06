@@ -1,4 +1,4 @@
-﻿from typing import Any
+from typing import Any
 
 
 GIFT_DETECTION_PROMPT = """
@@ -14,6 +14,14 @@ GENERAL RULES:
 - If no gift is clearly visible, return an empty detections list.
 - quantity means the visible gift count or multiplier shown in the screenshot.
 - If no quantity or multiplier is visible, use quantity 1.
+- sender_text means the visible sender name or account text clearly associated with that gift event.
+- Preserve sender_text as closely as possible to the visible text.
+- If the sender cannot be read or cannot be reliably associated with the gift, use null.
+- bbox means the approximate bounding box of the entire visible gift event row/card, not only the gift icon.
+- bbox format is [x, y, width, height], normalized to the full screenshot from 0.0 to 1.0.
+- If a reliable bbox cannot be determined, use null.
+- If multiple separate gift events are visible, return one detection object for each event.
+- Never guess sender_text or bbox when the visual evidence is unclear.
 - confidence must be between 0.0 and 1.0.
 - Do not estimate coin values.
 - Do not calculate totals.
@@ -83,6 +91,8 @@ Return exactly this structure:
     {
       "gift_id": "unknown",
       "quantity": 1,
+      "sender_text": null,
+      "bbox": null,
       "confidence": 0.0
     }
   ]

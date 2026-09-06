@@ -1,4 +1,4 @@
-﻿import json
+import json
 import re
 from typing import Any
 
@@ -62,6 +62,66 @@ class GiftDetectionParser:
                 quantity,
             )
 
+            sender_value = detection.get(
+                "sender_text"
+            )
+
+            if sender_value is None:
+                sender_text = None
+            else:
+                sender_text = str(
+                    sender_value
+                ).strip()
+
+                if not sender_text:
+                    sender_text = None
+
+            bbox = None
+            bbox_value = detection.get(
+                "bbox"
+            )
+
+            if (
+                isinstance(
+                    bbox_value,
+                    (list, tuple),
+                )
+                and len(bbox_value) == 4
+            ):
+                try:
+                    x, y, width, height = [
+                        float(value)
+                        for value in bbox_value
+                    ]
+
+                    if (
+                        0.0 <= x <= 1.0
+                        and 0.0 <= y <= 1.0
+                        and 0.0 < width <= 1.0
+                        and 0.0 < height <= 1.0
+                    ):
+                        width = min(
+                            width,
+                            1.0 - x,
+                        )
+                        height = min(
+                            height,
+                            1.0 - y,
+                        )
+
+                        if (
+                            width > 0.0
+                            and height > 0.0
+                        ):
+                            bbox = [
+                                x,
+                                y,
+                                width,
+                                height,
+                            ]
+                except (TypeError, ValueError):
+                    bbox = None
+
             try:
                 confidence = float(
                     detection.get(
@@ -83,6 +143,8 @@ class GiftDetectionParser:
             normalized.append({
                 "gift_id": gift_id,
                 "quantity": quantity,
+                "sender_text": sender_text,
+                "bbox": bbox,
                 "confidence": confidence,
             })
 
