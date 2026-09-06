@@ -1,11 +1,11 @@
-﻿from pathlib import Path
+from pathlib import Path
 from typing import Any
 
 from core.ai_client import AIClient
 from core.gift_calculator import GiftCalculator
 from core.gift_catalog import GiftCatalog
 from core.gift_detection_parser import GiftDetectionParser
-from core.gift_detection_prompt import GIFT_DETECTION_PROMPT
+from core.gift_detection_prompt import build_gift_detection_prompt
 from core.history import HistoryDB
 
 
@@ -40,9 +40,13 @@ class GiftAnalyzer:
         self,
         image_path: str | Path,
     ) -> dict[str, Any]:
+        prompt = build_gift_detection_prompt(
+            self.catalog.get_gifts()
+        )
+
         raw_answer = self.ai_client.analyze_image(
             image_path,
-            GIFT_DETECTION_PROMPT,
+            prompt,
         )
 
         return self.analyze_response(
