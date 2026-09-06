@@ -397,6 +397,7 @@ class MainWindow(ctk.CTk):
         self.clear_page()
         self.current_page = GiftPage(
             self.content,
+            self.obs,
         )
         self.current_page.pack(
             fill="both",

@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 import threading
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -23,9 +23,10 @@ class GiftPage(ctk.CTkFrame):
 
     HISTORY_LIMIT = 100
 
-    def __init__(self, master):
+    def __init__(self, master, obs):
         super().__init__(master)
 
+        self.obs = obs
         self.history = HistoryDB()
         self.selected_image_path = None
 
@@ -125,6 +126,17 @@ class GiftPage(ctk.CTkFrame):
             state="disabled",
         )
         self.analyze_button.pack(
+            side="left",
+            padx=(10, 0),
+        )
+
+        self.obs_analyze_button = ctk.CTkButton(
+            button_frame,
+            text="OBSから取得して分析",
+            width=170,
+            command=self.start_obs_analysis,
+        )
+        self.obs_analyze_button.pack(
             side="left",
             padx=(10, 0),
         )
@@ -242,6 +254,55 @@ class GiftPage(ctk.CTkFrame):
         self.analyze_button.configure(
             state="normal"
         )
+
+    def start_obs_analysis(self):
+        if self.obs is None or not self.obs.is_connected():
+            messagebox.showwarning(
+                "ギフト分析",
+                "OBSに接続されていません。",
+            )
+            return
+
+        scene = self.obs.get_current_scene()
+
+        if not scene:
+            messagebox.showerror(
+                "ギフト分析",
+                "現在のOBSシーンを取得できませんでした。",
+            )
+            return
+
+        screenshot_path = "images/current.png"
+
+        result = self.obs.save_screenshot(
+            scene,
+            screenshot_path,
+        )
+
+        if not result:
+            messagebox.showerror(
+                "ギフト分析",
+                "OBSスクリーンショットの取得に失敗しました。",
+            )
+            return
+
+        resolved_path = self.obs.resolve_screenshot_path(
+            screenshot_path
+        )
+
+        self.selected_image_path = str(
+            resolved_path
+        )
+
+        self.selected_image_label.configure(
+            text=Path(resolved_path).name
+        )
+
+        self.analysis_status_label.configure(
+            text="OBS画像を取得しました。AI分析を開始します..."
+        )
+
+        self.start_analysis()
 
     def start_analysis(self):
         if not self.selected_image_path:
