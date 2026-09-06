@@ -1,10 +1,25 @@
-﻿import customtkinter as ctk
+﻿import sys
+import threading
+from pathlib import Path
+from tkinter import filedialog, messagebox
 
+import customtkinter as ctk
+
+from core.gift_analyzer import GiftAnalyzer
 from core.history import HistoryDB
 
 
+def resource_path(relative_path: str) -> str:
+    if hasattr(sys, "_MEIPASS"):
+        base_path = Path(sys._MEIPASS)
+    else:
+        base_path = Path(__file__).resolve().parent.parent.parent
+
+    return str(base_path / relative_path)
+
+
 class GiftPage(ctk.CTkFrame):
-    """ギフト検出履歴ページ。"""
+    """ギフト検出・履歴ページ。"""
 
     HISTORY_LIMIT = 100
 
@@ -12,6 +27,16 @@ class GiftPage(ctk.CTkFrame):
         super().__init__(master)
 
         self.history = HistoryDB()
+        self.selected_image_path = None
+
+        catalog_path = resource_path(
+            "data/gifts/gift_catalog.json"
+        )
+
+        self.analyzer = GiftAnalyzer(
+            catalog_path=catalog_path,
+            history_db=self.history,
+        )
 
         self._build_ui()
         self.load_history()
@@ -47,6 +72,83 @@ class GiftPage(ctk.CTkFrame):
         )
         refresh_button.pack(
             side="right",
+        )
+
+        analysis_frame = ctk.CTkFrame(
+            self,
+        )
+        analysis_frame.pack(
+            fill="x",
+            padx=24,
+            pady=(0, 16),
+        )
+
+        analysis_title = ctk.CTkLabel(
+            analysis_frame,
+            text="画像からギフトを分析",
+            font=ctk.CTkFont(
+                size=18,
+                weight="bold",
+            ),
+        )
+        analysis_title.pack(
+            anchor="w",
+            padx=18,
+            pady=(16, 8),
+        )
+
+        button_frame = ctk.CTkFrame(
+            analysis_frame,
+            fg_color="transparent",
+        )
+        button_frame.pack(
+            fill="x",
+            padx=18,
+            pady=(0, 8),
+        )
+
+        select_button = ctk.CTkButton(
+            button_frame,
+            text="画像を選択",
+            width=130,
+            command=self.select_image,
+        )
+        select_button.pack(
+            side="left",
+        )
+
+        self.analyze_button = ctk.CTkButton(
+            button_frame,
+            text="AI分析を実行",
+            width=130,
+            command=self.start_analysis,
+            state="disabled",
+        )
+        self.analyze_button.pack(
+            side="left",
+            padx=(10, 0),
+        )
+
+        self.selected_image_label = ctk.CTkLabel(
+            analysis_frame,
+            text="画像が選択されていません。",
+            anchor="w",
+        )
+        self.selected_image_label.pack(
+            fill="x",
+            padx=18,
+            pady=(0, 6),
+        )
+
+        self.analysis_status_label = ctk.CTkLabel(
+            analysis_frame,
+            text="",
+            anchor="w",
+        )
+        self.analysis_status_label.pack(
+            fill="x",
+            padx=18,
+            pady=(0, 16),
         )
 
         stats = ctk.CTkFrame(
@@ -107,6 +209,149 @@ class GiftPage(ctk.CTkFrame):
             expand=True,
             padx=24,
             pady=(0, 24),
+        )
+
+    def select_image(self):
+        image_path = filedialog.askopenfilename(
+            title="分析する画像を選択",
+            filetypes=[
+                (
+                    "画像ファイル",
+                    "*.png *.jpg *.jpeg *.webp",
+                ),
+                (
+                    "すべてのファイル",
+                    "*.*",
+                ),
+            ],
+        )
+
+        if not image_path:
+            return
+
+        self.selected_image_path = image_path
+
+        self.selected_image_label.configure(
+            text=Path(image_path).name
+        )
+
+        self.analysis_status_label.configure(
+            text="分析できます。"
+        )
+
+        self.analyze_button.configure(
+            state="normal"
+        )
+
+    def start_analysis(self):
+        if not self.selected_image_path:
+            messagebox.showwarning(
+                "ギフト分析",
+                "先に画像を選択してください。",
+            )
+            return
+
+        self.analyze_button.configure(
+            state="disabled"
+        )
+
+        self.analysis_status_label.configure(
+            text="AIで分析中..."
+        )
+
+        thread = threading.Thread(
+            target=self._run_analysis,
+            daemon=True,
+        )
+        thread.start()
+
+    def _run_analysis(self):
+        try:
+            result = self.analyzer.analyze_image(
+                self.selected_image_path
+            )
+
+            self.after(
+                0,
+                lambda: self._analysis_finished(
+                    result
+                ),
+            )
+
+        except Exception as exc:
+            self.after(
+                0,
+                lambda error=str(exc):
+                self._analysis_failed(error),
+            )
+
+    def _analysis_finished(
+        self,
+        result,
+    ):
+        accepted = result.get(
+            "accepted_detections",
+            [],
+        )
+
+        ignored = result.get(
+            "ignored_detections",
+            [],
+        )
+
+        total_coins = result.get(
+            "total_coins",
+            0,
+        )
+
+        unknown_count = result.get(
+            "unknown_count",
+            0,
+        )
+
+        if accepted:
+            text = (
+                f"分析完了: {len(accepted)}件検出"
+                f" / {total_coins:,} coins"
+            )
+
+            if unknown_count:
+                text += (
+                    f" / 未知ギフト {unknown_count}件"
+                )
+        else:
+            text = "分析完了: ギフトは検出されませんでした。"
+
+            if ignored:
+                text += (
+                    f" 低信頼度 {len(ignored)}件"
+                )
+
+        self.analysis_status_label.configure(
+            text=text
+        )
+
+        self.analyze_button.configure(
+            state="normal"
+        )
+
+        self.load_history()
+
+    def _analysis_failed(
+        self,
+        error,
+    ):
+        self.analysis_status_label.configure(
+            text="分析に失敗しました。"
+        )
+
+        self.analyze_button.configure(
+            state="normal"
+        )
+
+        messagebox.showerror(
+            "ギフト分析エラー",
+            error,
         )
 
     def load_history(self):
