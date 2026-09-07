@@ -563,6 +563,32 @@ class GiftPage(ctk.CTkFrame):
                 )
             )
 
+    def destroy(self):
+        self.monitoring = False
+
+        if self.monitor_after_id is not None:
+            try:
+                self.after_cancel(
+                    self.monitor_after_id
+                )
+            except Exception:
+                pass
+
+            self.monitor_after_id = None
+
+        try:
+            if hasattr(
+                self,
+                "monitor_worker",
+            ):
+                self.monitor_worker.shutdown(
+                    wait=False
+                )
+        except Exception:
+            pass
+
+        super().destroy()
+
     def select_image(self):
         image_path = filedialog.askopenfilename(
             title="分析する画像を選択",

@@ -62,6 +62,7 @@ class GiftMonitorWorker:
         self._event_queue = queue.Queue()
 
         self._stop_event = threading.Event()
+        self._shutdown_requested = False
         self._capture_thread = None
         self._analysis_thread = None
 
@@ -108,6 +109,7 @@ class GiftMonitorWorker:
 
             self._running = True
 
+        self._shutdown_requested = False
         self._stop_event.clear()
 
         self._capture_thread = threading.Thread(
@@ -164,6 +166,26 @@ class GiftMonitorWorker:
         self._emit(
             "stopped",
         )
+
+    def shutdown(
+        self,
+        wait: bool = False,
+        timeout: float = 5.0,
+    ) -> None:
+        self._shutdown_requested = True
+
+        self.stop(
+            wait=wait,
+            timeout=timeout,
+        )
+
+        analysis_thread = self._analysis_thread
+
+        if (
+            analysis_thread is None
+            or not analysis_thread.is_alive()
+        ):
+            self.candidate_queue.clear()
 
     def _clear_capture_backlog(self) -> None:
         while True:
@@ -361,6 +383,9 @@ class GiftMonitorWorker:
                     )
                 )
 
+                if self._stop_event.is_set():
+                    continue
+
                 queue_result = None
 
                 if result.get(
@@ -386,6 +411,9 @@ class GiftMonitorWorker:
                 )
 
             except Exception as exc:
+                if self._stop_event.is_set():
+                    continue
+
                 queue_result = (
                     self.candidate_queue.enqueue(
                         image_path
@@ -403,6 +431,9 @@ class GiftMonitorWorker:
                 self._delete_file(
                     image_path
                 )
+
+        if self._shutdown_requested:
+            self.candidate_queue.clear()
 
     def _retry_pending_once(self) -> None:
         pending_path = (
@@ -436,6 +467,9 @@ class GiftMonitorWorker:
                 path=str(pending_path),
                 error=str(exc),
             )
+            return
+
+        if self._stop_event.is_set():
             return
 
         if not result["analyzed"]:
