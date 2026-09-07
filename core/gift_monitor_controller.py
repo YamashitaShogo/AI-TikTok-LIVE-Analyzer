@@ -94,6 +94,46 @@ class GiftMonitorController:
             "analysis": analysis,
         }
 
+    def process_candidate_image(
+        self,
+        image_path,
+    ):
+        """
+        Analyze an already-gated candidate.
+
+        This is used for screenshots preserved in the pending
+        candidate queue. The frame gate is intentionally skipped
+        because the candidate was already judged significant when
+        it was captured.
+        """
+
+        if not self.rate_limiter.can_call():
+            return {
+                "analyzed": False,
+                "blocked_by_rate_limit": True,
+                "retry_after_seconds": (
+                    self.rate_limiter.seconds_until_available()
+                ),
+                "gate": None,
+                "analysis": None,
+            }
+
+        self.rate_limiter.record_call()
+
+        analysis = (
+            self.stream_analyzer.analyze_image(
+                image_path
+            )
+        )
+
+        return {
+            "analyzed": True,
+            "blocked_by_rate_limit": False,
+            "retry_after_seconds": 0.0,
+            "gate": None,
+            "analysis": analysis,
+        }
+
     def reset(self) -> None:
         self.frame_gate.reset()
         self.stream_analyzer.reset()
