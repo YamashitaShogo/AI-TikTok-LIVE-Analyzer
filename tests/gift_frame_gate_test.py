@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -76,11 +76,68 @@ def test_roi_filtering():
     assert inside["should_analyze"] is True
 
 
+
+
+def test_pending_frame_not_consumed():
+    gate = GiftFrameGate(
+        analyze_first_frame=False,
+    )
+
+    base = np.zeros(
+        (720, 1280, 3),
+        dtype=np.uint8,
+    )
+
+    candidate = base.copy()
+    candidate[
+        250:450,
+        350:850,
+    ] = 255
+
+    gate.check_frame(
+        base,
+        update_previous=True,
+    )
+
+    first_candidate = gate.check_frame(
+        candidate,
+        update_previous=False,
+    )
+
+    second_candidate = gate.check_frame(
+        candidate,
+        update_previous=False,
+    )
+
+    assert first_candidate[
+        "should_analyze"
+    ] is True
+
+    assert second_candidate[
+        "should_analyze"
+    ] is True
+
+    gate.accept_frame(
+        candidate
+    )
+
+    after_accept = gate.check_frame(
+        candidate,
+        update_previous=False,
+    )
+
+    assert after_accept[
+        "should_analyze"
+    ] is False
+
 if __name__ == "__main__":
     test_unchanged_and_changed_frames()
     print("PASS: frame change detection")
 
     test_roi_filtering()
     print("PASS: ROI filtering")
+
+    test_pending_frame_not_consumed()
+    print("PASS: pending frame retention")
 
     print("ALL GIFT FRAME GATE TESTS PASSED")

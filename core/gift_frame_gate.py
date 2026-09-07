@@ -110,11 +110,18 @@ class GiftFrameGate:
             0,
         )
 
-    def check_frame(self, frame) -> dict[str, Any]:
+    def check_frame(
+        self,
+        frame,
+        update_previous: bool = True,
+    ) -> dict[str, Any]:
         prepared = self._prepare(frame)
 
         if self._previous_frame is None:
-            self._previous_frame = prepared.copy()
+            if update_previous:
+                self._previous_frame = (
+                    prepared.copy()
+                )
 
             return {
                 "should_analyze": self.analyze_first_frame,
@@ -167,7 +174,10 @@ class GiftFrameGate:
             normal_change or strong_change
         )
 
-        self._previous_frame = prepared.copy()
+        if update_previous:
+            self._previous_frame = (
+                prepared.copy()
+            )
 
         return {
             "should_analyze": should_analyze,
@@ -186,7 +196,11 @@ class GiftFrameGate:
             ),
         }
 
-    def check_image(self, image_path):
+    def check_image(
+        self,
+        image_path,
+        update_previous: bool = True,
+    ):
         path = Path(image_path)
 
         frame = cv2.imread(str(path))
@@ -196,7 +210,29 @@ class GiftFrameGate:
                 f"Could not read image: {path}"
             )
 
-        return self.check_frame(frame)
+        return self.check_frame(
+            frame,
+            update_previous=update_previous,
+        )
+
+    def accept_frame(self, frame) -> None:
+        prepared = self._prepare(frame)
+
+        self._previous_frame = (
+            prepared.copy()
+        )
+
+    def accept_image(self, image_path) -> None:
+        path = Path(image_path)
+
+        frame = cv2.imread(str(path))
+
+        if frame is None:
+            raise ValueError(
+                f"Could not read image: {path}"
+            )
+
+        self.accept_frame(frame)
 
     def reset(self):
         self._previous_frame = None
