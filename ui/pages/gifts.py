@@ -6,6 +6,10 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 
 from core.gift_analyzer import GiftAnalyzer
+from core.gift_frame_gate import GiftFrameGate
+from core.gift_monitor_controller import GiftMonitorController
+from core.gift_obs_monitor import GiftOBSMonitor
+from core.gift_stream_analyzer import GiftStreamAnalyzer
 from core.history import HistoryDB
 
 
@@ -38,6 +42,29 @@ class GiftPage(ctk.CTkFrame):
             catalog_path=catalog_path,
             history_db=self.history,
         )
+
+        self.stream_analyzer = GiftStreamAnalyzer(
+            catalog_path=catalog_path,
+            history_db=self.history,
+        )
+
+        self.monitor_controller = GiftMonitorController(
+            stream_analyzer=self.stream_analyzer,
+            frame_gate=GiftFrameGate(
+                analyze_first_frame=False,
+            ),
+        )
+
+        self.obs_monitor = GiftOBSMonitor(
+            obs=self.obs,
+            controller=self.monitor_controller,
+            screenshot_path="images/gift_monitor.png",
+        )
+
+        self.monitoring = False
+        self.monitor_busy = False
+        self.monitor_after_id = None
+        self.monitor_interval_ms = 1000
 
         self._build_ui()
         self.load_history()
