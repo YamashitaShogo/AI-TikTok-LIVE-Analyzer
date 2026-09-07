@@ -88,6 +88,18 @@ class GiftMonitorWorker:
             if self._running:
                 return False
 
+            existing_threads = (
+                self._capture_thread,
+                self._analysis_thread,
+            )
+
+            if any(
+                thread is not None
+                and thread.is_alive()
+                for thread in existing_threads
+            ):
+                return False
+
             if self.obs is None:
                 return False
 
@@ -147,9 +159,24 @@ class GiftMonitorWorker:
                         timeout=timeout
                     )
 
+        self._clear_capture_backlog()
+
         self._emit(
             "stopped",
         )
+
+    def _clear_capture_backlog(self) -> None:
+        while True:
+            try:
+                image_path = (
+                    self._capture_queue.get_nowait()
+                )
+            except queue.Empty:
+                break
+
+            self._delete_file(
+                image_path
+            )
 
     def get_event_nowait(
         self,
@@ -260,55 +287,62 @@ class GiftMonitorWorker:
             )
             return
 
-        try:
-            self._capture_queue.put_nowait(
-                resolved_path
-            )
-
-        except queue.Full:
-            dropped_path = None
+        with self._state_lock:
+            if (
+                not self._running
+                or self._stop_event.is_set()
+            ):
+                self._delete_file(
+                    resolved_path
+                )
+                return
 
             try:
-                dropped_path = (
-                    self._capture_queue.get_nowait()
-                )
-            except queue.Empty:
-                pass
-
-            if dropped_path is not None:
-                self._delete_file(
-                    dropped_path
+                self._capture_queue.put_nowait(
+                    resolved_path
                 )
 
-            self._capture_queue.put_nowait(
-                resolved_path
-            )
+            except queue.Full:
+                dropped_path = None
+
+                try:
+                    dropped_path = (
+                        self._capture_queue.get_nowait()
+                    )
+                except queue.Empty:
+                    pass
+
+                if dropped_path is not None:
+                    self._delete_file(
+                        dropped_path
+                    )
+
+                self._capture_queue.put_nowait(
+                    resolved_path
+                )
+
+                self._emit(
+                    "capture_backlog_overflow",
+                    dropped_path=(
+                        str(dropped_path)
+                        if dropped_path is not None
+                        else None
+                    ),
+                    backlog=(
+                        self.capture_backlog_count
+                    ),
+                )
 
             self._emit(
-                "capture_backlog_overflow",
-                dropped_path=(
-                    str(dropped_path)
-                    if dropped_path is not None
-                    else None
-                ),
+                "captured",
+                path=str(resolved_path),
                 backlog=(
                     self.capture_backlog_count
                 ),
             )
 
-        self._emit(
-            "captured",
-            path=str(resolved_path),
-            backlog=(
-                self.capture_backlog_count
-            ),
-        )
-
     def _analysis_loop(self) -> None:
-        while (
-            not self._stop_event.is_set()
-            or not self._capture_queue.empty()
-        ):
+        while not self._stop_event.is_set():
             self._retry_pending_once()
 
             try:

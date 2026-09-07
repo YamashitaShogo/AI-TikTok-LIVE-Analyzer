@@ -104,6 +104,13 @@ def test_capture_backlog_is_bounded():
             ),
         )
 
+        # This unit test calls _capture_once() directly
+        # without starting the worker threads.
+        with worker._state_lock:
+            worker._running = True
+
+        worker._stop_event.clear()
+
         worker._capture_once()
         worker._capture_once()
 

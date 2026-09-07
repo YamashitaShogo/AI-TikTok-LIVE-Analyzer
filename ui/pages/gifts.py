@@ -8,6 +8,7 @@ import customtkinter as ctk
 from core.gift_analyzer import GiftAnalyzer
 from core.gift_frame_gate import GiftFrameGate
 from core.gift_monitor_controller import GiftMonitorController
+from core.gift_monitor_worker import GiftMonitorWorker
 from core.gift_obs_monitor import GiftOBSMonitor
 from core.gift_stream_analyzer import GiftStreamAnalyzer
 from core.history import HistoryDB
@@ -59,6 +60,12 @@ class GiftPage(ctk.CTkFrame):
             obs=self.obs,
             controller=self.monitor_controller,
             screenshot_path="images/gift_monitor.png",
+        )
+
+        self.monitor_worker = GiftMonitorWorker(
+            monitor=self.obs_monitor,
+            capture_interval_seconds=1.0,
+            max_capture_backlog=30,
         )
 
         self.monitoring = False
@@ -190,6 +197,72 @@ class GiftPage(ctk.CTkFrame):
             pady=(0, 16),
         )
 
+        monitor_frame = ctk.CTkFrame(
+            self,
+        )
+        monitor_frame.pack(
+            fill="x",
+            padx=24,
+            pady=(0, 16),
+        )
+
+        monitor_title = ctk.CTkLabel(
+            monitor_frame,
+            text="OBS ギフト監視",
+            font=ctk.CTkFont(
+                size=18,
+                weight="bold",
+            ),
+        )
+        monitor_title.pack(
+            anchor="w",
+            padx=18,
+            pady=(16, 8),
+        )
+
+        monitor_button_frame = ctk.CTkFrame(
+            monitor_frame,
+            fg_color="transparent",
+        )
+        monitor_button_frame.pack(
+            fill="x",
+            padx=18,
+            pady=(0, 8),
+        )
+
+        self.monitor_start_button = ctk.CTkButton(
+            monitor_button_frame,
+            text="監視開始",
+            width=130,
+            command=self.start_monitoring,
+        )
+        self.monitor_start_button.pack(
+            side="left",
+        )
+
+        self.monitor_stop_button = ctk.CTkButton(
+            monitor_button_frame,
+            text="監視停止",
+            width=130,
+            command=self.stop_monitoring,
+            state="disabled",
+        )
+        self.monitor_stop_button.pack(
+            side="left",
+            padx=(10, 0),
+        )
+
+        self.monitor_status_label = ctk.CTkLabel(
+            monitor_frame,
+            text="停止中",
+            anchor="w",
+        )
+        self.monitor_status_label.pack(
+            fill="x",
+            padx=18,
+            pady=(0, 16),
+        )
+
         stats = ctk.CTkFrame(
             self,
         )
@@ -249,6 +322,246 @@ class GiftPage(ctk.CTkFrame):
             padx=24,
             pady=(0, 24),
         )
+
+    def start_monitoring(self):
+        if self.monitoring:
+            return
+
+        if self.obs is None or not self.obs.is_connected():
+            messagebox.showwarning(
+                "ギフト監視",
+                "OBSに接続されていません。",
+            )
+            return
+
+        started = self.monitor_worker.start()
+
+        if not started:
+            self.monitor_status_label.configure(
+                text=(
+                    "監視を開始できません。"
+                    " 前回の停止処理中か、"
+                    "OBS接続を確認してください。"
+                )
+            )
+            return
+
+        self.monitoring = True
+
+        self.monitor_start_button.configure(
+            state="disabled"
+        )
+        self.monitor_stop_button.configure(
+            state="normal"
+        )
+
+        self.analyze_button.configure(
+            state="disabled"
+        )
+        self.obs_analyze_button.configure(
+            state="disabled"
+        )
+
+        self.monitor_status_label.configure(
+            text="監視中 / OBSを1秒間隔で取得しています"
+        )
+
+        self._schedule_monitor_event_poll()
+
+    def stop_monitoring(self):
+        if not self.monitoring:
+            return
+
+        self.monitoring = False
+
+        self.monitor_worker.stop(
+            wait=False
+        )
+
+        self.monitor_start_button.configure(
+            state="normal"
+        )
+        self.monitor_stop_button.configure(
+            state="disabled"
+        )
+
+        self.obs_analyze_button.configure(
+            state="normal"
+        )
+
+        self.analyze_button.configure(
+            state=(
+                "normal"
+                if self.selected_image_path
+                else "disabled"
+            )
+        )
+
+        self.monitor_status_label.configure(
+            text="停止中"
+        )
+
+    def _schedule_monitor_event_poll(self):
+        if self.monitor_after_id is not None:
+            return
+
+        self.monitor_after_id = self.after(
+            250,
+            self._poll_monitor_events,
+        )
+
+    def _poll_monitor_events(self):
+        self.monitor_after_id = None
+
+        for _ in range(200):
+            event = (
+                self.monitor_worker.get_event_nowait()
+            )
+
+            if event is None:
+                break
+
+            self._handle_monitor_event(
+                event
+            )
+
+        if self.monitoring:
+            self._schedule_monitor_event_poll()
+
+    def _handle_monitor_event(
+        self,
+        event,
+    ):
+        event_type = event.get(
+            "type"
+        )
+
+        if event_type == "analysis_result":
+            result = event.get(
+                "result"
+            ) or {}
+
+            if result.get("analyzed"):
+                analysis = result.get(
+                    "analysis"
+                ) or {}
+
+                counted = analysis.get(
+                    "counted_detections"
+                ) or []
+
+                total_coins = analysis.get(
+                    "total_coins",
+                    0,
+                ) or 0
+
+                backlog = event.get(
+                    "backlog",
+                    0,
+                )
+
+                pending = event.get(
+                    "pending_count",
+                    0,
+                )
+
+                self.monitor_status_label.configure(
+                    text=(
+                        f"監視中 / AI分析完了: "
+                        f"{len(counted)}件"
+                        f" / +{total_coins:,} coins"
+                        f" / 待機 {backlog}件"
+                        f" / 保留 {pending}件"
+                    )
+                )
+
+                self.load_history()
+
+            elif result.get(
+                "blocked_by_rate_limit"
+            ):
+                retry_after = result.get(
+                    "retry_after_seconds",
+                    0.0,
+                )
+
+                pending = event.get(
+                    "pending_count",
+                    0,
+                )
+
+                self.monitor_status_label.configure(
+                    text=(
+                        "監視中 / AIレート制限"
+                        f" / 約{retry_after:.0f}秒後に再試行"
+                        f" / 保留 {pending}件"
+                    )
+                )
+
+        elif event_type == "pending_result":
+            result = event.get(
+                "result"
+            ) or {}
+
+            analysis = result.get(
+                "analysis"
+            ) or {}
+
+            counted = analysis.get(
+                "counted_detections"
+            ) or []
+
+            total_coins = analysis.get(
+                "total_coins",
+                0,
+            ) or 0
+
+            pending = event.get(
+                "pending_count",
+                0,
+            )
+
+            self.monitor_status_label.configure(
+                text=(
+                    "監視中 / 保留画像を分析"
+                    f": {len(counted)}件"
+                    f" / +{total_coins:,} coins"
+                    f" / 残り {pending}件"
+                )
+            )
+
+            self.load_history()
+
+        elif event_type == "capture_backlog_overflow":
+            backlog = event.get(
+                "backlog",
+                0,
+            )
+
+            self.monitor_status_label.configure(
+                text=(
+                    "監視中 / 処理遅延あり"
+                    f" / 待機 {backlog}件"
+                    " / 古いフレームを整理しました"
+                )
+            )
+
+        elif event_type in {
+            "capture_error",
+            "analysis_error",
+            "pending_error",
+        }:
+            error = event.get(
+                "error",
+                "unknown error",
+            )
+
+            self.monitor_status_label.configure(
+                text=(
+                    "監視中 / エラー: "
+                    f"{error}"
+                )
+            )
 
     def select_image(self):
         image_path = filedialog.askopenfilename(
