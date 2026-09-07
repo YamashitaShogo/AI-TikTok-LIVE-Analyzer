@@ -161,7 +161,21 @@ class GiftMonitorWorker:
                         timeout=timeout
                     )
 
-        self._clear_capture_backlog()
+        backlog_paths = (
+            self._drain_capture_backlog()
+        )
+
+        if wait:
+            self._delete_paths(
+                backlog_paths
+            )
+        elif backlog_paths:
+            threading.Thread(
+                target=self._delete_paths,
+                args=(backlog_paths,),
+                name="GiftCleanupWorker",
+                daemon=True,
+            ).start()
 
         self._emit(
             "stopped",
@@ -187,7 +201,11 @@ class GiftMonitorWorker:
         ):
             self.candidate_queue.clear()
 
-    def _clear_capture_backlog(self) -> None:
+    def _drain_capture_backlog(
+        self,
+    ) -> list[Path]:
+        paths = []
+
         while True:
             try:
                 image_path = (
@@ -196,9 +214,25 @@ class GiftMonitorWorker:
             except queue.Empty:
                 break
 
+            paths.append(
+                Path(image_path)
+            )
+
+        return paths
+
+    def _delete_paths(
+        self,
+        paths: list[Path],
+    ) -> None:
+        for image_path in paths:
             self._delete_file(
                 image_path
             )
+
+    def _clear_capture_backlog(self) -> None:
+        self._delete_paths(
+            self._drain_capture_backlog()
+        )
 
     def get_event_nowait(
         self,

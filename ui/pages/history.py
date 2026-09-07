@@ -23,6 +23,8 @@ class HistoryPage(ctk.CTkFrame):
         self._refresh_job = None
         self._selected_id: Optional[int] = None
         self._rows = []
+        self._display_limit = 10
+        self._display_step = 10
 
         self._build_ui()
         self.load_history()
@@ -66,6 +68,17 @@ class HistoryPage(ctk.CTkFrame):
             command=self.load_history
         )
         self.refresh_button.pack(
+            side="right",
+            padx=(8, 0)
+        )
+
+        self.load_more_button = ctk.CTkButton(
+            header,
+            text="\u3055\u3089\u306b\u8868\u793a",
+            width=110,
+            command=self.load_more
+        )
+        self.load_more_button.pack(
             side="right",
             padx=(8, 0)
         )
@@ -295,7 +308,9 @@ class HistoryPage(ctk.CTkFrame):
             return
 
         try:
-            rows = self.history.get_all()
+            rows = self.history.get_recent_summaries(
+                limit=self._display_limit
+            )
         except Exception as exc:
             self.count_label.configure(
                 text="読込エラー"
@@ -311,8 +326,27 @@ class HistoryPage(ctk.CTkFrame):
         new_ids = [row[0] for row in rows]
 
         self._rows = rows
+
+        total_count = self.history.get_count()
+
         self.count_label.configure(
-            text=f"{len(rows)}件"
+            text=(
+                f"{len(rows)}\u4ef6 / "
+                f"{total_count}\u4ef6"
+            )
+        )
+
+        can_load_more = (
+            len(rows) < total_count
+            and self._display_limit < 200
+        )
+
+        self.load_more_button.configure(
+            state=(
+                "normal"
+                if can_load_more
+                else "disabled"
+            )
         )
 
         # 内容に変化がない場合は一覧を作り直さない
@@ -347,6 +381,23 @@ class HistoryPage(ctk.CTkFrame):
             self.show_detail(selected)
         else:
             self.show_detail(rows[0])
+
+    def load_more(self):
+        if self._destroying:
+            return
+
+        total_count = self.history.get_count()
+
+        if len(self._rows) >= total_count:
+            return
+
+        self._display_limit = min(
+            200,
+            self._display_limit
+            + self._display_step,
+        )
+
+        self.load_history()
 
     def _show_history_image(self, image_path):
         self._history_ctk_image = None
@@ -565,7 +616,9 @@ class HistoryPage(ctk.CTkFrame):
         if self._destroying:
             return
 
-        if not self._rows:
+        export_rows = self.history.get_all()
+
+        if not export_rows:
             messagebox.showinfo(
                 "CSV出力",
                 "出力する履歴がありません。"
@@ -607,7 +660,7 @@ class HistoryPage(ctk.CTkFrame):
                     "AI分析結果"
                 ])
 
-                for row in self._rows:
+                for row in export_rows:
                     history_id = row[0] if len(row) > 0 else ""
                     created_at = row[1] if len(row) > 1 else ""
                     score = row[2] if len(row) > 2 else ""
@@ -642,7 +695,9 @@ class HistoryPage(ctk.CTkFrame):
         if self._destroying:
             return
 
-        if not self._rows:
+        export_rows = self.history.get_all()
+
+        if not export_rows:
             messagebox.showinfo(
                 "PDF出力",
                 "出力する履歴がありません。"
@@ -768,7 +823,7 @@ class HistoryPage(ctk.CTkFrame):
             story.append(Spacer(1, 5 * mm))
 
             scores = []
-            for row in self._rows:
+            for row in export_rows:
                 if len(row) <= 2:
                     continue
 
@@ -793,7 +848,7 @@ class HistoryPage(ctk.CTkFrame):
                     Paragraph("最低スコア", body_style)
                 ],
                 [
-                    f"{len(self._rows)}回",
+                    f"{len(export_rows)}回",
                     f"{average:.1f}点",
                     f"{maximum:g}点",
                     f"{minimum:g}点"
@@ -831,7 +886,7 @@ class HistoryPage(ctk.CTkFrame):
                 Paragraph("AI分析結果（抜粋）", small_style)
             ]]
 
-            for row in self._rows:
+            for row in export_rows:
                 created_at = row[1] if len(row) > 1 else ""
                 score = row[2] if len(row) > 2 else ""
                 result = row[4] if len(row) > 4 else ""
@@ -877,7 +932,7 @@ class HistoryPage(ctk.CTkFrame):
             )
             story.append(history_table)
 
-            for index, row in enumerate(self._rows, start=1):
+            for index, row in enumerate(export_rows, start=1):
                 story.append(PageBreak())
 
                 history_id = row[0] if len(row) > 0 else ""

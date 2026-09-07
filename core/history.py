@@ -327,6 +327,34 @@ class HistoryDB:
             )
             return cursor.fetchall()
 
+    def get_recent_summaries(
+        self,
+        limit: int = 50,
+    ):
+        limit = max(
+            1,
+            min(
+                200,
+                int(limit),
+            ),
+        )
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                SELECT
+                    id,
+                    created_at,
+                    score
+                FROM ai_history
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+
+            return cursor.fetchall()
+
     def get_latest(self):
         with self._connect() as conn:
             cursor = conn.execute(
