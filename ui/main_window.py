@@ -8,6 +8,7 @@ import customtkinter as ctk
 
 from core.license_manager import LicenseManager
 from core.obs_client import OBSClient
+from core.settings import Settings
 from ui.pages.ai import AIPage
 from ui.pages.analytics import AnalyticsPage
 from ui.pages.dashboard import DashboardPage
@@ -35,6 +36,25 @@ class MainWindow(ctk.CTk):
 
 
     def __init__(self):
+        settings = Settings.load()
+
+        appearance_mode = str(
+            settings.get(
+                "appearance_mode",
+                "dark",
+            )
+        ).strip().lower()
+
+        if appearance_mode not in {
+            "light",
+            "dark",
+        }:
+            appearance_mode = "dark"
+
+        ctk.set_appearance_mode(
+            appearance_mode
+        )
+
         super().__init__()
 
         # ライセンスオンライン確認用

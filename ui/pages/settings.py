@@ -13,6 +13,7 @@ from PIL import Image
 
 from core.ai_client import AIClient
 from core.license_client import LicenseClient
+from core.settings import Settings as AppSettings
 
 class SettingsPage(ctk.CTkFrame):
     """Livemetry Pulse 設定画面。"""
@@ -35,6 +36,7 @@ class SettingsPage(ctk.CTkFrame):
         "obs_password": "",
         "license_key": "",
         "license_status": "未認証",
+        "appearance_mode": "dark",
         "analysis_interval": 30,
         "screenshot_path": "images/current.png",
         "ai_prompt": (
@@ -90,6 +92,7 @@ class SettingsPage(ctk.CTkFrame):
         self._build_ai_section()
         self._build_license_section()
         self._build_analysis_section()
+        self._build_appearance_section()
         self._build_action_section()
 
 
@@ -399,6 +402,51 @@ class SettingsPage(ctk.CTkFrame):
             pady=7,
         )
 
+    def _build_appearance_section(self):
+        body = self._section("\u5916\u89b3")
+
+        self._field_label(
+            body,
+            "\u30c6\u30fc\u30de",
+            0,
+        )
+
+        self.appearance_mode_var = ctk.StringVar(
+            value="\u30c0\u30fc\u30af"
+        )
+
+        self.appearance_mode_control = ctk.CTkSegmentedButton(
+            body,
+            values=[
+                "\u30e9\u30a4\u30c8",
+                "\u30c0\u30fc\u30af",
+            ],
+            variable=self.appearance_mode_var,
+            command=self._on_appearance_change,
+        )
+        self.appearance_mode_control.grid(
+            row=0,
+            column=1,
+            sticky="w",
+            pady=7,
+        )
+
+        ctk.CTkLabel(
+            body,
+            text=(
+                "\u753b\u9762\u306e\u5916\u89b3\u3092\u5909\u66f4\u3057\u307e\u3059\u3002"
+                "\u5909\u66f4\u306f\u3059\u3050\u306b\u53cd\u6620\u3055\u308c\u307e\u3059\u3002"
+            ),
+            anchor="w",
+            text_color=("gray35", "gray70"),
+        ).grid(
+            row=1,
+            column=1,
+            sticky="w",
+            pady=(0, 5),
+        )
+
+
     def _build_action_section(self):
         actions = ctk.CTkFrame(self.scroll)
         actions.pack(fill="x", padx=4, pady=(12, 24))
@@ -441,6 +489,45 @@ class SettingsPage(ctk.CTkFrame):
             padx=8,
             pady=16,
         )
+
+    @staticmethod
+    def _appearance_label_to_mode(value):
+        return {
+            "\u30e9\u30a4\u30c8": "light",
+            "\u30c0\u30fc\u30af": "dark",
+        }.get(str(value), "dark")
+
+    @staticmethod
+    def _appearance_mode_to_label(value):
+        return {
+            "light": "\u30e9\u30a4\u30c8",
+            "dark": "\u30c0\u30fc\u30af",
+        }.get(str(value).lower(), "\u30c0\u30fc\u30af")
+
+    def _on_appearance_change(self, value):
+        mode = self._appearance_label_to_mode(value)
+
+        ctk.set_appearance_mode(mode)
+
+        try:
+            settings = AppSettings.load()
+            settings["appearance_mode"] = mode
+            AppSettings.save(settings)
+
+            self.status_label.configure(
+                text="\u5916\u89b3\u3092\u5909\u66f4\u3057\u307e\u3057\u305f"
+            )
+
+        except Exception as exc:
+            messagebox.showerror(
+                "\u5916\u89b3\u8a2d\u5b9a",
+                (
+                    "\u30c6\u30fc\u30de\u8a2d\u5b9a\u3092"
+                    "\u4fdd\u5b58\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002\n\n"
+                    f"{exc}"
+                ),
+            )
+
 
     # ==================================================
     # Settings
@@ -507,6 +594,29 @@ class SettingsPage(ctk.CTkFrame):
             ),
         )
     
+        appearance_mode = str(
+            settings.get(
+                "appearance_mode",
+                "dark",
+            )
+        ).strip().lower()
+
+        if appearance_mode not in {
+            "light",
+            "dark",
+        }:
+            appearance_mode = "dark"
+
+        self.appearance_mode_var.set(
+            self._appearance_mode_to_label(
+                appearance_mode
+            )
+        )
+
+        ctk.set_appearance_mode(
+            appearance_mode
+        )
+
         self.prompt_text.delete("1.0", "end")
         self.prompt_text.insert(
             "1.0",
@@ -573,6 +683,9 @@ class SettingsPage(ctk.CTkFrame):
             "obs_password": password,
             "license_key": license_key,
             "license_status": self.license_status_label.cget("text"),
+            "appearance_mode": self._appearance_label_to_mode(
+                self.appearance_mode_var.get()
+            ),
             "analysis_interval": interval,
             "screenshot_path": screenshot_path,
             "ai_prompt": prompt,
@@ -685,6 +798,21 @@ class SettingsPage(ctk.CTkFrame):
             defaults["screenshot_path"],
         )
     
+        appearance_mode = defaults.get(
+            "appearance_mode",
+            "dark",
+        )
+
+        self.appearance_mode_var.set(
+            self._appearance_mode_to_label(
+                appearance_mode
+            )
+        )
+
+        ctk.set_appearance_mode(
+            appearance_mode
+        )
+
         self.prompt_text.delete("1.0", "end")
         self.prompt_text.insert(
             "1.0",
