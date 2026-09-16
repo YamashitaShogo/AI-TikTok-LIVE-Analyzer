@@ -16,7 +16,7 @@ class DashboardPage(ctk.CTkFrame):
     """Livemetry Pulse ダッシュボード完成版。"""
 
     DEFAULT_INTERVAL = 30
-    GRAPH_LIMIT = 20
+    GRAPH_LIMIT = 30
     SCREENSHOT_REFRESH_MS = 3000
     DASHBOARD_REFRESH_MS = 5000
 
@@ -639,37 +639,33 @@ class DashboardPage(ctk.CTkFrame):
         main.grid_columnconfigure(
             0,
             weight=3,
-            uniform="hero",
+            uniform="dashboard_top",
         )
         main.grid_columnconfigure(
             1,
             weight=2,
-            uniform="hero",
-        )
-        main.grid_rowconfigure(
-            0,
-            weight=1,
+            uniform="dashboard_top",
         )
 
-        self._build_screenshot_panel(main)
-        self._build_latest_panel(main)
         self._build_graph_panel(main)
+        self._build_latest_panel(main)
+        self._build_bottom_panels(main)
 
 
     def _build_graph_panel(self, parent):
         frame = ctk.CTkFrame(
             parent,
             corner_radius=18,
-            fg_color=("#FFFFFF", "#141C2B"),
+            fg_color="#FFFFFF",
             border_width=1,
-            border_color=("#E5E7EB", "#263244"),
+            border_color="#E7ECF4",
         )
         frame.grid(
-            row=1,
+            row=0,
             column=0,
-            columnspan=2,
             sticky="nsew",
-            pady=(0, 4),
+            padx=(0, 7),
+            pady=(0, 14),
         )
 
         header = ctk.CTkFrame(
@@ -682,35 +678,57 @@ class DashboardPage(ctk.CTkFrame):
             pady=(16, 8),
         )
 
-        ctk.CTkLabel(
+        title_row = ctk.CTkFrame(
             header,
-            text="SCORE TREND",
-            font=("Yu Gothic UI", 13, "bold"),
-            text_color=("#0F172A", "#F8FAFC"),
-        ).pack(
-            side="left"
+            fg_color="transparent",
+        )
+        title_row.pack(
+            side="left",
         )
 
         ctk.CTkLabel(
-            header,
-            text="\u76f4\u8fd1\u306e\u5206\u6790\u30b9\u30b3\u30a2",
-            font=("Yu Gothic UI", 10),
-            text_color=("#64748B", "#94A3B8"),
+            title_row,
+            text="\u25a5",
+            font=("Yu Gothic UI", 18, "bold"),
+            text_color="#7C5CFC",
         ).pack(
-            side="right"
+            side="left",
+            padx=(0, 8),
         )
 
-        canvas_bg = (
-            "#F8FAFC"
-            if ctk.get_appearance_mode() == "Light"
-            else "#0F172A"
+        ctk.CTkLabel(
+            title_row,
+            text="\u76f4\u8fd130\u56de\u306e\u30b9\u30b3\u30a2\u63a8\u79fb",
+            font=("Yu Gothic UI", 15, "bold"),
+            text_color="#132347",
+        ).pack(
+            side="left",
+        )
+
+        chip = ctk.CTkFrame(
+            header,
+            corner_radius=12,
+            fg_color="#F0ECFF",
+        )
+        chip.pack(
+            side="right",
+        )
+
+        ctk.CTkLabel(
+            chip,
+            text="\u30b9\u30b3\u30a2",
+            font=("Yu Gothic UI", 10, "bold"),
+            text_color="#7C5CFC",
+        ).pack(
+            padx=14,
+            pady=6,
         )
 
         self.graph_canvas = ctk.CTkCanvas(
             frame,
-            height=230,
+            height=255,
             highlightthickness=0,
-            bg=canvas_bg,
+            bg="#F8FAFC",
         )
         self.graph_canvas.pack(
             fill="both",
@@ -725,20 +743,20 @@ class DashboardPage(ctk.CTkFrame):
         )
 
 
-    def _build_screenshot_panel(self, parent):
+    def _build_latest_panel(self, parent):
         frame = ctk.CTkFrame(
             parent,
             corner_radius=18,
-            fg_color=("#FFFFFF", "#141C2B"),
+            fg_color="#FFFFFF",
             border_width=1,
-            border_color=("#E5E7EB", "#263244"),
+            border_color="#E7ECF4",
         )
         frame.grid(
             row=0,
-            column=0,
+            column=1,
             sticky="nsew",
-            padx=(0, 6),
-            pady=(0, 12),
+            padx=(7, 0),
+            pady=(0, 14),
         )
 
         header = ctk.CTkFrame(
@@ -753,132 +771,129 @@ class DashboardPage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             header,
-            text="LIVE PREVIEW",
-            font=("Yu Gothic UI", 13, "bold"),
-            text_color=("#0F172A", "#F8FAFC"),
+            text="\u2699",
+            font=("Yu Gothic UI", 16, "bold"),
+            text_color="#7C5CFC",
         ).pack(
-            side="left"
+            side="left",
+            padx=(0, 8),
         )
 
         ctk.CTkLabel(
             header,
-            text="OBS",
-            font=("Yu Gothic UI", 10, "bold"),
-            text_color=("#2563EB", "#60A5FA"),
+            text="\u6700\u65b0\u306e\u5206\u6790\u7d50\u679c",
+            font=("Yu Gothic UI", 15, "bold"),
+            text_color="#132347",
         ).pack(
-            side="right"
+            side="left",
         )
-
-        preview = ctk.CTkFrame(
-            frame,
-            corner_radius=14,
-            fg_color=("#F1F5F9", "#0B1120"),
-        )
-        preview.pack(
-            fill="both",
-            expand=True,
-            padx=16,
-            pady=(0, 16),
-        )
-
-        self.screenshot_label = ctk.CTkLabel(
-            preview,
-            text="\u30d7\u30ec\u30d3\u30e5\u30fc\u5f85\u6a5f\u4e2d",
-            height=340,
-            font=("Yu Gothic UI", 13),
-            text_color=("#64748B", "#94A3B8"),
-        )
-        self.screenshot_label.pack(
-            fill="both",
-            expand=True,
-            padx=8,
-            pady=8,
-        )
-
-
-
-
-    def _build_latest_panel(self, parent):
-        frame = ctk.CTkFrame(
-            parent,
-            corner_radius=18,
-            fg_color=("#FFFFFF", "#141C2B"),
-            border_width=1,
-            border_color=("#E5E7EB", "#263244"),
-        )
-        frame.grid(
-            row=0,
-            column=1,
-            sticky="nsew",
-            padx=(6, 0),
-            pady=(0, 12),
-        )
-
-        header = ctk.CTkFrame(
-            frame,
-            fg_color="transparent",
-        )
-        header.pack(
-            fill="x",
-            padx=18,
-            pady=(16, 4),
-        )
-
-        ctk.CTkLabel(
-            header,
-            text="AI LIVE INSIGHT",
-            font=("Yu Gothic UI", 13, "bold"),
-            text_color=("#2563EB", "#60A5FA"),
-        ).pack(side="left")
 
         self.latest_date = ctk.CTkLabel(
             header,
             text="--",
-            font=("Yu Gothic UI", 10),
-            text_color=("#64748B", "#94A3B8"),
+            font=("Yu Gothic UI", 9),
+            text_color="#8A97AD",
         )
-        self.latest_date.pack(side="right")
+        self.latest_date.pack(
+            side="right",
+        )
 
-        score_area = ctk.CTkFrame(
+        hero = ctk.CTkFrame(
             frame,
             fg_color="transparent",
         )
-        score_area.pack(
+        hero.pack(
             fill="x",
-            padx=18,
-            pady=(6, 8),
+            padx=16,
+            pady=(0, 10),
         )
 
-        ctk.CTkLabel(
-            score_area,
-            text="LIVE SCORE",
-            font=("Yu Gothic UI", 10, "bold"),
-            text_color=("#64748B", "#94A3B8"),
-        ).pack(anchor="w")
+        preview = ctk.CTkFrame(
+            hero,
+            width=235,
+            height=170,
+            corner_radius=14,
+            fg_color="#F1F5F9",
+        )
+        preview.pack(
+            side="left",
+            fill="both",
+            expand=True,
+            padx=(0, 12),
+        )
+        preview.pack_propagate(False)
 
-        number_row = ctk.CTkFrame(
-            score_area,
+        self.screenshot_label = ctk.CTkLabel(
+            preview,
+            text="\u30d7\u30ec\u30d3\u30e5\u30fc\u5f85\u6a5f\u4e2d",
+            font=("Yu Gothic UI", 11),
+            text_color="#71809C",
+        )
+        self.screenshot_label.pack(
+            fill="both",
+            expand=True,
+            padx=5,
+            pady=5,
+        )
+
+        summary = ctk.CTkFrame(
+            hero,
+            width=145,
             fg_color="transparent",
         )
-        number_row.pack(anchor="w")
-
-        self.latest_score = ctk.CTkLabel(
-            number_row,
-            text="--",
-            font=("Yu Gothic UI", 46, "bold"),
-            text_color=("#0F172A", "#F8FAFC"),
+        summary.pack(
+            side="right",
+            fill="y",
         )
-        self.latest_score.pack(side="left")
+        summary.pack_propagate(False)
 
         ctk.CTkLabel(
-            number_row,
-            text="/ 100",
-            font=("Yu Gothic UI", 17, "bold"),
-            text_color=("#94A3B8", "#64748B"),
+            summary,
+            text="\u30b9\u30b3\u30a2",
+            font=("Yu Gothic UI", 10, "bold"),
+            text_color="#F04483",
+        ).pack(
+            anchor="w",
+            pady=(5, 0),
+        )
+
+        score_row = ctk.CTkFrame(
+            summary,
+            fg_color="transparent",
+        )
+        score_row.pack(
+            anchor="w",
+        )
+
+        self.latest_score = ctk.CTkLabel(
+            score_row,
+            text="--",
+            font=("Yu Gothic UI", 36, "bold"),
+            text_color="#2F80ED",
+        )
+        self.latest_score.pack(
+            side="left",
+        )
+
+        ctk.CTkLabel(
+            score_row,
+            text="\u70b9",
+            font=("Yu Gothic UI", 15, "bold"),
+            text_color="#71809C",
         ).pack(
             side="left",
-            padx=(8, 0),
-            pady=(18, 0),
+            padx=(3, 0),
+            pady=(13, 0),
+        )
+
+        ctk.CTkLabel(
+            summary,
+            text="\u6700\u65b0\u306eAI\u5206\u6790",
+            font=("Yu Gothic UI", 9),
+            text_color="#8A97AD",
+        ).pack(
+            anchor="w",
+            pady=(8, 0),
         )
 
         insight_container = ctk.CTkFrame(
@@ -889,20 +904,16 @@ class DashboardPage(ctk.CTkFrame):
             fill="both",
             expand=True,
             padx=16,
-            pady=(0, 16),
+            pady=(0, 14),
         )
 
-        def make_insight_card(
-            title,
-            accent_light,
-            accent_dark,
-        ):
+        def make_insight_card(title, accent, background):
             card = ctk.CTkFrame(
                 insight_container,
-                corner_radius=12,
-                fg_color=("#F8FAFC", "#0F172A"),
+                corner_radius=11,
+                fg_color=background,
                 border_width=1,
-                border_color=("#E5E7EB", "#263244"),
+                border_color="#E7ECF4",
             )
             card.pack(
                 fill="x",
@@ -912,12 +923,12 @@ class DashboardPage(ctk.CTkFrame):
             ctk.CTkLabel(
                 card,
                 text=title,
-                font=("Yu Gothic UI", 11, "bold"),
-                text_color=(accent_light, accent_dark),
+                font=("Yu Gothic UI", 10, "bold"),
+                text_color=accent,
             ).pack(
                 anchor="w",
-                padx=14,
-                pady=(8, 3),
+                padx=11,
+                pady=(7, 2),
             )
 
             body = ctk.CTkLabel(
@@ -926,34 +937,317 @@ class DashboardPage(ctk.CTkFrame):
                 justify="left",
                 anchor="w",
                 wraplength=390,
-                font=("Yu Gothic UI", 11),
-                text_color=("#334155", "#E2E8F0"),
+                font=("Yu Gothic UI", 9),
+                text_color="#44516A",
             )
             body.pack(
                 fill="x",
-                padx=14,
-                pady=(0, 8),
+                padx=11,
+                pady=(0, 7),
             )
 
             return body
 
         self.insight_observation = make_insight_card(
             "\u2726  AI\u306e\u898b\u7acb\u3066",
-            "#2563EB",
-            "#60A5FA",
+            "#2F80ED",
+            "#F8FAFF",
         )
 
         self.insight_problem = make_insight_card(
             "\u25b3  \u6539\u5584\u30dd\u30a4\u30f3\u30c8",
             "#D97706",
-            "#FBBF24",
+            "#FFFBF3",
         )
 
         self.insight_action = make_insight_card(
             "\u2713  \u6b21\u306b\u3084\u308b\u3053\u3068",
             "#059669",
-            "#34D399",
+            "#F3FCF8",
         )
+
+
+    def _build_bottom_panels(self, parent):
+        bottom = ctk.CTkFrame(
+            parent,
+            fg_color="transparent",
+        )
+        bottom.grid(
+            row=1,
+            column=0,
+            columnspan=2,
+            sticky="ew",
+        )
+
+        for column in range(3):
+            bottom.grid_columnconfigure(
+                column,
+                weight=1,
+                uniform="dashboard_bottom",
+            )
+
+        high_card = self._create_ranking_card(
+            bottom,
+            0,
+            "\u2605  \u9ad8\u5f97\u70b9\u30e9\u30f3\u30ad\u30f3\u30b0",
+            "#F5A623",
+        )
+
+        low_card = self._create_ranking_card(
+            bottom,
+            1,
+            "\u25c7  \u6539\u5584\u512a\u5148\u30e9\u30f3\u30ad\u30f3\u30b0",
+            "#7C5CFC",
+        )
+
+        self.high_rank_labels = []
+        self.low_rank_labels = []
+
+        for index in range(5):
+            high_label = ctk.CTkLabel(
+                high_card,
+                text=f"{index + 1}\u4f4d   --",
+                anchor="w",
+                font=("Yu Gothic UI", 10, "bold"),
+                text_color="#44516A",
+            )
+            high_label.pack(
+                fill="x",
+                padx=15,
+                pady=3,
+            )
+            self.high_rank_labels.append(high_label)
+
+            low_label = ctk.CTkLabel(
+                low_card,
+                text=f"{index + 1}\u4f4d   --",
+                anchor="w",
+                font=("Yu Gothic UI", 10, "bold"),
+                text_color="#44516A",
+            )
+            low_label.pack(
+                fill="x",
+                padx=15,
+                pady=3,
+            )
+            self.low_rank_labels.append(low_label)
+
+        actions = ctk.CTkFrame(
+            bottom,
+            corner_radius=18,
+            fg_color="#FFFFFF",
+            border_width=1,
+            border_color="#E7ECF4",
+        )
+        actions.grid(
+            row=0,
+            column=2,
+            sticky="nsew",
+            padx=(7, 0),
+        )
+
+        action_header = ctk.CTkFrame(
+            actions,
+            fg_color="transparent",
+        )
+        action_header.pack(
+            fill="x",
+            padx=15,
+            pady=(14, 10),
+        )
+
+        ctk.CTkLabel(
+            action_header,
+            text="\u26a1  \u30af\u30a4\u30c3\u30af\u30a2\u30af\u30b7\u30e7\u30f3",
+            font=("Yu Gothic UI", 14, "bold"),
+            text_color="#132347",
+        ).pack(
+            anchor="w",
+        )
+
+        ctk.CTkButton(
+            actions,
+            text="\u25b6  AI\u5206\u6790\u3092\u958b\u59cb",
+            height=39,
+            corner_radius=11,
+            fg_color="#7C5CFC",
+            hover_color="#6847E8",
+            font=("Yu Gothic UI", 11, "bold"),
+            command=self.start_stream,
+        ).pack(
+            fill="x",
+            padx=15,
+            pady=(0, 7),
+        )
+
+        ctk.CTkButton(
+            actions,
+            text="\u21bb  \u30c7\u30fc\u30bf\u3092\u66f4\u65b0",
+            height=35,
+            corner_radius=10,
+            fg_color="#2F80ED",
+            hover_color="#256ED0",
+            font=("Yu Gothic UI", 10, "bold"),
+            command=lambda: self.refresh_dashboard(force=True),
+        ).pack(
+            fill="x",
+            padx=15,
+            pady=4,
+        )
+
+        ctk.CTkButton(
+            actions,
+            text="\u25a3  \u30cf\u30a4\u30e9\u30a4\u30c8\u4fdd\u5b58",
+            height=35,
+            corner_radius=10,
+            fg_color="transparent",
+            border_width=1,
+            border_color="#D8E0EC",
+            text_color="#44516A",
+            hover_color="#F4F7FC",
+            font=("Yu Gothic UI", 10, "bold"),
+            command=self.save_highlight_replay,
+        ).pack(
+            fill="x",
+            padx=15,
+            pady=(4, 14),
+        )
+
+
+    def _create_ranking_card(
+        self,
+        parent,
+        column,
+        title,
+        accent,
+    ):
+        card = ctk.CTkFrame(
+            parent,
+            corner_radius=18,
+            fg_color="#FFFFFF",
+            border_width=1,
+            border_color="#E7ECF4",
+        )
+        card.grid(
+            row=0,
+            column=column,
+            sticky="nsew",
+            padx=(
+                0 if column == 0 else 7,
+                7 if column < 2 else 0,
+            ),
+        )
+
+        header = ctk.CTkFrame(
+            card,
+            fg_color="transparent",
+        )
+        header.pack(
+            fill="x",
+            padx=15,
+            pady=(14, 9),
+        )
+
+        ctk.CTkLabel(
+            header,
+            text=title,
+            font=("Yu Gothic UI", 13, "bold"),
+            text_color="#132347",
+        ).pack(
+            side="left",
+        )
+
+        ctk.CTkLabel(
+            header,
+            text="\u30c7\u30fc\u30bf",
+            font=("Yu Gothic UI", 9, "bold"),
+            text_color=accent,
+        ).pack(
+            side="right",
+        )
+
+        return card
+
+
+    def _refresh_rankings(self):
+        try:
+            rows = self.history.get_all()
+        except Exception:
+            rows = []
+
+        valid_rows = []
+
+        for row in rows:
+            if len(row) <= 2:
+                continue
+
+            score = self._safe_score(row[2])
+
+            if score is None:
+                continue
+
+            valid_rows.append(
+                (
+                    score,
+                    row,
+                )
+            )
+
+        high_rows = sorted(
+            valid_rows,
+            key=lambda item: item[0],
+            reverse=True,
+        )[:5]
+
+        low_rows = sorted(
+            valid_rows,
+            key=lambda item: item[0],
+        )[:5]
+
+        def update(labels, ranked_rows):
+            for index, label in enumerate(labels):
+                if index >= len(ranked_rows):
+                    label.configure(
+                        text=f"{index + 1}\u4f4d   --"
+                    )
+                    continue
+
+                score, row = ranked_rows[index]
+
+                history_id = (
+                    row[0]
+                    if len(row) > 0
+                    else "--"
+                )
+
+                created_at = (
+                    str(row[1])
+                    if len(row) > 1
+                    else ""
+                )
+
+                if len(created_at) > 16:
+                    created_at = created_at[:16]
+
+                label.configure(
+                    text=(
+                        f"{index + 1}\u4f4d   "
+                        f"{score:g}\u70b9   "
+                        f"ID:{history_id}   "
+                        f"{created_at}"
+                    )
+                )
+
+        update(
+            self.high_rank_labels,
+            high_rows,
+        )
+
+        update(
+            self.low_rank_labels,
+            low_rows,
+        )
+
 
     def start_stream(self):
         try:
@@ -1207,6 +1501,8 @@ class DashboardPage(ctk.CTkFrame):
             self.today_value.configure(
                 text=f"{self._display_number(today)}回"
             )
+
+            self._refresh_rankings()
 
             latest_id = latest[0] if latest else None
             if force or latest_id != self._last_history_id:
