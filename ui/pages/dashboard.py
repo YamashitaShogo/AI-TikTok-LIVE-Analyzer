@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import customtkinter as ctk
-from PIL import Image
+from PIL import Image, ImageTk
 
 from core.auto_analyzer import AutoAnalyzer
 from core.history import HistoryDB
@@ -90,8 +90,23 @@ class DashboardPage(ctk.CTkFrame):
         header.grid_propagate(False)
 
         # -----------------------------------------
-        # Hero background
+        # Hero Canvas
         # -----------------------------------------
+
+        self.hero_canvas = ctk.CTkCanvas(
+            header,
+            highlightthickness=0,
+            bd=0,
+            bg="#F8FAFF",
+        )
+        self.hero_canvas.place(
+            x=1,
+            y=1,
+            relwidth=1,
+            relheight=1,
+            width=-2,
+            height=-2,
+        )
 
         hero_path = (
             Path(__file__).resolve()
@@ -100,123 +115,116 @@ class DashboardPage(ctk.CTkFrame):
             / "dashboard_hero.png"
         )
 
+        self._hero_source = None
+        self.hero_photo = None
+        self._hero_image_item = None
+
         if hero_path.exists():
             try:
-                hero_pil = Image.open(hero_path)
-
-                self.hero_image = ctk.CTkImage(
-                    light_image=hero_pil,
-                    dark_image=hero_pil,
-                    size=(1350, 145),
-                )
-
-                hero_background = ctk.CTkLabel(
-                    header,
-                    text="",
-                    image=self.hero_image,
-                )
-                hero_background.place(
-                    x=0,
-                    y=0,
-                    relwidth=1,
-                    relheight=1,
-                )
-
+                self._hero_source = Image.open(
+                    hero_path
+                ).convert("RGB")
             except Exception as exc:
                 print(
-                    "Dashboard hero error:",
+                    "Hero image load error:",
                     repr(exc),
                 )
 
+        def redraw_hero(event=None):
+            if not self.hero_canvas.winfo_exists():
+                return
+
+            width = max(
+                self.hero_canvas.winfo_width(),
+                500,
+            )
+            height = max(
+                self.hero_canvas.winfo_height(),
+                140,
+            )
+
+            self.hero_canvas.delete("all")
+
+            if self._hero_source is not None:
+                resized = self._hero_source.resize(
+                    (width, height),
+                    Image.Resampling.LANCZOS,
+                )
+
+                self.hero_photo = (
+                    ImageTk.PhotoImage(resized)
+                )
+
+                self.hero_canvas.create_image(
+                    0,
+                    0,
+                    image=self.hero_photo,
+                    anchor="nw",
+                )
+
+            # Title
+            self.hero_canvas.create_text(
+                24,
+                25,
+                text="\u30e9\u30a4\u30d6\u3092\u3001\u3082\u3063\u3068\u6570\u5b57\u3067\u5f37\u304f\u3002",
+                anchor="nw",
+                font=(
+                    "Yu Gothic UI",
+                    31,
+                    "bold",
+                ),
+                fill="#132347",
+            )
+
+            # Subtitle
+            self.hero_canvas.create_text(
+                24,
+                75,
+                text="AI\u3067\u914d\u4fe1\u3092\u5206\u6790\u3057\u3001\u3042\u306a\u305f\u306e\u6210\u9577\u3092\u30b5\u30dd\u30fc\u30c8\u3057\u307e\u3059\u3002",
+                anchor="nw",
+                font=(
+                    "Yu Gothic UI",
+                    13,
+                ),
+                fill="#71809C",
+            )
+
+            # Tagline
+            self.hero_canvas.create_text(
+                24,
+                111,
+                text="Analyze  /  Grow  /  Next Stage",
+                anchor="nw",
+                font=(
+                    "Yu Gothic UI",
+                    10,
+                    "bold",
+                ),
+                fill="#7C5CFC",
+            )
+
+        self.hero_canvas.bind(
+            "<Configure>",
+            redraw_hero,
+        )
+
         # -----------------------------------------
-        # Foreground content
+        # OBS chip
         # -----------------------------------------
-
-        overlay = ctk.CTkFrame(
-            header,
-            fg_color="transparent",
-        )
-        overlay.place(
-            x=0,
-            y=0,
-            relwidth=1,
-            relheight=1,
-        )
-
-        title_area = ctk.CTkFrame(
-            overlay,
-            fg_color="transparent",
-        )
-        title_area.pack(
-            side="left",
-            fill="y",
-            padx=24,
-            pady=19,
-        )
-
-        ctk.CTkLabel(
-            title_area,
-            text="\u30e9\u30a4\u30d6\u3092\u3001\u3082\u3063\u3068\u6570\u5b57\u3067\u5f37\u304f\u3002",
-            font=(
-                "Yu Gothic UI",
-                31,
-                "bold",
-            ),
-            text_color="#132347",
-        ).pack(
-            anchor="w",
-        )
-
-        ctk.CTkLabel(
-            title_area,
-            text="AI\u3067\u914d\u4fe1\u3092\u5206\u6790\u3057\u3001\u3042\u306a\u305f\u306e\u6210\u9577\u3092\u30b5\u30dd\u30fc\u30c8\u3057\u307e\u3059\u3002",
-            font=(
-                "Yu Gothic UI",
-                13,
-            ),
-            text_color="#71809C",
-        ).pack(
-            anchor="w",
-            pady=(4, 0),
-        )
-
-        ctk.CTkLabel(
-            title_area,
-            text="Analyze  /  Grow  /  Next Stage",
-            font=(
-                "Yu Gothic UI",
-                10,
-                "bold",
-            ),
-            text_color="#7C5CFC",
-        ).pack(
-            anchor="w",
-            pady=(12, 0),
-        )
-
-        # -----------------------------------------
-        # OBS status
-        # -----------------------------------------
-
-        status_area = ctk.CTkFrame(
-            overlay,
-            fg_color="transparent",
-        )
-        status_area.pack(
-            side="right",
-            anchor="ne",
-            padx=20,
-            pady=18,
-        )
 
         status_chip = ctk.CTkFrame(
-            status_area,
+            header,
             corner_radius=18,
             fg_color="#FFFFFF",
             border_width=1,
             border_color="#DDE6F5",
         )
-        status_chip.pack()
+        status_chip.place(
+            relx=1.0,
+            x=-20,
+            y=18,
+            anchor="ne",
+        )
 
         self.obs_status = ctk.CTkLabel(
             status_chip,
