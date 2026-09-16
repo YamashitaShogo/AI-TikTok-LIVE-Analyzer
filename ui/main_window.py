@@ -5,6 +5,7 @@ from pathlib import Path
 from tkinter import messagebox
 
 import customtkinter as ctk
+from PIL import Image
 
 from core.license_manager import LicenseManager
 from core.obs_client import OBSClient
@@ -120,29 +121,59 @@ class MainWindow(ctk.CTk):
             pady=(22, 8),
         )
 
-        logo_box = ctk.CTkFrame(
-            brand,
-            width=40,
-            height=40,
-            corner_radius=13,
-            fg_color=theme.PRIMARY,
+        logo_path = resource_path(
+            os.path.join(
+                "assets",
+                "LivemetryPulseMark.png",
+            )
         )
-        logo_box.pack(
-            side="left",
-            padx=(0, 10),
-        )
-        logo_box.pack_propagate(False)
 
-        ctk.CTkLabel(
-            logo_box,
-            text="\u25c9",
-            font=(theme.FONT_FAMILY, 21, "bold"),
-            text_color="#FFFFFF",
-        ).place(
-            relx=0.5,
-            rely=0.5,
-            anchor="center",
-        )
+        try:
+            logo_source = Image.open(
+                logo_path
+            )
+
+            self.brand_logo_image = ctk.CTkImage(
+                light_image=logo_source,
+                dark_image=logo_source,
+                size=(42, 42),
+            )
+
+            logo_widget = ctk.CTkLabel(
+                brand,
+                text="",
+                image=self.brand_logo_image,
+                width=44,
+                height=44,
+            )
+            logo_widget.pack(
+                side="left",
+                padx=(0, 10),
+            )
+
+        except Exception as exc:
+            print(
+                "Brand logo error:",
+                repr(exc),
+            )
+
+            ctk.CTkLabel(
+                brand,
+                text="LP",
+                width=42,
+                height=42,
+                corner_radius=12,
+                fg_color=theme.PRIMARY,
+                text_color="#FFFFFF",
+                font=(
+                    theme.FONT_FAMILY,
+                    13,
+                    "bold",
+                ),
+            ).pack(
+                side="left",
+                padx=(0, 10),
+            )
 
         brand_text = ctk.CTkFrame(
             brand,
