@@ -81,7 +81,7 @@ class DashboardPage(ctk.CTkFrame):
             column=0,
             sticky="ew",
             padx=28,
-            pady=(22, 12),
+            pady=(22, 14),
         )
         header.grid_columnconfigure(0, weight=1)
 
@@ -97,27 +97,28 @@ class DashboardPage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             title_area,
-            text="Dashboard",
-            font=("Yu Gothic UI", 30, "bold"),
-            text_color=("#0F172A", "#F8FAFC"),
+            text="\u30e9\u30a4\u30d6\u3092\u3001\u3082\u3063\u3068\u6570\u5b57\u3067\u5f37\u304f\u3002",
+            font=("Yu Gothic UI", 31, "bold"),
+            text_color="#132347",
         ).pack(
-            anchor="w"
+            anchor="w",
         )
 
         ctk.CTkLabel(
             title_area,
-            text="Live streaming intelligence",
+            text="AI\u3067\u914d\u4fe1\u3092\u5206\u6790\u3057\u3001\u3042\u306a\u305f\u306e\u6210\u9577\u3092\u30b5\u30dd\u30fc\u30c8\u3057\u307e\u3059\u3002",
             font=("Yu Gothic UI", 13),
-            text_color=("#64748B", "#94A3B8"),
+            text_color="#71809C",
         ).pack(
             anchor="w",
-            pady=(2, 0),
+            pady=(4, 0),
         )
 
         status_chip = ctk.CTkFrame(
             header,
-            corner_radius=16,
-            fg_color=("#EEF2FF", "#172554"),
+            height=38,
+            corner_radius=19,
+            fg_color="#EEF4FF",
         )
         status_chip.grid(
             row=0,
@@ -128,14 +129,13 @@ class DashboardPage(ctk.CTkFrame):
         self.obs_status = ctk.CTkLabel(
             status_chip,
             text="OBS  \u78ba\u8a8d\u4e2d",
-            font=("Yu Gothic UI", 12, "bold"),
-            text_color=("#1D4ED8", "#93C5FD"),
+            font=("Yu Gothic UI", 11, "bold"),
+            text_color="#367BF5",
         )
         self.obs_status.pack(
-            padx=14,
-            pady=8,
+            padx=16,
+            pady=9,
         )
-
 
 
     def _build_controls(self):
@@ -477,7 +477,7 @@ class DashboardPage(ctk.CTkFrame):
             row=0,
             column=0,
             sticky="ew",
-            pady=(0, 12),
+            pady=(0, 14),
         )
 
         for column in range(5):
@@ -490,32 +490,51 @@ class DashboardPage(ctk.CTkFrame):
         self.count_value = self._create_stat_card(
             stats,
             0,
-            "\u5206\u6790\u56de\u6570",
+            "\u7dcf\u5206\u6790\u56de\u6570",
             "0",
+            "#2F80ED",
+            "#EAF3FF",
+            "\u25b6",
         )
+
         self.average_value = self._create_stat_card(
             stats,
             1,
             "\u5e73\u5747\u30b9\u30b3\u30a2",
             "0",
+            "#7C5CFC",
+            "#F0ECFF",
+            "\u25a5",
         )
+
         self.max_value = self._create_stat_card(
             stats,
             2,
             "\u6700\u9ad8\u30b9\u30b3\u30a2",
             "0",
+            "#F04483",
+            "#FFF0F6",
+            "\u2605",
         )
+
         self.min_value = self._create_stat_card(
             stats,
             3,
             "\u6700\u4f4e\u30b9\u30b3\u30a2",
             "0",
+            "#66758F",
+            "#F0F3F7",
+            "!",
         )
+
         self.today_value = self._create_stat_card(
             stats,
             4,
             "\u4eca\u65e5\u306e\u5206\u6790",
             "0",
+            "#18B981",
+            "#EAFBF5",
+            "\u25a3",
         )
 
 
@@ -525,13 +544,17 @@ class DashboardPage(ctk.CTkFrame):
         column,
         title,
         value,
+        accent,
+        soft_color,
+        icon,
     ):
         card = ctk.CTkFrame(
             parent,
-            corner_radius=16,
-            fg_color=("#FFFFFF", "#141C2B"),
+            height=104,
+            corner_radius=18,
+            fg_color="#FFFFFF",
             border_width=1,
-            border_color=("#E5E7EB", "#263244"),
+            border_color="#E7ECF4",
         )
         card.grid(
             row=0,
@@ -542,28 +565,61 @@ class DashboardPage(ctk.CTkFrame):
                 0 if column == 4 else 5,
             ),
         )
+        card.grid_propagate(False)
+
+        top = ctk.CTkFrame(
+            card,
+            fg_color="transparent",
+        )
+        top.pack(
+            fill="x",
+            padx=14,
+            pady=(13, 2),
+        )
+
+        icon_box = ctk.CTkFrame(
+            top,
+            width=34,
+            height=34,
+            corner_radius=10,
+            fg_color=soft_color,
+        )
+        icon_box.pack(
+            side="left",
+            padx=(0, 9),
+        )
+        icon_box.pack_propagate(False)
 
         ctk.CTkLabel(
-            card,
+            icon_box,
+            text=icon,
+            font=("Yu Gothic UI", 15, "bold"),
+            text_color=accent,
+        ).place(
+            relx=0.5,
+            rely=0.5,
+            anchor="center",
+        )
+
+        ctk.CTkLabel(
+            top,
             text=title,
-            font=("Yu Gothic UI", 11, "bold"),
-            text_color=("#64748B", "#94A3B8"),
+            font=("Yu Gothic UI", 10, "bold"),
+            text_color="#71809C",
         ).pack(
-            anchor="w",
-            padx=16,
-            pady=(14, 3),
+            side="left",
         )
 
         value_label = ctk.CTkLabel(
             card,
             text=value,
-            font=("Yu Gothic UI", 26, "bold"),
-            text_color=("#0F172A", "#F8FAFC"),
+            font=("Yu Gothic UI", 25, "bold"),
+            text_color="#132347",
         )
         value_label.pack(
             anchor="w",
-            padx=16,
-            pady=(0, 14),
+            padx=14,
+            pady=(0, 10),
         )
 
         return value_label
