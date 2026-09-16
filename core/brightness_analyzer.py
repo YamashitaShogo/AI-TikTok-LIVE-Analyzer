@@ -31,6 +31,11 @@ class BrightnessAnalyzer:
                 sum(histogram[230:]) / total * 100
             )
 
+        is_black_screen = (
+            mean <= 8
+            and dark_ratio >= 98
+        )
+
         score = 20
 
         # Darkness
@@ -56,4 +61,5 @@ class BrightnessAnalyzer:
             "mean": round(mean, 2),
             "dark_ratio": round(dark_ratio, 2),
             "bright_ratio": round(bright_ratio, 2),
+            "is_black_screen": is_black_screen,
         }

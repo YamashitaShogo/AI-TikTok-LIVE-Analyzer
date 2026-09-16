@@ -28,9 +28,31 @@ class InformationAnalyzer:
             cv2.COLOR_BGR2GRAY,
         )
 
+        original_height, original_width = gray.shape[:2]
+
+        target_width = 720
+
+        scale = (
+            target_width
+            / float(original_width)
+        )
+
+        target_height = max(
+            1,
+            int(
+                round(
+                    original_height
+                    * scale
+                )
+            ),
+        )
+
         gray = cv2.resize(
             gray,
-            (720, 1280),
+            (
+                target_width,
+                target_height,
+            ),
             interpolation=cv2.INTER_AREA,
         )
 

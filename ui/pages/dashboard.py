@@ -56,7 +56,13 @@ class DashboardPage(ctk.CTkFrame):
     # UI
     # ==================================================
 
+
+
     def _build_ui(self):
+        self.configure(
+            fg_color=("#F5F7FB", "#0B1120")
+        )
+
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
 
@@ -64,92 +70,145 @@ class DashboardPage(ctk.CTkFrame):
         self._build_controls()
         self._build_content()
 
+
     def _build_header(self):
-        header = ctk.CTkFrame(self, fg_color="transparent")
+        header = ctk.CTkFrame(
+            self,
+            fg_color="transparent",
+        )
         header.grid(
             row=0,
             column=0,
             sticky="ew",
-            padx=20,
-            pady=(18, 8),
+            padx=28,
+            pady=(22, 12),
         )
-        header.grid_columnconfigure(1, weight=1)
+        header.grid_columnconfigure(0, weight=1)
+
+        title_area = ctk.CTkFrame(
+            header,
+            fg_color="transparent",
+        )
+        title_area.grid(
+            row=0,
+            column=0,
+            sticky="w",
+        )
 
         ctk.CTkLabel(
-            header,
-            text="📊 Livemetry Pulse Dashboard",
-            font=("Yu Gothic UI", 24, "bold"),
-        ).grid(row=0, column=0, sticky="w")
-
-        self.obs_status = ctk.CTkLabel(
-            header,
-            text="📡 OBS状態：確認中",
-            font=("Yu Gothic UI", 14, "bold"),
+            title_area,
+            text="Dashboard",
+            font=("Yu Gothic UI", 30, "bold"),
+            text_color=("#0F172A", "#F8FAFC"),
+        ).pack(
+            anchor="w"
         )
-        self.obs_status.grid(
+
+        ctk.CTkLabel(
+            title_area,
+            text="Live streaming intelligence",
+            font=("Yu Gothic UI", 13),
+            text_color=("#64748B", "#94A3B8"),
+        ).pack(
+            anchor="w",
+            pady=(2, 0),
+        )
+
+        status_chip = ctk.CTkFrame(
+            header,
+            corner_radius=16,
+            fg_color=("#EEF2FF", "#172554"),
+        )
+        status_chip.grid(
             row=0,
-            column=2,
+            column=1,
             sticky="e",
         )
 
+        self.obs_status = ctk.CTkLabel(
+            status_chip,
+            text="OBS  \u78ba\u8a8d\u4e2d",
+            font=("Yu Gothic UI", 12, "bold"),
+            text_color=("#1D4ED8", "#93C5FD"),
+        )
+        self.obs_status.pack(
+            padx=14,
+            pady=8,
+        )
+
+
+
     def _build_controls(self):
-        controls = ctk.CTkFrame(self)
+        controls = ctk.CTkFrame(
+            self,
+            corner_radius=18,
+            fg_color=("#FFFFFF", "#141C2B"),
+            border_width=1,
+            border_color=("#E5E7EB", "#263244"),
+        )
         controls.grid(
             row=1,
             column=0,
             sticky="ew",
-            padx=20,
-            pady=(0, 10),
+            padx=28,
+            pady=(0, 14),
         )
+
         controls.grid_columnconfigure(1, weight=1)
         controls.grid_columnconfigure(3, weight=1)
 
         ctk.CTkLabel(
             controls,
-            text="配信タイトル",
-            font=("Yu Gothic UI", 13, "bold"),
+            text="\u914d\u4fe1\u30bf\u30a4\u30c8\u30eb",
+            font=("Yu Gothic UI", 12, "bold"),
+            text_color=("#475569", "#CBD5E1"),
         ).grid(
             row=0,
             column=0,
             sticky="w",
-            padx=(14, 8),
-            pady=(12, 4),
+            padx=(18, 8),
+            pady=(15, 5),
         )
 
         self.title_entry = ctk.CTkEntry(
             controls,
-            placeholder_text="例：雑談LIVE",
+            placeholder_text="\u4f8b\uff1a\u591c\u306eLIVE\u914d\u4fe1",
+            height=36,
+            corner_radius=10,
         )
         self.title_entry.grid(
             row=0,
             column=1,
             sticky="ew",
-            padx=(0, 16),
-            pady=(12, 4),
+            padx=(0, 18),
+            pady=(15, 5),
         )
 
         ctk.CTkLabel(
             controls,
-            text="TikTokユーザー名",
-            font=("Yu Gothic UI", 13, "bold"),
+            text="TikTok",
+            font=("Yu Gothic UI", 12, "bold"),
+            text_color=("#475569", "#CBD5E1"),
         ).grid(
             row=0,
             column=2,
             sticky="w",
             padx=(0, 8),
-            pady=(12, 4),
+            pady=(15, 5),
         )
 
         self.username_entry = ctk.CTkEntry(
             controls,
             placeholder_text="@username",
+            height=36,
+            corner_radius=10,
         )
         self.username_entry.grid(
             row=0,
             column=3,
             sticky="ew",
-            padx=(0, 14),
-            pady=(12, 4),
+            padx=(0, 18),
+            pady=(15, 5),
         )
 
         button_row = ctk.CTkFrame(
@@ -160,46 +219,152 @@ class DashboardPage(ctk.CTkFrame):
             row=1,
             column=0,
             columnspan=4,
-            pady=(8, 12),
+            sticky="ew",
+            padx=18,
+            pady=(8, 8),
         )
 
         self.start_button = ctk.CTkButton(
             button_row,
-            text="▶ AI分析開始",
+            text="\u25b6  LIVE ANALYSIS",
             width=170,
             height=38,
+            corner_radius=10,
+            fg_color=("#2563EB", "#3B82F6"),
+            hover_color=("#1D4ED8", "#2563EB"),
+            font=("Yu Gothic UI", 12, "bold"),
             command=self.start_stream,
         )
-        self.start_button.pack(side="left", padx=6)
+        self.start_button.pack(
+            side="left",
+            padx=(0, 8),
+        )
 
         self.stop_button = ctk.CTkButton(
             button_row,
-            text="■ AI分析停止",
-            width=170,
+            text="\u25a0  STOP",
+            width=100,
             height=38,
+            corner_radius=10,
             state="disabled",
-            fg_color="#B91C1C",
-            hover_color="#991B1B",
+            fg_color=("#DC2626", "#EF4444"),
+            hover_color=("#B91C1C", "#DC2626"),
+            font=("Yu Gothic UI", 12, "bold"),
             command=self.stop_stream,
         )
-        self.stop_button.pack(side="left", padx=6)
+        self.stop_button.pack(
+            side="left",
+            padx=4,
+        )
 
         ctk.CTkButton(
             button_row,
-            text="🔄 今すぐ更新",
-            width=150,
+            text="\u66f4\u65b0",
+            width=90,
             height=38,
-            command=lambda: self.refresh_dashboard(force=True),
-        ).pack(side="left", padx=6)
+            corner_radius=10,
+            fg_color="transparent",
+            border_width=1,
+            border_color=("#CBD5E1", "#475569"),
+            text_color=("#334155", "#E2E8F0"),
+            hover_color=("#F1F5F9", "#1E293B"),
+            command=lambda: self.refresh_dashboard(
+                force=True
+            ),
+        ).pack(
+            side="left",
+            padx=4,
+        )
 
         self.highlight_button = ctk.CTkButton(
             button_row,
-            text="🔥 盛り上がり保存",
-            width=170,
+            text="\u30cf\u30a4\u30e9\u30a4\u30c8\u4fdd\u5b58",
+            width=140,
             height=38,
+            corner_radius=10,
+            fg_color="transparent",
+            border_width=1,
+            border_color=("#CBD5E1", "#475569"),
+            text_color=("#334155", "#E2E8F0"),
+            hover_color=("#F1F5F9", "#1E293B"),
             command=self.save_highlight_replay,
         )
-        self.highlight_button.pack(side="left", padx=6)    
+        self.highlight_button.pack(
+            side="left",
+            padx=4,
+        )
+
+        # Analysis status
+        status_row = ctk.CTkFrame(
+            controls,
+            fg_color="transparent",
+        )
+        status_row.grid(
+            row=2,
+            column=0,
+            columnspan=4,
+            sticky="ew",
+            padx=18,
+            pady=(4, 6),
+        )
+        status_row.grid_columnconfigure(0, weight=1)
+
+        self.status = ctk.CTkLabel(
+            status_row,
+            text="\u5f85\u6a5f\u4e2d",
+            font=("Yu Gothic UI", 12, "bold"),
+            text_color=("#0F172A", "#F8FAFC"),
+        )
+        self.status.grid(
+            row=0,
+            column=0,
+            sticky="w",
+        )
+
+        self.countdown_label = ctk.CTkLabel(
+            status_row,
+            text="\u6b21\u306e\u5206\u6790\u307e\u3067 -- \u79d2",
+            font=("Yu Gothic UI", 11),
+            text_color=("#64748B", "#94A3B8"),
+        )
+        self.countdown_label.grid(
+            row=0,
+            column=1,
+            sticky="e",
+        )
+
+        self.score_progress = ctk.CTkProgressBar(
+            controls,
+            height=5,
+            corner_radius=3,
+            progress_color=("#2563EB", "#60A5FA"),
+            fg_color=("#E2E8F0", "#293548"),
+        )
+        self.score_progress.grid(
+            row=3,
+            column=0,
+            columnspan=4,
+            sticky="ew",
+            padx=18,
+            pady=(0, 5),
+        )
+        self.score_progress.set(0)
+
+        self.score_gauge_label = ctk.CTkLabel(
+            controls,
+            text="\u6700\u65b0\u30b9\u30b3\u30a2  -- / 100",
+            font=("Yu Gothic UI", 10, "bold"),
+            text_color=("#64748B", "#94A3B8"),
+        )
+        self.score_gauge_label.grid(
+            row=4,
+            column=0,
+            columnspan=4,
+            sticky="e",
+            padx=18,
+            pady=(0, 12),
+        )
+
 
     def _build_content(self):
         content = ctk.CTkScrollableFrame(
@@ -210,70 +375,98 @@ class DashboardPage(ctk.CTkFrame):
             row=2,
             column=0,
             sticky="nsew",
-            padx=20,
-            pady=(0, 18),
+            padx=28,
+            pady=(0, 24),
         )
         content.grid_columnconfigure(0, weight=1)
 
-        self._build_status_panel(content)
         self._build_stats(content)
         self._build_main_panel(content)
 
     def _build_status_panel(self, parent):
-        panel = ctk.CTkFrame(parent)
+        panel = ctk.CTkFrame(
+            parent,
+            corner_radius=16,
+            fg_color=("#FFFFFF", "#141C2B"),
+            border_width=1,
+            border_color=("#E5E7EB", "#263244"),
+        )
         panel.grid(
             row=0,
             column=0,
             sticky="ew",
-            pady=(0, 10),
+            pady=(0, 12),
         )
+
         panel.grid_columnconfigure(0, weight=1)
 
-        self.status = ctk.CTkLabel(
+        text_area = ctk.CTkFrame(
             panel,
-            text="ステータス：待機中",
-            font=("Yu Gothic UI", 15, "bold"),
+            fg_color="transparent",
+        )
+        text_area.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=18,
+            pady=(13, 8),
+        )
+        text_area.grid_columnconfigure(0, weight=1)
+
+        self.status = ctk.CTkLabel(
+            text_area,
+            text="\u5f85\u6a5f\u4e2d",
+            font=("Yu Gothic UI", 14, "bold"),
+            text_color=("#0F172A", "#F8FAFC"),
         )
         self.status.grid(
             row=0,
             column=0,
-            pady=(12, 4),
+            sticky="w",
         )
 
         self.countdown_label = ctk.CTkLabel(
-            panel,
-            text="次の分析まで：--秒",
-            font=("Yu Gothic UI", 13),
+            text_area,
+            text="\u6b21\u306e\u5206\u6790\u307e\u3067 -- \u79d2",
+            font=("Yu Gothic UI", 12),
+            text_color=("#64748B", "#94A3B8"),
         )
         self.countdown_label.grid(
-            row=1,
-            column=0,
-            pady=(0, 6),
+            row=0,
+            column=1,
+            sticky="e",
         )
 
         self.score_progress = ctk.CTkProgressBar(
             panel,
-            height=14,
+            height=7,
+            corner_radius=4,
+            progress_color=("#2563EB", "#60A5FA"),
+            fg_color=("#E2E8F0", "#293548"),
         )
         self.score_progress.grid(
-            row=2,
+            row=1,
             column=0,
             sticky="ew",
-            padx=50,
-            pady=(4, 4),
+            padx=18,
+            pady=(0, 8),
         )
         self.score_progress.set(0)
 
         self.score_gauge_label = ctk.CTkLabel(
             panel,
-            text="最新スコア：-- / 100",
-            font=("Yu Gothic UI", 13, "bold"),
+            text="\u6700\u65b0\u30b9\u30b3\u30a2  -- / 100",
+            font=("Yu Gothic UI", 11, "bold"),
+            text_color=("#64748B", "#94A3B8"),
         )
         self.score_gauge_label.grid(
-            row=3,
+            row=2,
             column=0,
-            pady=(0, 12),
+            sticky="e",
+            padx=18,
+            pady=(0, 11),
         )
+
 
     def _build_stats(self, parent):
         stats = ctk.CTkFrame(
@@ -281,57 +474,100 @@ class DashboardPage(ctk.CTkFrame):
             fg_color="transparent",
         )
         stats.grid(
-            row=1,
+            row=0,
             column=0,
             sticky="ew",
-            pady=(0, 10),
+            pady=(0, 12),
         )
 
         for column in range(5):
-            stats.grid_columnconfigure(column, weight=1)
+            stats.grid_columnconfigure(
+                column,
+                weight=1,
+                uniform="stats",
+            )
 
         self.count_value = self._create_stat_card(
-            stats, 0, "📊 総分析", "0回"
+            stats,
+            0,
+            "\u5206\u6790\u56de\u6570",
+            "0",
         )
         self.average_value = self._create_stat_card(
-            stats, 1, "⭐ 平均", "0点"
+            stats,
+            1,
+            "\u5e73\u5747\u30b9\u30b3\u30a2",
+            "0",
         )
         self.max_value = self._create_stat_card(
-            stats, 2, "🏆 最高", "0点"
+            stats,
+            2,
+            "\u6700\u9ad8\u30b9\u30b3\u30a2",
+            "0",
         )
         self.min_value = self._create_stat_card(
-            stats, 3, "📉 最低", "0点"
+            stats,
+            3,
+            "\u6700\u4f4e\u30b9\u30b3\u30a2",
+            "0",
         )
         self.today_value = self._create_stat_card(
-            stats, 4, "📅 今日", "0回"
+            stats,
+            4,
+            "\u4eca\u65e5\u306e\u5206\u6790",
+            "0",
         )
 
-    def _create_stat_card(self, parent, column, title, value):
+
+    def _create_stat_card(
+        self,
+        parent,
+        column,
+        title,
+        value,
+    ):
         card = ctk.CTkFrame(
             parent,
-            corner_radius=12,
+            corner_radius=16,
+            fg_color=("#FFFFFF", "#141C2B"),
+            border_width=1,
+            border_color=("#E5E7EB", "#263244"),
         )
         card.grid(
             row=0,
             column=column,
             sticky="nsew",
-            padx=4,
+            padx=(
+                0 if column == 0 else 5,
+                0 if column == 4 else 5,
+            ),
         )
 
         ctk.CTkLabel(
             card,
             text=title,
-            font=("Yu Gothic UI", 13, "bold"),
-        ).pack(pady=(12, 2))
+            font=("Yu Gothic UI", 11, "bold"),
+            text_color=("#64748B", "#94A3B8"),
+        ).pack(
+            anchor="w",
+            padx=16,
+            pady=(14, 3),
+        )
 
         value_label = ctk.CTkLabel(
             card,
             text=value,
-            font=("Yu Gothic UI", 25, "bold"),
+            font=("Yu Gothic UI", 26, "bold"),
+            text_color=("#0F172A", "#F8FAFC"),
         )
-        value_label.pack(pady=(0, 12))
+        value_label.pack(
+            anchor="w",
+            padx=16,
+            pady=(0, 14),
+        )
 
         return value_label
+
 
     def _build_main_panel(self, parent):
         main = ctk.CTkFrame(
@@ -339,93 +575,45 @@ class DashboardPage(ctk.CTkFrame):
             fg_color="transparent",
         )
         main.grid(
-            row=2,
+            row=1,
             column=0,
             sticky="nsew",
         )
-        main.grid_columnconfigure(0, weight=1)
-        main.grid_columnconfigure(1, weight=1)
 
-        self._build_graph_panel(main)
+        main.grid_columnconfigure(
+            0,
+            weight=3,
+            uniform="hero",
+        )
+        main.grid_columnconfigure(
+            1,
+            weight=2,
+            uniform="hero",
+        )
+        main.grid_rowconfigure(
+            0,
+            weight=1,
+        )
+
         self._build_screenshot_panel(main)
         self._build_latest_panel(main)
+        self._build_graph_panel(main)
+
 
     def _build_graph_panel(self, parent):
-        frame = ctk.CTkFrame(parent)
-        frame.grid(
-            row=0,
-            column=0,
-            sticky="nsew",
-            padx=(0, 5),
-            pady=(0, 10),
+        frame = ctk.CTkFrame(
+            parent,
+            corner_radius=18,
+            fg_color=("#FFFFFF", "#141C2B"),
+            border_width=1,
+            border_color=("#E5E7EB", "#263244"),
         )
-
-        ctk.CTkLabel(
-            frame,
-            text="📈 直近スコア推移",
-            font=("Yu Gothic UI", 17, "bold"),
-        ).pack(
-            anchor="w",
-            padx=14,
-            pady=(12, 6),
-        )
-
-        self.graph_canvas = ctk.CTkCanvas(
-            frame,
-            height=260,
-            highlightthickness=0,
-            bg="#242424",
-        )
-        self.graph_canvas.pack(
-            fill="both",
-            expand=True,
-            padx=14,
-            pady=(0, 14),
-        )
-        self.graph_canvas.bind(
-            "<Configure>",
-            lambda _event: self._draw_score_graph(),
-        )
-
-    def _build_screenshot_panel(self, parent):
-        frame = ctk.CTkFrame(parent)
-        frame.grid(
-            row=0,
-            column=1,
-            sticky="nsew",
-            padx=(5, 0),
-            pady=(0, 10),
-        )
-
-        ctk.CTkLabel(
-            frame,
-            text="🖼 最新スクリーンショット",
-            font=("Yu Gothic UI", 17, "bold"),
-        ).pack(
-            anchor="w",
-            padx=14,
-            pady=(12, 6),
-        )
-
-        self.screenshot_label = ctk.CTkLabel(
-            frame,
-            text="画像がまだありません",
-            height=260,
-        )
-        self.screenshot_label.pack(
-            fill="both",
-            expand=True,
-            padx=14,
-            pady=(0, 14),
-        )
-
-    def _build_latest_panel(self, parent):
-        frame = ctk.CTkFrame(parent)
         frame.grid(
             row=1,
             column=0,
             columnspan=2,
             sticky="nsew",
+            pady=(0, 4),
         )
 
         header = ctk.CTkFrame(
@@ -434,54 +622,282 @@ class DashboardPage(ctk.CTkFrame):
         )
         header.pack(
             fill="x",
-            padx=14,
-            pady=(12, 6),
+            padx=18,
+            pady=(16, 8),
         )
 
         ctk.CTkLabel(
             header,
-            text="📋 最新のAI分析結果",
-            font=("Yu Gothic UI", 17, "bold"),
+            text="SCORE TREND",
+            font=("Yu Gothic UI", 13, "bold"),
+            text_color=("#0F172A", "#F8FAFC"),
+        ).pack(
+            side="left"
+        )
+
+        ctk.CTkLabel(
+            header,
+            text="\u76f4\u8fd1\u306e\u5206\u6790\u30b9\u30b3\u30a2",
+            font=("Yu Gothic UI", 10),
+            text_color=("#64748B", "#94A3B8"),
+        ).pack(
+            side="right"
+        )
+
+        canvas_bg = (
+            "#F8FAFC"
+            if ctk.get_appearance_mode() == "Light"
+            else "#0F172A"
+        )
+
+        self.graph_canvas = ctk.CTkCanvas(
+            frame,
+            height=230,
+            highlightthickness=0,
+            bg=canvas_bg,
+        )
+        self.graph_canvas.pack(
+            fill="both",
+            expand=True,
+            padx=16,
+            pady=(0, 16),
+        )
+
+        self.graph_canvas.bind(
+            "<Configure>",
+            lambda _event: self._draw_score_graph(),
+        )
+
+
+    def _build_screenshot_panel(self, parent):
+        frame = ctk.CTkFrame(
+            parent,
+            corner_radius=18,
+            fg_color=("#FFFFFF", "#141C2B"),
+            border_width=1,
+            border_color=("#E5E7EB", "#263244"),
+        )
+        frame.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+            padx=(0, 6),
+            pady=(0, 12),
+        )
+
+        header = ctk.CTkFrame(
+            frame,
+            fg_color="transparent",
+        )
+        header.pack(
+            fill="x",
+            padx=18,
+            pady=(16, 10),
+        )
+
+        ctk.CTkLabel(
+            header,
+            text="LIVE PREVIEW",
+            font=("Yu Gothic UI", 13, "bold"),
+            text_color=("#0F172A", "#F8FAFC"),
+        ).pack(
+            side="left"
+        )
+
+        ctk.CTkLabel(
+            header,
+            text="OBS",
+            font=("Yu Gothic UI", 10, "bold"),
+            text_color=("#2563EB", "#60A5FA"),
+        ).pack(
+            side="right"
+        )
+
+        preview = ctk.CTkFrame(
+            frame,
+            corner_radius=14,
+            fg_color=("#F1F5F9", "#0B1120"),
+        )
+        preview.pack(
+            fill="both",
+            expand=True,
+            padx=16,
+            pady=(0, 16),
+        )
+
+        self.screenshot_label = ctk.CTkLabel(
+            preview,
+            text="\u30d7\u30ec\u30d3\u30e5\u30fc\u5f85\u6a5f\u4e2d",
+            height=340,
+            font=("Yu Gothic UI", 13),
+            text_color=("#64748B", "#94A3B8"),
+        )
+        self.screenshot_label.pack(
+            fill="both",
+            expand=True,
+            padx=8,
+            pady=8,
+        )
+
+
+
+
+    def _build_latest_panel(self, parent):
+        frame = ctk.CTkFrame(
+            parent,
+            corner_radius=18,
+            fg_color=("#FFFFFF", "#141C2B"),
+            border_width=1,
+            border_color=("#E5E7EB", "#263244"),
+        )
+        frame.grid(
+            row=0,
+            column=1,
+            sticky="nsew",
+            padx=(6, 0),
+            pady=(0, 12),
+        )
+
+        header = ctk.CTkFrame(
+            frame,
+            fg_color="transparent",
+        )
+        header.pack(
+            fill="x",
+            padx=18,
+            pady=(16, 4),
+        )
+
+        ctk.CTkLabel(
+            header,
+            text="AI LIVE INSIGHT",
+            font=("Yu Gothic UI", 13, "bold"),
+            text_color=("#2563EB", "#60A5FA"),
         ).pack(side="left")
 
         self.latest_date = ctk.CTkLabel(
             header,
-            text="日時：--",
+            text="--",
+            font=("Yu Gothic UI", 10),
+            text_color=("#64748B", "#94A3B8"),
         )
-        self.latest_date.pack(
-            side="right",
+        self.latest_date.pack(side="right")
+
+        score_area = ctk.CTkFrame(
+            frame,
+            fg_color="transparent",
         )
+        score_area.pack(
+            fill="x",
+            padx=18,
+            pady=(6, 8),
+        )
+
+        ctk.CTkLabel(
+            score_area,
+            text="LIVE SCORE",
+            font=("Yu Gothic UI", 10, "bold"),
+            text_color=("#64748B", "#94A3B8"),
+        ).pack(anchor="w")
+
+        number_row = ctk.CTkFrame(
+            score_area,
+            fg_color="transparent",
+        )
+        number_row.pack(anchor="w")
 
         self.latest_score = ctk.CTkLabel(
-            frame,
-            text="スコア：--",
-            font=("Yu Gothic UI", 15, "bold"),
+            number_row,
+            text="--",
+            font=("Yu Gothic UI", 46, "bold"),
+            text_color=("#0F172A", "#F8FAFC"),
         )
-        self.latest_score.pack(
-            anchor="w",
-            padx=14,
-            pady=(0, 4),
+        self.latest_score.pack(side="left")
+
+        ctk.CTkLabel(
+            number_row,
+            text="/ 100",
+            font=("Yu Gothic UI", 17, "bold"),
+            text_color=("#94A3B8", "#64748B"),
+        ).pack(
+            side="left",
+            padx=(8, 0),
+            pady=(18, 0),
         )
 
-        self.latest_text = ctk.CTkTextbox(
+        insight_container = ctk.CTkFrame(
             frame,
-            height=220,
-            wrap="word",
+            fg_color="transparent",
         )
-        self.latest_text.pack(
+        insight_container.pack(
             fill="both",
             expand=True,
-            padx=14,
-            pady=(0, 14),
-        )
-        self._set_textbox(
-            self.latest_text,
-            "まだ分析履歴がありません。",
+            padx=16,
+            pady=(0, 16),
         )
 
-    # ==================================================
-    # Start / stop
-    # ==================================================
+        def make_insight_card(
+            title,
+            accent_light,
+            accent_dark,
+        ):
+            card = ctk.CTkFrame(
+                insight_container,
+                corner_radius=12,
+                fg_color=("#F8FAFC", "#0F172A"),
+                border_width=1,
+                border_color=("#E5E7EB", "#263244"),
+            )
+            card.pack(
+                fill="x",
+                pady=3,
+            )
+
+            ctk.CTkLabel(
+                card,
+                text=title,
+                font=("Yu Gothic UI", 11, "bold"),
+                text_color=(accent_light, accent_dark),
+            ).pack(
+                anchor="w",
+                padx=14,
+                pady=(8, 3),
+            )
+
+            body = ctk.CTkLabel(
+                card,
+                text="--",
+                justify="left",
+                anchor="w",
+                wraplength=390,
+                font=("Yu Gothic UI", 11),
+                text_color=("#334155", "#E2E8F0"),
+            )
+            body.pack(
+                fill="x",
+                padx=14,
+                pady=(0, 8),
+            )
+
+            return body
+
+        self.insight_observation = make_insight_card(
+            "\u2726  AI\u306e\u898b\u7acb\u3066",
+            "#2563EB",
+            "#60A5FA",
+        )
+
+        self.insight_problem = make_insight_card(
+            "\u25b3  \u6539\u5584\u30dd\u30a4\u30f3\u30c8",
+            "#D97706",
+            "#FBBF24",
+        )
+
+        self.insight_action = make_insight_card(
+            "\u2713  \u6b21\u306b\u3084\u308b\u3053\u3068",
+            "#059669",
+            "#34D399",
+        )
 
     def start_stream(self):
         try:
@@ -748,57 +1164,180 @@ class DashboardPage(ctk.CTkFrame):
                 repr(exc),
             )
 
+
+
+    @staticmethod
+    def _compact_insight_text(value, max_chars=110):
+        value = str(value or "").strip()
+
+        value = " ".join(
+            line.strip()
+            for line in value.splitlines()
+            if line.strip()
+        )
+
+        if value.startswith("1."):
+            value = value[2:].strip()
+
+        if len(value) <= max_chars:
+            return value
+
+        return value[:max_chars].rstrip() + "?"
+
+    @staticmethod
+    def _parse_analysis_sections(result):
+        text = str(result or "").strip()
+
+        if not text:
+            return {
+                "observation": "\u5206\u6790\u7d50\u679c\u306f\u3042\u308a\u307e\u305b\u3093\u3002",
+                "problem": "--",
+                "action": "--",
+            }
+
+        sections = {}
+        current = None
+        buffer = []
+
+        def flush():
+            nonlocal buffer
+
+            if current is not None:
+                value = "\n".join(buffer).strip()
+                if value:
+                    sections[current] = value
+
+            buffer = []
+
+        for line in text.splitlines():
+            stripped = line.strip()
+
+            if (
+                stripped.startswith("\u3010")
+                and stripped.endswith("\u3011")
+            ):
+                flush()
+                current = stripped[1:-1]
+                continue
+
+            buffer.append(line)
+
+        flush()
+
+        observation = (
+            sections.get("\u826f\u3044\u70b9")
+            or sections.get("\u72b6\u614b")
+            or sections.get("AI\u306b\u3088\u308b\u753b\u9762\u5206\u6790")
+            or text
+        )
+
+        problem = (
+            sections.get("\u6539\u5584\u70b9")
+            or sections.get("\u5206\u6790\u7406\u7531")
+            or "--"
+        )
+
+        action = (
+            sections.get("\u3059\u3050\u5b9f\u884c\u3067\u304d\u308b\u6539\u5584\u6848")
+            or sections.get("\u6700\u512a\u5148\u306e\u6539\u5584")
+            or "--"
+        )
+
+        return {
+            "observation": observation.strip(),
+            "problem": problem.strip(),
+            "action": action.strip(),
+        }
+
     def _update_latest_result(self, latest):
         if latest:
             created_at = latest[1]
             score = latest[2]
+
             result = (
                 latest[4]
                 if len(latest) > 4
-                else "分析結果を取得できませんでした。"
-            )
-
-            score_text = "--" if score is None else str(score)
-
-            self.latest_date.configure(
-                text=f"日時：{created_at}"
-            )
-            self.latest_score.configure(
-                text=f"スコア：{score_text} 点"
-            )
-            self._set_textbox(
-                self.latest_text,
-                result or "分析結果が空です。",
+                else ""
             )
 
             numeric_score = self._safe_score(score)
+
+            self.latest_date.configure(
+                text=str(created_at)
+            )
+
+            self.latest_score.configure(
+                text=(
+                    "--"
+                    if numeric_score is None
+                    else f"{numeric_score:g}"
+                )
+            )
+
+            sections = self._parse_analysis_sections(
+                result
+            )
+
+            self.insight_observation.configure(
+                text=self._compact_insight_text(
+                    sections["observation"]
+                )
+            )
+
+            self.insight_problem.configure(
+                text=self._compact_insight_text(
+                    sections["problem"]
+                )
+            )
+
+            self.insight_action.configure(
+                text=self._compact_insight_text(
+                    sections["action"]
+                )
+            )
+
             if numeric_score is None:
                 self.score_progress.set(0)
                 self.score_gauge_label.configure(
-                    text="最新スコア：-- / 100"
+                    text="\u6700\u65b0\u30b9\u30b3\u30a2  -- / 100"
                 )
             else:
                 self.score_progress.set(
                     numeric_score / 100
                 )
+
                 self.score_gauge_label.configure(
-                    text=f"最新スコア：{numeric_score:g} / 100"
+                    text=(
+                        "\u6700\u65b0\u30b9\u30b3\u30a2  "
+                        f"{numeric_score:g} / 100"
+                    )
                 )
 
         else:
             self.latest_date.configure(
-                text="日時：--"
+                text="--"
             )
+
             self.latest_score.configure(
-                text="スコア：--"
+                text="--"
             )
+
+            self.insight_observation.configure(
+                text="\u307e\u3060\u5206\u6790\u5c65\u6b74\u306f\u3042\u308a\u307e\u305b\u3093\u3002"
+            )
+
+            self.insight_problem.configure(
+                text="--"
+            )
+
+            self.insight_action.configure(
+                text="--"
+            )
+
             self.score_progress.set(0)
+
             self.score_gauge_label.configure(
-                text="最新スコア：-- / 100"
-            )
-            self._set_textbox(
-                self.latest_text,
-                "まだ分析履歴がありません。",
+                text="\u6700\u65b0\u30b9\u30b3\u30a2  -- / 100"
             )
 
     def _draw_score_graph(self):
@@ -806,105 +1345,227 @@ class DashboardPage(ctk.CTkFrame):
             return
 
         canvas = self.graph_canvas
+
+        is_light = (
+            ctk.get_appearance_mode() == "Light"
+        )
+
+        background = (
+            "#F8FAFC"
+            if is_light
+            else "#0F172A"
+        )
+
+        grid_color = (
+            "#E2E8F0"
+            if is_light
+            else "#263244"
+        )
+
+        axis_text_color = (
+            "#64748B"
+            if is_light
+            else "#94A3B8"
+        )
+
+        empty_text_color = (
+            "#94A3B8"
+            if is_light
+            else "#64748B"
+        )
+
+        line_color = (
+            "#2563EB"
+            if is_light
+            else "#60A5FA"
+        )
+
+        point_fill = (
+            "#FFFFFF"
+            if is_light
+            else "#0F172A"
+        )
+
+        canvas.configure(
+            bg=background
+        )
+
         canvas.delete("all")
 
-        width = max(canvas.winfo_width(), 420)
-        height = max(canvas.winfo_height(), 240)
+        width = max(
+            canvas.winfo_width(),
+            420,
+        )
+        height = max(
+            canvas.winfo_height(),
+            240,
+        )
 
         margin_left = 40
         margin_right = 18
         margin_top = 16
         margin_bottom = 30
 
-        plot_width = width - margin_left - margin_right
-        plot_height = height - margin_top - margin_bottom
+        plot_width = (
+            width
+            - margin_left
+            - margin_right
+        )
+
+        plot_height = (
+            height
+            - margin_top
+            - margin_bottom
+        )
 
         try:
-            rows = self.history.get_all()[:self.GRAPH_LIMIT]
+            rows = self.history.get_all()[
+                :self.GRAPH_LIMIT
+            ]
         except Exception:
             rows = []
 
         points = []
+
         for row in reversed(rows):
             if len(row) <= 2:
                 continue
 
-            score = self._safe_score(row[2])
+            score = self._safe_score(
+                row[2]
+            )
+
             if score is not None:
                 points.append(score)
 
-        # 補助線
-        for value in (0, 25, 50, 75, 100):
-            y = margin_top + plot_height * (1 - value / 100)
+        for value in (
+            0,
+            25,
+            50,
+            75,
+            100,
+        ):
+            y = (
+                margin_top
+                + plot_height
+                * (1 - value / 100)
+            )
 
             canvas.create_line(
                 margin_left,
                 y,
                 width - margin_right,
                 y,
-                fill="#4A4A4A",
+                fill=grid_color,
                 width=1,
             )
+
             canvas.create_text(
                 margin_left - 8,
                 y,
                 text=str(value),
-                fill="#CFCFCF",
+                fill=axis_text_color,
                 anchor="e",
-                font=("Yu Gothic UI", 9),
+                font=(
+                    "Yu Gothic UI",
+                    9,
+                ),
             )
 
         if not points:
             canvas.create_text(
                 width / 2,
                 height / 2,
-                text="スコア履歴がありません",
-                fill="#BDBDBD",
-                font=("Yu Gothic UI", 14),
+                text="\u30b9\u30b3\u30a2\u5c65\u6b74\u306f\u307e\u3060\u3042\u308a\u307e\u305b\u3093",
+                fill=empty_text_color,
+                font=(
+                    "Yu Gothic UI",
+                    13,
+                ),
             )
             return
 
         if len(points) == 1:
-            x_values = [margin_left + plot_width / 2]
+            x_values = [
+                margin_left
+                + plot_width / 2
+            ]
         else:
             x_values = [
-                margin_left + plot_width * index / (len(points) - 1)
-                for index in range(len(points))
+                margin_left
+                + plot_width
+                * index
+                / (len(points) - 1)
+                for index
+                in range(len(points))
             ]
 
         coordinates = []
-        for x, score in zip(x_values, points):
-            y = margin_top + plot_height * (1 - score / 100)
-            coordinates.extend([x, y])
+
+        for x, score in zip(
+            x_values,
+            points,
+        ):
+            y = (
+                margin_top
+                + plot_height
+                * (1 - score / 100)
+            )
+
+            coordinates.extend(
+                [x, y]
+            )
 
         if len(points) >= 2:
             canvas.create_line(
                 *coordinates,
-                fill="#3B8ED0",
+                fill=line_color,
                 width=3,
                 smooth=True,
             )
 
-        for index, (x, score) in enumerate(zip(x_values, points), start=1):
-            y = margin_top + plot_height * (1 - score / 100)
+        for index, (
+            x,
+            score,
+        ) in enumerate(
+            zip(
+                x_values,
+                points,
+            ),
+            start=1,
+        ):
+            y = (
+                margin_top
+                + plot_height
+                * (1 - score / 100)
+            )
 
             canvas.create_oval(
                 x - 4,
                 y - 4,
                 x + 4,
                 y + 4,
-                fill="#FFFFFF",
-                outline="#3B8ED0",
+                fill=point_fill,
+                outline=line_color,
                 width=2,
             )
 
-            if len(points) <= 10 or index in (1, len(points)):
+            if (
+                len(points) <= 10
+                or index in (
+                    1,
+                    len(points),
+                )
+            ):
                 canvas.create_text(
                     x,
                     height - 12,
                     text=str(index),
-                    fill="#BDBDBD",
-                    font=("Yu Gothic UI", 9),
+                    fill=axis_text_color,
+                    font=(
+                        "Yu Gothic UI",
+                        9,
+                    ),
                 )
 
     # ==================================================

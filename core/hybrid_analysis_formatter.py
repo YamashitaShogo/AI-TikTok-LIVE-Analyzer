@@ -39,7 +39,24 @@ class HybridAnalysisFormatter:
         issues: Dict[str, bool],
         brightness_score: int,
         information_score: int,
+        is_black_screen: bool = False,
     ) -> str:
+        if is_black_screen:
+            return (
+                "\u3010\u72b6\u614b\u3011\n"
+                "\u6620\u50cf\u304c\u307b\u307c\u5b8c\u5168\u306a\u9ed2\u753b\u9762\u306e\u305f\u3081\u3001"
+                "\u901a\u5e38\u306e\u914d\u4fe1\u5206\u6790\u3092\u884c\u3048\u307e\u305b\u3093\u3002\n\n"
+                "\u3010\u6539\u5584\u70b9\u3011\n"
+                "OBS\u306e\u30b7\u30fc\u30f3\u3001\u6620\u50cf\u30bd\u30fc\u30b9\u3001"
+                "\u30ad\u30e3\u30d7\u30c1\u30e3\u5bfe\u8c61\u304c\u6b63\u3057\u304f"
+                "\u8868\u793a\u3055\u308c\u3066\u3044\u308b\u304b\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002\n\n"
+                "\u3010\u3059\u3050\u5b9f\u884c\u3067\u304d\u308b\u6539\u5584\u6848\u3011\n"
+                "OBS\u306e\u30d7\u30ec\u30d3\u30e5\u30fc\u753b\u9762\u3092\u78ba\u8a8d\u3057\u3001"
+                "\u6620\u50cf\u30bd\u30fc\u30b9\u304c\u975e\u8868\u793a\u30fb\u505c\u6b62\u30fb"
+                "\u53d6\u5f97\u5931\u6557\u306b\u306a\u3063\u3066\u3044\u306a\u3044\u304b"
+                "\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002"
+            )
+
         improvements = []
 
         for issue_name, message in cls.ISSUE_MESSAGES.items():
@@ -76,9 +93,21 @@ class HybridAnalysisFormatter:
                 "現在の構成を維持しながら、配信中の変化を確認してください。"
             )
 
+        if brightness_score <= 12:
+            good_point = (
+                "配信画面の主要な内容は"
+                "認識できますが、"
+                "全体的にかなり暗めです。"
+            )
+        else:
+            good_point = (
+                "配信画面の主要な内容は"
+                "認識できます。"
+            )
+
         lines = [
             "【良い点】",
-            "配信画面の主要な内容は認識できます。",
+            good_point,
             "",
             "【改善点】",
         ]

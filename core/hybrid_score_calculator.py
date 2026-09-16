@@ -19,16 +19,23 @@ class HybridScoreCalculator:
 
     AI_DEDUCTIONS = {
         # Composition
-        "subject_boundary_issue": ("composition", 4),
-        "content_obstruction_issue": ("composition", 2),
-        "layout_imbalance": ("composition", 2),
+        "subject_boundary_issue": ("composition", 8),
+        "content_obstruction_issue": ("composition", 6),
+        "layout_imbalance": ("composition", 7),
 
         # Visibility
-        "readability_issue": ("visibility", 2),
-        "subject_separation_issue": ("visibility", 2),
+        "readability_issue": ("visibility", 5),
+        "subject_separation_issue": ("visibility", 5),
 
         # Clarity
-        "focus_confusion": ("clarity", 3),
+        "focus_confusion": ("clarity", 6),
+
+        # Presentation quality
+        # Provisional deductions. These need calibration
+        # against a larger validation image set.
+        "excessive_dead_space": ("composition", 12),
+        "subject_scale_issue": ("composition", 8),
+        "ui_dominance_issue": ("clarity", 8),
     }
 
     @classmethod
@@ -73,6 +80,51 @@ class HybridScoreCalculator:
             ),
         )
 
-        scores["total"] = sum(scores.values())
+        raw_total = sum(scores.values())
+
+        active_issue_count = sum(
+            1
+            for issue_name in cls.AI_DEDUCTIONS
+            if issues.get(issue_name) is True
+        )
+
+        # High scores must be earned.
+        #
+        # One clearly visible issue prevents an excellent score.
+        # Multiple issues progressively lower the maximum score.
+        if active_issue_count >= 3:
+            total = min(raw_total, 74)
+
+        elif active_issue_count == 2:
+            total = min(raw_total, 82)
+
+        elif active_issue_count == 1:
+            total = min(raw_total, 89)
+
+        else:
+            total = raw_total
+
+            # Even with no semantic issue flags, a screen with
+            # non-ideal brightness or information density should
+            # not automatically receive a near-perfect score.
+            if brightness_score <= 15:
+                total = min(total, 86)
+
+            elif brightness_score <= 18:
+                total = min(total, 92)
+
+            elif (
+                brightness_score < 20
+                or information_score < 15
+            ):
+                total = min(total, 95)
+
+        scores["total"] = max(
+            0,
+            min(
+                100,
+                int(total),
+            ),
+        )
 
         return scores

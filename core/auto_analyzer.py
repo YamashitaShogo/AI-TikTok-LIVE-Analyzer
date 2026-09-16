@@ -5,10 +5,16 @@ import threading
 import time
 import traceback
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable, Optional
 from PIL import Image
 from core.ai_client import AIClient
 from core.brightness_analyzer import BrightnessAnalyzer
+from core.gift_frame_gate import GiftFrameGate
+from core.gift_monitor_controller import GiftMonitorController
+from core.gift_monitor_worker import GiftMonitorWorker
+from core.gift_obs_monitor import GiftOBSMonitor
+from core.gift_stream_analyzer import GiftStreamAnalyzer
 from core.information_analyzer import InformationAnalyzer
 from core.hybrid_score_calculator import HybridScoreCalculator
 from core.hybrid_analysis_formatter import HybridAnalysisFormatter
@@ -121,6 +127,43 @@ class AutoAnalyzer:
         self.ai = AIClient()
         self.history = HistoryDB()
 
+        catalog_path = (
+            Path(__file__).resolve().parent.parent
+            / "data"
+            / "gifts"
+            / "gift_catalog.json"
+        )
+
+        self.gift_stream_analyzer = GiftStreamAnalyzer(
+            catalog_path=catalog_path,
+            history_db=self.history,
+        )
+
+        self.gift_monitor_controller = GiftMonitorController(
+            stream_analyzer=self.gift_stream_analyzer,
+            frame_gate=GiftFrameGate(
+                roi=(
+                    0.70,
+                    0.18,
+                    0.24,
+                    0.62,
+                ),
+                analyze_first_frame=False,
+            ),
+        )
+
+        self.gift_obs_monitor = GiftOBSMonitor(
+            obs=self.obs,
+            controller=self.gift_monitor_controller,
+            screenshot_path="images/gift_monitor.png",
+        )
+
+        self.gift_monitor_worker = GiftMonitorWorker(
+            monitor=self.gift_obs_monitor,
+            capture_interval_seconds=1.0,
+            max_capture_backlog=30,
+        )
+
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -146,6 +189,19 @@ class AutoAnalyzer:
             )
             self._thread.start()
 
+        try:
+            gift_started = self.gift_monitor_worker.start()
+
+            if not gift_started:
+                print(
+                    "[Gift Monitor] start skipped"
+                )
+        except Exception as exc:
+            print(
+                "[Gift Monitor] start error:",
+                repr(exc),
+            )
+
         print("AI分析開始")
         return True
 
@@ -155,6 +211,16 @@ class AutoAnalyzer:
             was_running = self._running
             self._running = False
             self._stop_event.set()
+
+        try:
+            self.gift_monitor_worker.stop(
+                wait=False
+            )
+        except Exception as exc:
+            print(
+                "[Gift Monitor] stop error:",
+                repr(exc),
+            )
 
         # Tkinter終了時に固まらないよう短時間だけ待つ
         thread = self._thread
@@ -308,6 +374,9 @@ class AutoAnalyzer:
             "readability_issue",
             "subject_separation_issue",
             "focus_confusion",
+            "excessive_dead_space",
+            "subject_scale_issue",
+            "ui_dominance_issue",
         )
 
         issues = {
@@ -323,11 +392,88 @@ class AutoAnalyzer:
 
         score = scores["total"]
 
-        answer = HybridAnalysisFormatter.format(
+        if brightness.get("is_black_screen") is True:
+            score = 0
+        elif brightness["score"] <= 10:
+            score = min(score, 75)
+        elif brightness["score"] <= 12:
+            score = min(score, 82)
+
+        gift_summary = self.history.get_recent_gift_summary(
+            window_seconds=max(
+                30,
+                int(self.interval),
+            )
+        )
+
+        fallback_answer = HybridAnalysisFormatter.format(
             issues,
             brightness_score=brightness["score"],
             information_score=information["score"],
+            is_black_screen=brightness.get(
+                "is_black_screen",
+                False,
+            ),
         )
+
+        visual_observation = str(
+            ai_data.get(
+                "visual_observation",
+                "",
+            )
+            or ""
+        ).strip()
+
+        main_reason = str(
+            ai_data.get(
+                "main_reason",
+                "",
+            )
+            or ""
+        ).strip()
+
+        priority_action = str(
+            ai_data.get(
+                "priority_action",
+                "",
+            )
+            or ""
+        ).strip()
+
+        # ???????AI????
+        # Python????????????
+        if brightness.get("is_black_screen") is True:
+            answer = fallback_answer
+
+        elif (
+            visual_observation
+            and main_reason
+            and priority_action
+        ):
+            answer = (
+                "\u3010AI\u306b\u3088\u308b\u753b\u9762\u5206\u6790\u3011\n"
+                f"{visual_observation}\n\n"
+                "\u3010\u5206\u6790\u7406\u7531\u3011\n"
+                f"{main_reason}\n\n"
+                "\u3010\u6700\u512a\u5148\u306e\u6539\u5584\u3011\n"
+                f"{priority_action}"
+            )
+
+        else:
+            # ?????????AI??????
+            # ??????????????????
+            answer = fallback_answer
+
+        gift_insight = self._format_gift_insight(
+            gift_summary
+        )
+
+        if gift_insight:
+            answer = (
+                f"{answer}\n\n"
+                "\u3010\u8996\u8074\u8005\u53cd\u5fdc\u3011\n"
+                f"{gift_insight}"
+            )
 
         print(
             "[Hybrid Analysis]",
@@ -354,6 +500,12 @@ class AutoAnalyzer:
             "answer": answer,
             "image_path": self.image_path,
             "scene": scene_name,
+            "gift_summary": gift_summary,
+            "ai_explanation": {
+                "visual_observation": visual_observation,
+                "main_reason": main_reason,
+                "priority_action": priority_action,
+            },
             "analyzed_at": datetime.now().isoformat(
                 timespec="seconds"
             ),
@@ -365,6 +517,69 @@ class AutoAnalyzer:
     # ==================================================
     # Helpers
     # ==================================================
+
+    @staticmethod
+    def _format_gift_insight(
+        summary: dict[str, Any],
+    ) -> str:
+        event_count = int(
+            summary.get("event_count", 0)
+            or 0
+        )
+
+        if event_count <= 0:
+            return ""
+
+        window_seconds = int(
+            summary.get("window_seconds", 30)
+            or 30
+        )
+
+        quantity = int(
+            summary.get("quantity", 0)
+            or 0
+        )
+
+        sender_count = int(
+            summary.get("sender_count", 0)
+            or 0
+        )
+
+        unknown_count = int(
+            summary.get("unknown_event_count", 0)
+            or 0
+        )
+
+        lines = [
+            (
+                "視聴者反応: "
+                f"直近{window_seconds}秒で"
+                f"ギフト反応を{event_count}件"
+                f"（数量{quantity}）検出。"
+            )
+        ]
+
+        if sender_count >= 2:
+            lines.append(
+                "複数の視聴者から"
+                "反応が発生しています。"
+            )
+
+        lines.append(
+            "前後の配信内容と合わせて"
+            "確認すると、"
+            "反応のきっかけを"
+            "特定しやすくなります。"
+        )
+
+        if unknown_count > 0:
+            lines.append(
+                "未確認ギフトを含むため、"
+                "コイン数は評価に"
+                "使用していません。"
+            )
+
+        return " ".join(lines)
 
     def _obs_connected(self) -> bool:
         try:

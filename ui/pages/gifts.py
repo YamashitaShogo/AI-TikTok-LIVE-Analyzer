@@ -52,6 +52,12 @@ class GiftPage(ctk.CTkFrame):
         self.monitor_controller = GiftMonitorController(
             stream_analyzer=self.stream_analyzer,
             frame_gate=GiftFrameGate(
+                roi=(
+                    0.70,
+                    0.18,
+                    0.24,
+                    0.62,
+                ),
                 analyze_first_frame=False,
             ),
         )

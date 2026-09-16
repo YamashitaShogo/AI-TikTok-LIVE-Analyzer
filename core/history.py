@@ -495,6 +495,100 @@ class HistoryDB:
 
             return cursor.fetchall()
 
+    def get_recent_gift_summary(
+        self,
+        window_seconds: int = 30,
+    ) -> dict:
+        window_seconds = max(
+            1,
+            min(
+                3600,
+                int(window_seconds),
+            ),
+        )
+
+        since_modifier = (
+            f"-{window_seconds} seconds"
+        )
+
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS event_count,
+                    COALESCE(
+                        SUM(quantity),
+                        0
+                    ) AS quantity,
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN is_known = 1
+                                THEN total_coins
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS total_coins,
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN is_known = 1
+                                THEN 1
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS known_event_count,
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN is_known = 0
+                                THEN 1
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS unknown_event_count,
+                    COUNT(
+                        DISTINCT CASE
+                            WHEN sender_text IS NOT NULL
+                                 AND TRIM(sender_text) <> ''
+                            THEN sender_text
+                        END
+                    ) AS sender_count
+                FROM gift_history
+                WHERE created_at >= datetime(
+                    'now',
+                    'localtime',
+                    ?
+                )
+                """,
+                (since_modifier,),
+            ).fetchone()
+
+        return {
+            "window_seconds": window_seconds,
+            "event_count": int(
+                row[0] or 0
+            ),
+            "quantity": int(
+                row[1] or 0
+            ),
+            "total_coins": int(
+                row[2] or 0
+            ),
+            "known_event_count": int(
+                row[3] or 0
+            ),
+            "unknown_event_count": int(
+                row[4] or 0
+            ),
+            "sender_count": int(
+                row[5] or 0
+            ),
+        }
+
     def get_gift_total_coins(self) -> int:
         with self._connect() as conn:
             cursor = conn.execute(

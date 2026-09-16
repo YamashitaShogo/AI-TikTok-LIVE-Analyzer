@@ -25,6 +25,9 @@ ISSUE_NAMES = (
     "readability_issue",
     "subject_separation_issue",
     "focus_confusion",
+    "excessive_dead_space",
+    "subject_scale_issue",
+    "ui_dominance_issue",
 )
 
 IMAGE_EXTENSIONS = {

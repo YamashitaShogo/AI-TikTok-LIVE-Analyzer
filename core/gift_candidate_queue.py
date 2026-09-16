@@ -1,9 +1,14 @@
 import hashlib
+import logging
 import shutil
+import threading
 import time
 from collections import deque
 from pathlib import Path
 from typing import Any
+
+
+logger = logging.getLogger(__name__)
 
 
 class GiftCandidateQueue:
@@ -119,6 +124,13 @@ class GiftCandidateQueue:
         self._items.append(item)
         self._last_digest = digest
 
+        logger.info(
+            "GIFT_QUEUE enqueue thread=%s path=%s size=%s",
+            threading.current_thread().name,
+            destination,
+            len(self._items),
+        )
+
         return {
             "queued": True,
             "reason": "queued",
@@ -141,6 +153,14 @@ class GiftCandidateQueue:
         item = self._items.popleft()
         path = Path(item["path"])
 
+        logger.info(
+            "GIFT_QUEUE acknowledge thread=%s path=%s exists_before=%s size_before=%s",
+            threading.current_thread().name,
+            path,
+            path.exists(),
+            len(self._items) + 1,
+        )
+
         if path.exists():
             path.unlink()
 
@@ -154,9 +174,22 @@ class GiftCandidateQueue:
         return path
 
     def clear(self) -> None:
+        logger.info(
+            "GIFT_QUEUE clear thread=%s size=%s",
+            threading.current_thread().name,
+            len(self._items),
+        )
+
         while self._items:
             item = self._items.popleft()
             path = Path(item["path"])
+
+            logger.info(
+                "GIFT_QUEUE clear_delete thread=%s path=%s exists_before=%s",
+                threading.current_thread().name,
+                path,
+                path.exists(),
+            )
 
             if path.exists():
                 path.unlink()

@@ -57,117 +57,231 @@ class MainWindow(ctk.CTk):
 
         super().__init__()
 
-        # ライセンスオンライン確認用
         self._license_check_running = False
         self._license_online_valid = None
         self._closing = False
 
         self.title("Livemetry Pulse")
-        self.geometry("1200x900")
-        self.minsize(1000, 700)
+        self.geometry("1280x860")
+        self.minsize(1080, 700)
 
-        self.after(200, self.set_app_icon)
+        self.configure(
+            fg_color=("#F5F7FB", "#0B1120")
+        )
+
+        self.after(
+            200,
+            self.set_app_icon,
+        )
 
         self.obs = OBSClient()
         self.current_page = None
 
-        self._closing = False
+        # -----------------------------------------------
+        # App shell
+        # -----------------------------------------------
 
-        title = ctk.CTkLabel(
+        container = ctk.CTkFrame(
             self,
-            text="Livemetry Pulse",
-            font=("Yu Gothic UI", 28, "bold"),
+            corner_radius=0,
+            fg_color=("#F5F7FB", "#0B1120"),
         )
-        title.pack(pady=(20, 0))
-
-        container = ctk.CTkFrame(self)
         container.pack(
             fill="both",
             expand=True,
-            padx=20,
-            pady=20,
         )
 
-        menu = ctk.CTkFrame(
+        # -----------------------------------------------
+        # Sidebar
+        # -----------------------------------------------
+
+        self.sidebar = ctk.CTkFrame(
             container,
-            width=180,
+            width=220,
+            corner_radius=0,
+            fg_color=("#FFFFFF", "#101827"),
+            border_width=0,
         )
-        menu.pack(
+        self.sidebar.pack(
             side="left",
             fill="y",
-            padx=(0, 15),
         )
-        menu.pack_propagate(False)
+        self.sidebar.pack_propagate(False)
+
+        brand = ctk.CTkFrame(
+            self.sidebar,
+            fg_color="transparent",
+        )
+        brand.pack(
+            fill="x",
+            padx=18,
+            pady=(24, 26),
+        )
 
         ctk.CTkLabel(
-            menu,
-            text="MENU",
-            font=("Yu Gothic UI", 20, "bold"),
-        ).pack(pady=(20, 20))
+            brand,
+            text="\u25c9",
+            font=("Yu Gothic UI", 25, "bold"),
+            text_color=("#2563EB", "#60A5FA"),
+        ).pack(
+            side="left",
+            padx=(0, 9),
+        )
+
+        brand_text = ctk.CTkFrame(
+            brand,
+            fg_color="transparent",
+        )
+        brand_text.pack(
+            side="left",
+        )
+
+        ctk.CTkLabel(
+            brand_text,
+            text="Livemetry",
+            font=("Yu Gothic UI", 18, "bold"),
+            text_color=("#0F172A", "#F8FAFC"),
+        ).pack(
+            anchor="w",
+        )
+
+        ctk.CTkLabel(
+            brand_text,
+            text="Pulse",
+            font=("Yu Gothic UI", 11, "bold"),
+            text_color=("#2563EB", "#60A5FA"),
+        ).pack(
+            anchor="w",
+        )
+
+        nav = ctk.CTkFrame(
+            self.sidebar,
+            fg_color="transparent",
+        )
+        nav.pack(
+            fill="x",
+            padx=12,
+        )
+
+        self.nav_buttons = {}
+
+        def create_nav_button(
+            key,
+            text_value,
+            command,
+        ):
+            button = ctk.CTkButton(
+                nav,
+                text=text_value,
+                anchor="w",
+                height=44,
+                corner_radius=10,
+                fg_color="transparent",
+                hover_color=("#F1F5F9", "#1E293B"),
+                text_color=("#475569", "#CBD5E1"),
+                font=("Yu Gothic UI", 13, "bold"),
+                command=command,
+            )
+            button.pack(
+                fill="x",
+                pady=3,
+            )
+
+            self.nav_buttons[key] = button
+            return button
+
+        self.dashboard_button = create_nav_button(
+            "dashboard",
+            "\u2302   Dashboard",
+            self.show_dashboard,
+        )
+
+        self.obs_button = create_nav_button(
+            "obs",
+            "\u25c9   OBS",
+            self.show_obs,
+        )
+
+        self.ai_button = create_nav_button(
+            "ai",
+            "\u2726   AI\u5206\u6790",
+            self.show_ai,
+        )
+
+        self.history_button = create_nav_button(
+            "history",
+            "\u25a3   \u5c65\u6b74",
+            self.show_history,
+        )
+
+        self.analytics_button = create_nav_button(
+            "analytics",
+            "\u25a4   Analytics",
+            self.show_analytics,
+        )
+
+        # GiftPage???????
+        # ????Dashboard????????????
+        # ?????????????????
+        self.gifts_button = None
+
+        # -----------------------------------------------
+        # Sidebar bottom
+        # -----------------------------------------------
+
+        bottom = ctk.CTkFrame(
+            self.sidebar,
+            fg_color="transparent",
+        )
+        bottom.pack(
+            side="bottom",
+            fill="x",
+            padx=12,
+            pady=(0, 18),
+        )
 
         self.license_label = ctk.CTkLabel(
-            menu,
-            text="🔄 ライセンス確認中",
-            font=("Yu Gothic UI", 12, "bold"),
+            bottom,
+            text="\u30e9\u30a4\u30bb\u30f3\u30b9\u78ba\u8a8d\u4e2d",
+            anchor="w",
+            font=("Yu Gothic UI", 10, "bold"),
+            text_color=("#64748B", "#94A3B8"),
         )
-        self.license_label.pack(pady=(0, 18))
-
-        self.dashboard_button = ctk.CTkButton(
-            menu,
-            text="🏠 Dashboard",
-            width=160,
-            command=self.show_dashboard,
+        self.license_label.pack(
+            fill="x",
+            padx=10,
+            pady=(0, 10),
         )
-        self.dashboard_button.pack(pady=5)
-
-        self.obs_button = ctk.CTkButton(
-            menu,
-            text="📡 OBS",
-            width=160,
-            command=self.show_obs,
-        )
-        self.obs_button.pack(pady=5)
-
-        self.ai_button = ctk.CTkButton(
-            menu,
-            text="🤖 AI",
-            width=160,
-            command=self.show_ai,
-        )
-        self.ai_button.pack(pady=5)
-
-        self.history_button = ctk.CTkButton(
-            menu,
-            text="📋 履歴",
-            width=160,
-            command=self.show_history,
-        )
-        self.history_button.pack(pady=5)
-
-        self.gifts_button = ctk.CTkButton(
-            menu,
-            text="🎁 ギフト",
-            width=160,
-            command=self.show_gifts,
-        )
-        self.gifts_button.pack(pady=5)
-        self.analytics_button = ctk.CTkButton(
-            menu,
-            text="📈 Analytics",
-            width=160,
-            command=self.show_analytics,
-        )
-        self.analytics_button.pack(pady=5)
 
         self.settings_button = ctk.CTkButton(
-            menu,
-            text="⚙ Settings",
-            width=160,
+            bottom,
+            text="\u2699   Settings",
+            anchor="w",
+            height=44,
+            corner_radius=10,
+            fg_color="transparent",
+            hover_color=("#F1F5F9", "#1E293B"),
+            text_color=("#475569", "#CBD5E1"),
+            font=("Yu Gothic UI", 13, "bold"),
             command=self.show_settings,
         )
-        self.settings_button.pack(pady=5)
+        self.settings_button.pack(
+            fill="x",
+        )
 
-        self.content = ctk.CTkFrame(container)
+        self.nav_buttons["settings"] = (
+            self.settings_button
+        )
+
+        # -----------------------------------------------
+        # Main content
+        # -----------------------------------------------
+
+        self.content = ctk.CTkFrame(
+            container,
+            corner_radius=0,
+            fg_color=("#F5F7FB", "#0B1120"),
+        )
         self.content.pack(
             side="left",
             fill="both",
@@ -176,15 +290,12 @@ class MainWindow(ctk.CTk):
 
         self.show_dashboard()
 
-        # app.py 側で起動前ライセンス認証済みなので、
-        # メイン画面表示時にライセンス表示を更新
         self.refresh_license_status()
 
-        self.protocol("WM_DELETE_WINDOW", self.on_close)
-
-    # ==================================================
-    # App icon
-    # ==================================================
+        self.protocol(
+            "WM_DELETE_WINDOW",
+            self.on_close,
+        )
 
     def set_app_icon(self):
         """アプリのタイトルバーアイコンを設定します。"""
@@ -361,6 +472,21 @@ class MainWindow(ctk.CTk):
             self.current_page.destroy()
             self.current_page = None
 
+    def _set_active_nav(self, active_key):
+        for key, button in self.nav_buttons.items():
+            if key == active_key:
+                button.configure(
+                    fg_color=("#E8F0FE", "#172554"),
+                    hover_color=("#DBEAFE", "#1E3A8A"),
+                    text_color=("#1D4ED8", "#93C5FD"),
+                )
+            else:
+                button.configure(
+                    fg_color="transparent",
+                    hover_color=("#F1F5F9", "#1E293B"),
+                    text_color=("#475569", "#CBD5E1"),
+                )
+
     def show_dashboard(self):
         self.clear_page()
         self.current_page = DashboardPage(
@@ -371,6 +497,7 @@ class MainWindow(ctk.CTk):
             fill="both",
             expand=True,
         )
+        self._set_active_nav("dashboard")
 
     def show_obs(self):
         self.clear_page()
@@ -382,6 +509,7 @@ class MainWindow(ctk.CTk):
             fill="both",
             expand=True,
         )
+        self._set_active_nav("obs")
 
     def show_ai(self):
         if not self.require_license():
@@ -396,6 +524,7 @@ class MainWindow(ctk.CTk):
             fill="both",
             expand=True,
         )
+        self._set_active_nav("ai")
 
     def show_history(self):
         if not self.require_license():
@@ -409,6 +538,7 @@ class MainWindow(ctk.CTk):
             fill="both",
             expand=True,
         )
+        self._set_active_nav("history")
 
     def show_gifts(self):
         if not self.require_license():
@@ -423,6 +553,8 @@ class MainWindow(ctk.CTk):
             fill="both",
             expand=True,
         )
+        self._set_active_nav(None)
+
     def show_analytics(self):
         if not self.require_license():
             return
@@ -435,6 +567,7 @@ class MainWindow(ctk.CTk):
             fill="both",
             expand=True,
         )
+        self._set_active_nav("analytics")
 
     def show_settings(self):
         self.clear_page()
@@ -446,6 +579,8 @@ class MainWindow(ctk.CTk):
             fill="both",
             expand=True,
         )
+
+        self._set_active_nav("settings")
 
         # Settingsで認証後に左メニューを更新
         self.after(
