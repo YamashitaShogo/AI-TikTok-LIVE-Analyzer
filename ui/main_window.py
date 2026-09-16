@@ -16,6 +16,7 @@ from ui.pages.history import HistoryPage
 from ui.pages.gifts import GiftPage
 from ui.pages.obs import OBSPage
 from ui.pages.settings import SettingsPage
+from ui import theme
 
 
 def resource_path(relative_path: str) -> str:
@@ -97,9 +98,9 @@ class MainWindow(ctk.CTk):
 
         self.sidebar = ctk.CTkFrame(
             container,
-            width=220,
+            width=theme.SIDEBAR_WIDTH,
             corner_radius=0,
-            fg_color=("#FFFFFF", "#101827"),
+            fg_color=theme.SIDEBAR_BG,
             border_width=0,
         )
         self.sidebar.pack(
@@ -108,6 +109,7 @@ class MainWindow(ctk.CTk):
         )
         self.sidebar.pack_propagate(False)
 
+        # Brand
         brand = ctk.CTkFrame(
             self.sidebar,
             fg_color="transparent",
@@ -115,17 +117,31 @@ class MainWindow(ctk.CTk):
         brand.pack(
             fill="x",
             padx=18,
-            pady=(24, 26),
+            pady=(22, 8),
         )
 
-        ctk.CTkLabel(
+        logo_box = ctk.CTkFrame(
             brand,
-            text="\u25c9",
-            font=("Yu Gothic UI", 25, "bold"),
-            text_color=("#2563EB", "#60A5FA"),
-        ).pack(
+            width=40,
+            height=40,
+            corner_radius=13,
+            fg_color=theme.PRIMARY,
+        )
+        logo_box.pack(
             side="left",
-            padx=(0, 9),
+            padx=(0, 10),
+        )
+        logo_box.pack_propagate(False)
+
+        ctk.CTkLabel(
+            logo_box,
+            text="\u25c9",
+            font=(theme.FONT_FAMILY, 21, "bold"),
+            text_color="#FFFFFF",
+        ).place(
+            relx=0.5,
+            rely=0.5,
+            anchor="center",
         )
 
         brand_text = ctk.CTkFrame(
@@ -134,26 +150,38 @@ class MainWindow(ctk.CTk):
         )
         brand_text.pack(
             side="left",
+            fill="x",
+            expand=True,
         )
 
         ctk.CTkLabel(
             brand_text,
-            text="Livemetry",
-            font=("Yu Gothic UI", 18, "bold"),
-            text_color=("#0F172A", "#F8FAFC"),
-        ).pack(
-            anchor="w",
-        )
+            text="Livemetry Pulse",
+            font=(theme.FONT_FAMILY, 17, "bold"),
+            text_color=theme.TEXT_PRIMARY,
+        ).pack(anchor="w")
 
         ctk.CTkLabel(
             brand_text,
-            text="Pulse",
-            font=("Yu Gothic UI", 11, "bold"),
-            text_color=("#2563EB", "#60A5FA"),
+            text="v1.2.0",
+            font=(theme.FONT_FAMILY, 10),
+            text_color=theme.TEXT_MUTED,
         ).pack(
             anchor="w",
+            pady=(1, 0),
         )
 
+        ctk.CTkFrame(
+            self.sidebar,
+            height=1,
+            fg_color=theme.DIVIDER,
+        ).pack(
+            fill="x",
+            padx=18,
+            pady=(12, 13),
+        )
+
+        # Navigation
         nav = ctk.CTkFrame(
             self.sidebar,
             fg_color="transparent",
@@ -175,11 +203,11 @@ class MainWindow(ctk.CTk):
                 text=text_value,
                 anchor="w",
                 height=44,
-                corner_radius=10,
+                corner_radius=12,
                 fg_color="transparent",
-                hover_color=("#F1F5F9", "#1E293B"),
-                text_color=("#475569", "#CBD5E1"),
-                font=("Yu Gothic UI", 13, "bold"),
+                hover_color=theme.NAV_HOVER,
+                text_color=theme.TEXT_SECONDARY,
+                font=(theme.FONT_FAMILY, 13, "bold"),
                 command=command,
             )
             button.pack(
@@ -192,43 +220,37 @@ class MainWindow(ctk.CTk):
 
         self.dashboard_button = create_nav_button(
             "dashboard",
-            "\u2302   Dashboard",
+            "\u2302    Dashboard",
             self.show_dashboard,
         )
 
         self.obs_button = create_nav_button(
             "obs",
-            "\u25c9   OBS",
+            "\u25a3    OBS",
             self.show_obs,
         )
 
         self.ai_button = create_nav_button(
             "ai",
-            "\u2726   AI\u5206\u6790",
+            "\u2726    AI\u5206\u6790",
             self.show_ai,
         )
 
         self.history_button = create_nav_button(
             "history",
-            "\u25a3   \u5c65\u6b74",
+            "\u25a4    \u5c65\u6b74",
             self.show_history,
         )
 
         self.analytics_button = create_nav_button(
             "analytics",
-            "\u25a4   Analytics",
+            "\u25a5    Analytics",
             self.show_analytics,
         )
 
-        # GiftPage???????
-        # ????Dashboard????????????
-        # ?????????????????
         self.gifts_button = None
 
-        # -----------------------------------------------
         # Sidebar bottom
-        # -----------------------------------------------
-
         bottom = ctk.CTkFrame(
             self.sidebar,
             fg_color="transparent",
@@ -237,40 +259,122 @@ class MainWindow(ctk.CTk):
             side="bottom",
             fill="x",
             padx=12,
-            pady=(0, 18),
-        )
-
-        self.license_label = ctk.CTkLabel(
-            bottom,
-            text="\u30e9\u30a4\u30bb\u30f3\u30b9\u78ba\u8a8d\u4e2d",
-            anchor="w",
-            font=("Yu Gothic UI", 10, "bold"),
-            text_color=("#64748B", "#94A3B8"),
-        )
-        self.license_label.pack(
-            fill="x",
-            padx=10,
-            pady=(0, 10),
+            pady=(0, 16),
         )
 
         self.settings_button = ctk.CTkButton(
             bottom,
-            text="\u2699   Settings",
+            text="\u2699    \u8a2d\u5b9a",
             anchor="w",
             height=44,
-            corner_radius=10,
+            corner_radius=12,
             fg_color="transparent",
-            hover_color=("#F1F5F9", "#1E293B"),
-            text_color=("#475569", "#CBD5E1"),
-            font=("Yu Gothic UI", 13, "bold"),
+            hover_color=theme.NAV_HOVER,
+            text_color=theme.TEXT_SECONDARY,
+            font=(theme.FONT_FAMILY, 13, "bold"),
             command=self.show_settings,
         )
         self.settings_button.pack(
             fill="x",
+            pady=(0, 10),
         )
 
-        self.nav_buttons["settings"] = (
-            self.settings_button
+        self.nav_buttons["settings"] = self.settings_button
+
+        # Pro card
+        pro_card = ctk.CTkFrame(
+            bottom,
+            corner_radius=18,
+            fg_color="#F3F0FF",
+            border_width=1,
+            border_color="#E2DBFF",
+        )
+        pro_card.pack(
+            fill="x",
+            pady=(0, 10),
+        )
+
+        ctk.CTkLabel(
+            pro_card,
+            text="\u265b  Livemetry Pulse",
+            anchor="w",
+            font=(theme.FONT_FAMILY, 12, "bold"),
+            text_color=theme.PURPLE,
+        ).pack(
+            fill="x",
+            padx=14,
+            pady=(13, 2),
+        )
+
+        ctk.CTkLabel(
+            pro_card,
+            text="Pro",
+            anchor="w",
+            font=(theme.FONT_FAMILY, 17, "bold"),
+            text_color=theme.TEXT_PRIMARY,
+        ).pack(
+            fill="x",
+            padx=14,
+        )
+
+        ctk.CTkLabel(
+            pro_card,
+            text="\u3088\u308a\u9ad8\u5ea6\u306a\u5206\u6790\u3067\n\u914d\u4fe1\u3092\u6b21\u306e\u30b9\u30c6\u30fc\u30b8\u3078",
+            anchor="w",
+            justify="left",
+            font=(theme.FONT_FAMILY, 10),
+            text_color=theme.TEXT_SECONDARY,
+        ).pack(
+            fill="x",
+            padx=14,
+            pady=(5, 8),
+        )
+
+        ctk.CTkButton(
+            pro_card,
+            text="\u30d7\u30e9\u30f3\u3092\u898b\u308b  \u2192",
+            height=32,
+            corner_radius=10,
+            fg_color="#E5E0FF",
+            hover_color="#D9D1FF",
+            text_color=theme.PURPLE,
+            font=(theme.FONT_FAMILY, 10, "bold"),
+        ).pack(
+            fill="x",
+            padx=12,
+            pady=(0, 12),
+        )
+
+        # License
+        license_frame = ctk.CTkFrame(
+            bottom,
+            fg_color="transparent",
+        )
+        license_frame.pack(
+            fill="x",
+        )
+
+        ctk.CTkLabel(
+            license_frame,
+            text="\u25cf",
+            font=(theme.FONT_FAMILY, 10),
+            text_color=theme.SUCCESS,
+        ).pack(
+            side="left",
+            padx=(8, 5),
+        )
+
+        self.license_label = ctk.CTkLabel(
+            license_frame,
+            text="\u30e9\u30a4\u30bb\u30f3\u30b9\u78ba\u8a8d\u4e2d",
+            anchor="w",
+            font=(theme.FONT_FAMILY, 9, "bold"),
+            text_color=theme.TEXT_SECONDARY,
+        )
+        self.license_label.pack(
+            side="left",
+            fill="x",
+            expand=True,
         )
 
         # -----------------------------------------------
@@ -476,15 +580,15 @@ class MainWindow(ctk.CTk):
         for key, button in self.nav_buttons.items():
             if key == active_key:
                 button.configure(
-                    fg_color=("#E8F0FE", "#172554"),
-                    hover_color=("#DBEAFE", "#1E3A8A"),
-                    text_color=("#1D4ED8", "#93C5FD"),
+                    fg_color=theme.NAV_SELECTED,
+                    hover_color=theme.NAV_SELECTED,
+                    text_color=theme.PRIMARY,
                 )
             else:
                 button.configure(
                     fg_color="transparent",
-                    hover_color=("#F1F5F9", "#1E293B"),
-                    text_color=("#475569", "#CBD5E1"),
+                    hover_color=theme.NAV_HOVER,
+                    text_color=theme.TEXT_SECONDARY,
                 )
 
     def show_dashboard(self):
