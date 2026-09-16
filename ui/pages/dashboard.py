@@ -74,7 +74,11 @@ class DashboardPage(ctk.CTkFrame):
     def _build_header(self):
         header = ctk.CTkFrame(
             self,
-            fg_color="transparent",
+            height=145,
+            corner_radius=20,
+            fg_color="#FFFFFF",
+            border_width=1,
+            border_color="#E7ECF4",
         )
         header.grid(
             row=0,
@@ -83,22 +87,81 @@ class DashboardPage(ctk.CTkFrame):
             padx=28,
             pady=(22, 14),
         )
-        header.grid_columnconfigure(0, weight=1)
+        header.grid_propagate(False)
 
-        title_area = ctk.CTkFrame(
+        # -----------------------------------------
+        # Hero background
+        # -----------------------------------------
+
+        hero_path = (
+            Path(__file__).resolve()
+            .parent.parent.parent
+            / "assets"
+            / "dashboard_hero.png"
+        )
+
+        if hero_path.exists():
+            try:
+                hero_pil = Image.open(hero_path)
+
+                self.hero_image = ctk.CTkImage(
+                    light_image=hero_pil,
+                    dark_image=hero_pil,
+                    size=(1350, 145),
+                )
+
+                hero_background = ctk.CTkLabel(
+                    header,
+                    text="",
+                    image=self.hero_image,
+                )
+                hero_background.place(
+                    x=0,
+                    y=0,
+                    relwidth=1,
+                    relheight=1,
+                )
+
+            except Exception as exc:
+                print(
+                    "Dashboard hero error:",
+                    repr(exc),
+                )
+
+        # -----------------------------------------
+        # Foreground content
+        # -----------------------------------------
+
+        overlay = ctk.CTkFrame(
             header,
             fg_color="transparent",
         )
-        title_area.grid(
-            row=0,
-            column=0,
-            sticky="w",
+        overlay.place(
+            x=0,
+            y=0,
+            relwidth=1,
+            relheight=1,
+        )
+
+        title_area = ctk.CTkFrame(
+            overlay,
+            fg_color="transparent",
+        )
+        title_area.pack(
+            side="left",
+            fill="y",
+            padx=24,
+            pady=19,
         )
 
         ctk.CTkLabel(
             title_area,
             text="\u30e9\u30a4\u30d6\u3092\u3001\u3082\u3063\u3068\u6570\u5b57\u3067\u5f37\u304f\u3002",
-            font=("Yu Gothic UI", 31, "bold"),
+            font=(
+                "Yu Gothic UI",
+                31,
+                "bold",
+            ),
             text_color="#132347",
         ).pack(
             anchor="w",
@@ -107,34 +170,67 @@ class DashboardPage(ctk.CTkFrame):
         ctk.CTkLabel(
             title_area,
             text="AI\u3067\u914d\u4fe1\u3092\u5206\u6790\u3057\u3001\u3042\u306a\u305f\u306e\u6210\u9577\u3092\u30b5\u30dd\u30fc\u30c8\u3057\u307e\u3059\u3002",
-            font=("Yu Gothic UI", 13),
+            font=(
+                "Yu Gothic UI",
+                13,
+            ),
             text_color="#71809C",
         ).pack(
             anchor="w",
             pady=(4, 0),
         )
 
+        ctk.CTkLabel(
+            title_area,
+            text="Analyze  /  Grow  /  Next Stage",
+            font=(
+                "Yu Gothic UI",
+                10,
+                "bold",
+            ),
+            text_color="#7C5CFC",
+        ).pack(
+            anchor="w",
+            pady=(12, 0),
+        )
+
+        # -----------------------------------------
+        # OBS status
+        # -----------------------------------------
+
+        status_area = ctk.CTkFrame(
+            overlay,
+            fg_color="transparent",
+        )
+        status_area.pack(
+            side="right",
+            anchor="ne",
+            padx=20,
+            pady=18,
+        )
+
         status_chip = ctk.CTkFrame(
-            header,
-            height=38,
-            corner_radius=19,
-            fg_color="#EEF4FF",
+            status_area,
+            corner_radius=18,
+            fg_color="#FFFFFF",
+            border_width=1,
+            border_color="#DDE6F5",
         )
-        status_chip.grid(
-            row=0,
-            column=1,
-            sticky="e",
-        )
+        status_chip.pack()
 
         self.obs_status = ctk.CTkLabel(
             status_chip,
             text="OBS  \u78ba\u8a8d\u4e2d",
-            font=("Yu Gothic UI", 11, "bold"),
+            font=(
+                "Yu Gothic UI",
+                10,
+                "bold",
+            ),
             text_color="#367BF5",
         )
         self.obs_status.pack(
-            padx=16,
-            pady=9,
+            padx=15,
+            pady=8,
         )
 
 
