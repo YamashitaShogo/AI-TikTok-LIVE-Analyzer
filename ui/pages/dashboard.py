@@ -142,178 +142,167 @@ class DashboardPage(ctk.CTkFrame):
         controls = ctk.CTkFrame(
             self,
             corner_radius=18,
-            fg_color=("#FFFFFF", "#141C2B"),
+            fg_color="#FFFFFF",
             border_width=1,
-            border_color=("#E5E7EB", "#263244"),
+            border_color="#E7ECF4",
         )
         controls.grid(
             row=1,
             column=0,
             sticky="ew",
             padx=28,
-            pady=(0, 14),
+            pady=(0, 16),
         )
 
-        controls.grid_columnconfigure(1, weight=1)
-        controls.grid_columnconfigure(3, weight=1)
+        controls.grid_columnconfigure(0, weight=3)
+        controls.grid_columnconfigure(1, weight=2)
+
+        # -----------------------------------------
+        # Session inputs
+        # -----------------------------------------
+
+        session = ctk.CTkFrame(
+            controls,
+            fg_color="transparent",
+        )
+        session.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=(18, 10),
+            pady=(15, 9),
+        )
+
+        session.grid_columnconfigure(1, weight=1)
+        session.grid_columnconfigure(3, weight=1)
 
         ctk.CTkLabel(
-            controls,
+            session,
             text="\u914d\u4fe1\u30bf\u30a4\u30c8\u30eb",
-            font=("Yu Gothic UI", 12, "bold"),
-            text_color=("#475569", "#CBD5E1"),
+            font=("Yu Gothic UI", 10, "bold"),
+            text_color="#71809C",
         ).grid(
             row=0,
             column=0,
             sticky="w",
-            padx=(18, 8),
-            pady=(15, 5),
+            padx=(0, 8),
         )
 
         self.title_entry = ctk.CTkEntry(
-            controls,
+            session,
             placeholder_text="\u4f8b\uff1a\u591c\u306eLIVE\u914d\u4fe1",
-            height=36,
+            height=38,
             corner_radius=10,
+            fg_color="#F8FAFD",
+            border_color="#DDE4EF",
+            text_color="#132347",
         )
         self.title_entry.grid(
             row=0,
             column=1,
             sticky="ew",
-            padx=(0, 18),
-            pady=(15, 5),
+            padx=(0, 16),
         )
 
         ctk.CTkLabel(
-            controls,
+            session,
             text="TikTok",
-            font=("Yu Gothic UI", 12, "bold"),
-            text_color=("#475569", "#CBD5E1"),
+            font=("Yu Gothic UI", 10, "bold"),
+            text_color="#71809C",
         ).grid(
             row=0,
             column=2,
             sticky="w",
             padx=(0, 8),
-            pady=(15, 5),
         )
 
         self.username_entry = ctk.CTkEntry(
-            controls,
+            session,
             placeholder_text="@username",
-            height=36,
+            height=38,
             corner_radius=10,
+            fg_color="#F8FAFD",
+            border_color="#DDE4EF",
+            text_color="#132347",
         )
         self.username_entry.grid(
             row=0,
             column=3,
             sticky="ew",
-            padx=(0, 18),
-            pady=(15, 5),
         )
 
-        button_row = ctk.CTkFrame(
+        # -----------------------------------------
+        # Main actions
+        # -----------------------------------------
+
+        actions = ctk.CTkFrame(
             controls,
             fg_color="transparent",
         )
-        button_row.grid(
-            row=1,
-            column=0,
-            columnspan=4,
-            sticky="ew",
-            padx=18,
-            pady=(8, 8),
+        actions.grid(
+            row=0,
+            column=1,
+            sticky="e",
+            padx=(8, 18),
+            pady=(15, 9),
         )
 
         self.start_button = ctk.CTkButton(
-            button_row,
-            text="\u25b6  LIVE ANALYSIS",
-            width=170,
+            actions,
+            text="\u25b6  AI\u5206\u6790\u958b\u59cb",
+            width=135,
             height=38,
-            corner_radius=10,
-            fg_color=("#2563EB", "#3B82F6"),
-            hover_color=("#1D4ED8", "#2563EB"),
-            font=("Yu Gothic UI", 12, "bold"),
+            corner_radius=11,
+            fg_color="#7C5CFC",
+            hover_color="#6847E8",
+            font=("Yu Gothic UI", 11, "bold"),
             command=self.start_stream,
         )
         self.start_button.pack(
             side="left",
-            padx=(0, 8),
+            padx=(0, 7),
         )
 
         self.stop_button = ctk.CTkButton(
-            button_row,
-            text="\u25a0  STOP",
-            width=100,
+            actions,
+            text="\u25a0  \u505c\u6b62",
+            width=82,
             height=38,
-            corner_radius=10,
+            corner_radius=11,
             state="disabled",
-            fg_color=("#DC2626", "#EF4444"),
-            hover_color=("#B91C1C", "#DC2626"),
-            font=("Yu Gothic UI", 12, "bold"),
+            fg_color="#FFF0F3",
+            hover_color="#FFE1E7",
+            text_color="#E63B57",
+            font=("Yu Gothic UI", 10, "bold"),
             command=self.stop_stream,
         )
         self.stop_button.pack(
             side="left",
-            padx=4,
         )
 
-        ctk.CTkButton(
-            button_row,
-            text="\u66f4\u65b0",
-            width=90,
-            height=38,
-            corner_radius=10,
-            fg_color="transparent",
-            border_width=1,
-            border_color=("#CBD5E1", "#475569"),
-            text_color=("#334155", "#E2E8F0"),
-            hover_color=("#F1F5F9", "#1E293B"),
-            command=lambda: self.refresh_dashboard(
-                force=True
-            ),
-        ).pack(
-            side="left",
-            padx=4,
-        )
-
-        self.highlight_button = ctk.CTkButton(
-            button_row,
-            text="\u30cf\u30a4\u30e9\u30a4\u30c8\u4fdd\u5b58",
-            width=140,
-            height=38,
-            corner_radius=10,
-            fg_color="transparent",
-            border_width=1,
-            border_color=("#CBD5E1", "#475569"),
-            text_color=("#334155", "#E2E8F0"),
-            hover_color=("#F1F5F9", "#1E293B"),
-            command=self.save_highlight_replay,
-        )
-        self.highlight_button.pack(
-            side="left",
-            padx=4,
-        )
-
+        # -----------------------------------------
         # Analysis status
-        status_row = ctk.CTkFrame(
+        # -----------------------------------------
+
+        lower = ctk.CTkFrame(
             controls,
             fg_color="transparent",
         )
-        status_row.grid(
-            row=2,
+        lower.grid(
+            row=1,
             column=0,
-            columnspan=4,
+            columnspan=2,
             sticky="ew",
             padx=18,
-            pady=(4, 6),
+            pady=(0, 13),
         )
-        status_row.grid_columnconfigure(0, weight=1)
+        lower.grid_columnconfigure(0, weight=1)
 
         self.status = ctk.CTkLabel(
-            status_row,
+            lower,
             text="\u5f85\u6a5f\u4e2d",
-            font=("Yu Gothic UI", 12, "bold"),
-            text_color=("#0F172A", "#F8FAFC"),
+            font=("Yu Gothic UI", 10, "bold"),
+            text_color="#44516A",
         )
         self.status.grid(
             row=0,
@@ -322,10 +311,10 @@ class DashboardPage(ctk.CTkFrame):
         )
 
         self.countdown_label = ctk.CTkLabel(
-            status_row,
+            lower,
             text="\u6b21\u306e\u5206\u6790\u307e\u3067 -- \u79d2",
-            font=("Yu Gothic UI", 11),
-            text_color=("#64748B", "#94A3B8"),
+            font=("Yu Gothic UI", 9),
+            text_color="#8A97AD",
         )
         self.countdown_label.grid(
             row=0,
@@ -334,35 +323,32 @@ class DashboardPage(ctk.CTkFrame):
         )
 
         self.score_progress = ctk.CTkProgressBar(
-            controls,
+            lower,
             height=5,
             corner_radius=3,
-            progress_color=("#2563EB", "#60A5FA"),
-            fg_color=("#E2E8F0", "#293548"),
+            progress_color="#7C5CFC",
+            fg_color="#E8EDF5",
         )
         self.score_progress.grid(
-            row=3,
+            row=1,
             column=0,
-            columnspan=4,
+            columnspan=2,
             sticky="ew",
-            padx=18,
-            pady=(0, 5),
+            pady=(8, 4),
         )
         self.score_progress.set(0)
 
         self.score_gauge_label = ctk.CTkLabel(
-            controls,
+            lower,
             text="\u6700\u65b0\u30b9\u30b3\u30a2  -- / 100",
-            font=("Yu Gothic UI", 10, "bold"),
-            text_color=("#64748B", "#94A3B8"),
+            font=("Yu Gothic UI", 9),
+            text_color="#8A97AD",
         )
         self.score_gauge_label.grid(
-            row=4,
+            row=2,
             column=0,
-            columnspan=4,
+            columnspan=2,
             sticky="e",
-            padx=18,
-            pady=(0, 12),
         )
 
 
