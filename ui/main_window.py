@@ -194,7 +194,7 @@ class MainWindow(ctk.CTk):
 
         ctk.CTkLabel(
             brand_text,
-            text="v1.2.0",
+            text="v1.4.0",
             font=(theme.FONT_FAMILY, 10),
             text_color=theme.TEXT_MUTED,
         ).pack(
