@@ -1,5 +1,7 @@
 import logging
 import os
+import threading
+from functools import wraps
 from pathlib import Path
 from typing import Optional
 
@@ -15,12 +17,24 @@ for logger_name in (
 logger = logging.getLogger(__name__)
 
 
+
+
+def _serialize_obs_call(method):
+    @wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._client_lock:
+            return method(self, *args, **kwargs)
+
+    return wrapper
+
+
 class OBSClient:
     DEFAULT_HOST = "localhost"
     DEFAULT_PORT = 4455
     APP_NAME = "LivemetryPulse"
 
     def __init__(self):
+        self._client_lock = threading.RLock()
         self.client: Optional[ReqClient] = None
 
     @classmethod
@@ -49,6 +63,7 @@ class OBSClient:
         resolved.parent.mkdir(parents=True, exist_ok=True)
         return resolved
 
+    @_serialize_obs_call
     def connect(self, host, port, password):
         self.disconnect()
 
@@ -85,6 +100,7 @@ class OBSClient:
             self.client = None
             return False
 
+    @_serialize_obs_call
     def disconnect(self):
         client = self.client
         self.client = None
@@ -99,6 +115,7 @@ class OBSClient:
         except Exception:
             pass
 
+    @_serialize_obs_call
     def is_connected(self):
         if self.client is None:
             return False
@@ -109,6 +126,7 @@ class OBSClient:
         except Exception:
             return False
 
+    @_serialize_obs_call
     def get_current_scene(self):
         if self.client is None:
             return None
@@ -120,6 +138,7 @@ class OBSClient:
             logger.error("現在シーン取得エラー: %s", exc)
             return None
 
+    @_serialize_obs_call
     def get_sources(self):
         if self.client is None:
             return None
@@ -151,6 +170,7 @@ class OBSClient:
             logger.error("ソース取得エラー: %s", exc)
             return None
 
+    @_serialize_obs_call
     def is_streaming(self):
         if self.client is None:
             return False
@@ -162,6 +182,7 @@ class OBSClient:
             logger.debug("配信状態取得エラー: %s", exc)
             return False
 
+    @_serialize_obs_call
     def is_recording(self):
         if self.client is None:
             return False
@@ -173,6 +194,7 @@ class OBSClient:
             logger.debug("録画状態取得エラー: %s", exc)
             return False
 
+    @_serialize_obs_call
     def is_replay_buffer_active(self):
         if self.client is None:
             return False
@@ -188,6 +210,7 @@ class OBSClient:
             )
             return False
 
+    @_serialize_obs_call
     def start_replay_buffer(self):
         if not self.is_connected():
             logger.warning(
@@ -213,6 +236,7 @@ class OBSClient:
             )
             return False
 
+    @_serialize_obs_call
     def save_replay_buffer(self):
         if not self.is_connected():
             logger.warning(
@@ -241,6 +265,7 @@ class OBSClient:
             )
             return False
 
+    @_serialize_obs_call
     def stop_replay_buffer(self):
         if not self.is_connected():
             return False
@@ -263,6 +288,7 @@ class OBSClient:
             )
             return False
 
+    @_serialize_obs_call
     def get_last_replay_path(self):
         if not self.is_connected():
             return None
@@ -302,6 +328,7 @@ class OBSClient:
         )
         return True
 
+    @_serialize_obs_call
     def save_screenshot(
         self,
         source_name,
@@ -363,5 +390,6 @@ class OBSClient:
             )
             return False
 
+    @_serialize_obs_call
     def close(self):
         self.disconnect()

@@ -328,20 +328,104 @@ class AutoAnalyzer:
                 "スクリーンショットの読み込みに失敗しました。"
             )
 
+        analysis_image_path = str(
+            Path(self.image_path).with_name(
+                "analysis_crop.png"
+            )
+        )
+
+        with Image.open(self.image_path) as source_image:
+            width, height = source_image.size
+
+            crop_box = (
+                round(width * (510 / 1920)),
+                0,
+                round(width * (1000 / 1920)),
+                height,
+            )
+
+            left, top, right, bottom = crop_box
+
+            if (
+                left < 0
+                or top < 0
+                or right > width
+                or bottom > height
+                or right <= left
+                or bottom <= top
+            ):
+                raise RuntimeError(
+                    f"Invalid analysis crop: {crop_box}"
+                )
+
+            analysis_image = source_image.crop(
+                crop_box
+            ).copy()
+
+        analysis_image.save(
+            analysis_image_path,
+            format="PNG",
+        )
+
         prompt = SIMPLIFIED_HYBRID_PROMPT
 
         self._emit("status", "AI分析中...")
 
         brightness = BrightnessAnalyzer.analyze(
-            self.image_path
+            analysis_image_path
         )
 
         information = InformationAnalyzer.analyze(
-            self.image_path
+            analysis_image_path
         )
 
+        no_stream_visual = (
+            float(brightness.get("mean", 0)) <= 35
+            and float(
+                brightness.get(
+                    "dark_ratio",
+                    0,
+                )
+            ) >= 99.5
+            and int(
+                information.get(
+                    "element_count",
+                    0,
+                )
+            ) == 0
+        )
+
+        if no_stream_visual:
+            message = (
+                "\u914d\u4fe1\u6620\u50cf\u3092"
+                "\u691c\u51fa\u3067\u304d\u306a"
+                "\u304b\u3063\u305f\u305f\u3081"
+                "\u3001\u4eca\u56de\u306e"
+                "\u5206\u6790\u3092"
+                "\u30b9\u30ad\u30c3\u30d7"
+                "\u3057\u307e\u3057\u305f\u3002"
+            )
+
+            self._emit(
+                "status",
+                message,
+            )
+
+            return {
+                "skipped": True,
+                "reason": "no_stream_visual",
+                "score": None,
+                "answer": message,
+                "image_path": self.image_path,
+                "analysis_image_path": analysis_image_path,
+                "scene": scene_name,
+                "analyzed_at": datetime.now().isoformat(
+                    timespec="seconds"
+                ),
+            }
+
         raw_answer = self.ai.analyze_image(
-            self.image_path,
+            analysis_image_path,
             prompt,
         )
 

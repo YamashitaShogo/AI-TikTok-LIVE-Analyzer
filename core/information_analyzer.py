@@ -1,4 +1,6 @@
-﻿from pathlib import Path
+from pathlib import Path
+
+import math
 
 import cv2
 
@@ -30,21 +32,26 @@ class InformationAnalyzer:
 
         original_height, original_width = gray.shape[:2]
 
-        target_width = 720
+        # Keep the analyzed pixel area roughly constant across
+        # landscape and portrait images so contour counts remain
+        # comparable regardless of aspect ratio.
+        target_area = 720 * 405
 
-        scale = (
-            target_width
-            / float(original_width)
+        scale = math.sqrt(
+            target_area
+            / float(
+                original_width
+                * original_height
+            )
         )
 
+        target_width = max(
+            1,
+            int(round(original_width * scale)),
+        )
         target_height = max(
             1,
-            int(
-                round(
-                    original_height
-                    * scale
-                )
-            ),
+            int(round(original_height * scale)),
         )
 
         gray = cv2.resize(
@@ -99,11 +106,12 @@ class InformationAnalyzer:
             + medium_elements
         )
 
-        # Provisional score.
-        # We will calibrate these thresholds with more test images.
-        if element_count >= 350:
+        # Provisional clutter score.
+        # Only heavily cluttered frames are penalized for now.
+        # These thresholds must be calibrated with more real streams.
+        if element_count >= 250:
             score = 11
-        elif element_count >= 300:
+        elif element_count >= 180:
             score = 13
         else:
             score = 15
