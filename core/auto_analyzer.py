@@ -337,10 +337,46 @@ class AutoAnalyzer:
         with Image.open(self.image_path) as source_image:
             width, height = source_image.size
 
+            default_left_ratio = 510 / 1920
+            default_right_ratio = 1000 / 1920
+
+            try:
+                settings = Settings.load()
+
+                if not isinstance(settings, dict):
+                    settings = {}
+
+                left_ratio = float(
+                    settings.get(
+                        "analysis_crop_left_ratio",
+                        default_left_ratio,
+                    )
+                )
+                right_ratio = float(
+                    settings.get(
+                        "analysis_crop_right_ratio",
+                        default_right_ratio,
+                    )
+                )
+
+                if not (
+                    0.0 <= left_ratio < right_ratio <= 1.0
+                ):
+                    raise ValueError(
+                        "Invalid analysis crop ratios"
+                    )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+                left_ratio = default_left_ratio
+                right_ratio = default_right_ratio
+
             crop_box = (
-                round(width * (510 / 1920)),
+                round(width * left_ratio),
                 0,
-                round(width * (1000 / 1920)),
+                round(width * right_ratio),
                 height,
             )
 

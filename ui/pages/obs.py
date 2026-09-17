@@ -727,8 +727,11 @@ class OBSPage(ctk.CTkFrame):
         self.host_entry.insert(
             0,
             settings.get(
-                "host",
-                "localhost",
+                "obs_host",
+                settings.get(
+                    "host",
+                    "localhost",
+                ),
             ),
         )
 
@@ -739,8 +742,11 @@ class OBSPage(ctk.CTkFrame):
         self.port_entry.insert(
             0,
             settings.get(
-                "port",
-                "4455",
+                "obs_port",
+                settings.get(
+                    "port",
+                    "4455",
+                ),
             ),
         )
 
@@ -751,8 +757,11 @@ class OBSPage(ctk.CTkFrame):
         self.password_entry.insert(
             0,
             settings.get(
-                "password",
-                "",
+                "obs_password",
+                settings.get(
+                    "password",
+                    "",
+                ),
             ),
         )
 
@@ -816,13 +825,24 @@ class OBSPage(ctk.CTkFrame):
 
 
     def save_settings(self):
-        Settings.save(
+        settings = Settings.load()
+
+        if not isinstance(settings, dict):
+            settings = {}
+
+        settings.update(
             {
-                "host": self.host_entry.get(),
-                "port": self.port_entry.get(),
-                "password": self.password_entry.get(),
+                "obs_host": self.host_entry.get(),
+                "obs_port": self.port_entry.get(),
+                "obs_password": self.password_entry.get(),
             }
         )
+
+        settings.pop("host", None)
+        settings.pop("port", None)
+        settings.pop("password", None)
+
+        Settings.save(settings)
 
         self.status.configure(
             text="\u8a2d\u5b9a\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f\u3002"
