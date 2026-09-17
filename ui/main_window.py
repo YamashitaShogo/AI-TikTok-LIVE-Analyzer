@@ -627,6 +627,7 @@ class MainWindow(ctk.CTk):
         self.current_page = DashboardPage(
             self.content,
             self.obs,
+            on_show_history=self.show_history,
         )
         self.current_page.pack(
             fill="both",

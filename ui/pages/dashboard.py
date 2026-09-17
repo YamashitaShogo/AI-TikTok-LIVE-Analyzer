@@ -1,6 +1,7 @@
 import json
 import queue
 import os
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
@@ -20,10 +21,16 @@ class DashboardPage(ctk.CTkFrame):
     SCREENSHOT_REFRESH_MS = 3000
     DASHBOARD_REFRESH_MS = 5000
 
-    def __init__(self, parent, obs):
+    def __init__(
+        self,
+        parent,
+        obs,
+        on_show_history=None,
+    ):
         super().__init__(parent)
 
         self.obs = obs
+        self.on_show_history = on_show_history
         self.history = HistoryDB()
 
         self.event_queue = queue.Queue()
@@ -74,8 +81,8 @@ class DashboardPage(ctk.CTkFrame):
     def _build_header(self):
         header = ctk.CTkFrame(
             self,
-            height=145,
-            corner_radius=20,
+            height=160,
+            corner_radius=18,
             fg_color="#FFFFFF",
             border_width=1,
             border_color="#E7ECF4",
@@ -85,7 +92,7 @@ class DashboardPage(ctk.CTkFrame):
             column=0,
             sticky="ew",
             padx=28,
-            pady=(22, 14),
+            pady=(20, 14),
         )
         header.grid_propagate(False)
 
@@ -164,35 +171,35 @@ class DashboardPage(ctk.CTkFrame):
 
             # Title
             self.hero_canvas.create_text(
-                24,
-                25,
+                22,
+                22,
                 text="\u30e9\u30a4\u30d6\u3092\u3001\u3082\u3063\u3068\u6570\u5b57\u3067\u5f37\u304f\u3002",
                 anchor="nw",
                 font=(
                     "Yu Gothic UI",
-                    31,
+                    35,
                     "bold",
                 ),
-                fill="#132347",
+                fill="#10224A",
             )
 
             # Subtitle
             self.hero_canvas.create_text(
-                24,
-                75,
+                23,
+                76,
                 text="AI\u3067\u914d\u4fe1\u3092\u5206\u6790\u3057\u3001\u3042\u306a\u305f\u306e\u6210\u9577\u3092\u30b5\u30dd\u30fc\u30c8\u3057\u307e\u3059\u3002",
                 anchor="nw",
                 font=(
                     "Yu Gothic UI",
-                    13,
+                    14,
                 ),
-                fill="#71809C",
+                fill="#596B8E",
             )
 
             # Tagline
             self.hero_canvas.create_text(
-                24,
-                111,
+                23,
+                119,
                 text="Analyze  /  Grow  /  Next Stage",
                 anchor="nw",
                 font=(
@@ -221,14 +228,14 @@ class DashboardPage(ctk.CTkFrame):
         )
         status_chip.place(
             relx=1.0,
-            x=-20,
-            y=18,
+            x=-18,
+            y=17,
             anchor="ne",
         )
 
         self.obs_status = ctk.CTkLabel(
             status_chip,
-            text="OBS  \u78ba\u8a8d\u4e2d",
+            text="?  OBS \u78ba\u8a8d\u4e2d",
             font=(
                 "Yu Gothic UI",
                 10,
@@ -558,6 +565,9 @@ class DashboardPage(ctk.CTkFrame):
         )
 
 
+
+
+
     def _build_stats(self, parent):
         stats = ctk.CTkFrame(
             parent,
@@ -585,6 +595,8 @@ class DashboardPage(ctk.CTkFrame):
             "#2F80ED",
             "#EAF3FF",
             "\u25b6",
+            "\u2014",
+            [0, 0],
         )
 
         self.average_value = self._create_stat_card(
@@ -595,6 +607,8 @@ class DashboardPage(ctk.CTkFrame):
             "#7C5CFC",
             "#F0ECFF",
             "\u25a5",
+            "\u2014",
+            [0, 0],
         )
 
         self.max_value = self._create_stat_card(
@@ -605,6 +619,8 @@ class DashboardPage(ctk.CTkFrame):
             "#F04483",
             "#FFF0F6",
             "\u2605",
+            "\u2014",
+            [0, 0],
         )
 
         self.min_value = self._create_stat_card(
@@ -615,6 +631,8 @@ class DashboardPage(ctk.CTkFrame):
             "#66758F",
             "#F0F3F7",
             "!",
+            "\u2014",
+            [0, 0],
         )
 
         self.today_value = self._create_stat_card(
@@ -625,8 +643,9 @@ class DashboardPage(ctk.CTkFrame):
             "#18B981",
             "#EAFBF5",
             "\u25a3",
+            "\u2014",
+            [0, 0],
         )
-
 
     def _create_stat_card(
         self,
@@ -637,10 +656,12 @@ class DashboardPage(ctk.CTkFrame):
         accent,
         soft_color,
         icon,
+        delta_text,
+        trend_points,
     ):
         card = ctk.CTkFrame(
             parent,
-            height=104,
+            height=112,
             corner_radius=18,
             fg_color="#FFFFFF",
             border_width=1,
@@ -664,19 +685,19 @@ class DashboardPage(ctk.CTkFrame):
         top.pack(
             fill="x",
             padx=14,
-            pady=(13, 2),
+            pady=(12, 6),
         )
 
         icon_box = ctk.CTkFrame(
             top,
-            width=34,
-            height=34,
-            corner_radius=10,
+            width=36,
+            height=36,
+            corner_radius=11,
             fg_color=soft_color,
         )
         icon_box.pack(
             side="left",
-            padx=(0, 9),
+            padx=(0, 10),
         )
         icon_box.pack_propagate(False)
 
@@ -698,22 +719,158 @@ class DashboardPage(ctk.CTkFrame):
             text_color="#71809C",
         ).pack(
             side="left",
+            pady=(1, 0),
         )
 
-        value_label = ctk.CTkLabel(
+        body = ctk.CTkFrame(
             card,
-            text=value,
-            font=("Yu Gothic UI", 25, "bold"),
-            text_color="#132347",
+            fg_color="transparent",
         )
-        value_label.pack(
-            anchor="w",
+        body.pack(
+            fill="both",
+            expand=True,
             padx=14,
             pady=(0, 10),
         )
 
+        left = ctk.CTkFrame(
+            body,
+            fg_color="transparent",
+        )
+        left.pack(
+            side="left",
+            fill="both",
+            expand=True,
+        )
+
+        value_label = ctk.CTkLabel(
+            left,
+            text=value,
+            font=("Yu Gothic UI", 24, "bold"),
+            text_color="#132347",
+        )
+        value_label.pack(
+            anchor="w",
+            pady=(0, 1),
+        )
+
+        if delta_text == "\u2014":
+            delta_color = "#9AA7BD"
+        elif column == 2:
+            delta_color = "#F04483"
+        elif column == 4:
+            delta_color = "#18B981"
+        else:
+            delta_color = "#16A34A"
+
+        delta_label = ctk.CTkLabel(
+            left,
+            text=delta_text,
+            font=("Yu Gothic UI", 10, "bold"),
+            text_color=delta_color,
+        )
+        delta_label.pack(
+            anchor="w",
+        )
+
+        spark_wrap = ctk.CTkFrame(
+            body,
+            width=70,
+            height=42,
+            fg_color="transparent",
+        )
+        spark_wrap.pack(
+            side="right",
+            padx=(6, 0),
+            pady=(6, 0),
+        )
+        spark_wrap.pack_propagate(False)
+
+        spark = ctk.CTkCanvas(
+            spark_wrap,
+            width=70,
+            height=42,
+            highlightthickness=0,
+            bd=0,
+            bg="#FFFFFF",
+        )
+        spark.pack(
+            fill="both",
+            expand=True,
+        )
+
+        self._draw_stat_sparkline(
+            spark,
+            trend_points,
+            accent,
+        )
+
+        value_label._delta_label = delta_label
+        value_label._spark_canvas = spark
+
         return value_label
 
+    def _draw_stat_sparkline(
+        self,
+        canvas,
+        points,
+        color,
+    ):
+        canvas.delete("all")
+
+        width = max(
+            int(canvas.cget("width")),
+            70,
+        )
+        height = max(
+            int(canvas.cget("height")),
+            42,
+        )
+
+        if not points or len(points) < 2:
+            return
+
+        min_value = min(points)
+        max_value = max(points)
+
+        if max_value == min_value:
+            max_value += 1
+
+        left_pad = 3
+        right_pad = 3
+        top_pad = 4
+        bottom_pad = 5
+
+        usable_width = width - left_pad - right_pad
+        usable_height = height - top_pad - bottom_pad
+
+        coords = []
+
+        for index, value in enumerate(points):
+            x = left_pad + usable_width * index / (len(points) - 1)
+            ratio = (value - min_value) / (max_value - min_value)
+            y = top_pad + usable_height * (1 - ratio)
+            coords.extend([x, y])
+
+        if len(coords) >= 4:
+            canvas.create_line(
+                *coords,
+                fill=color,
+                width=2,
+                smooth=True,
+            )
+
+        last_x = coords[-2]
+        last_y = coords[-1]
+
+        canvas.create_oval(
+            last_x - 3,
+            last_y - 3,
+            last_x + 3,
+            last_y + 3,
+            fill=color,
+            outline=color,
+        )
 
     def _build_main_panel(self, parent):
         main = ctk.CTkFrame(
@@ -833,6 +990,7 @@ class DashboardPage(ctk.CTkFrame):
         )
 
 
+
     def _build_latest_panel(self, parent):
         frame = ctk.CTkFrame(
             parent,
@@ -859,8 +1017,16 @@ class DashboardPage(ctk.CTkFrame):
             pady=(16, 10),
         )
 
-        ctk.CTkLabel(
+        title_group = ctk.CTkFrame(
             header,
+            fg_color="transparent",
+        )
+        title_group.pack(
+            side="left",
+        )
+
+        ctk.CTkLabel(
+            title_group,
             text="\u2699",
             font=("Yu Gothic UI", 16, "bold"),
             text_color="#7C5CFC",
@@ -870,7 +1036,7 @@ class DashboardPage(ctk.CTkFrame):
         )
 
         ctk.CTkLabel(
-            header,
+            title_group,
             text="\u6700\u65b0\u306e\u5206\u6790\u7d50\u679c",
             font=("Yu Gothic UI", 15, "bold"),
             text_color="#132347",
@@ -878,30 +1044,40 @@ class DashboardPage(ctk.CTkFrame):
             side="left",
         )
 
-        self.latest_date = ctk.CTkLabel(
+        latest_chip = ctk.CTkFrame(
             header,
-            text="--",
-            font=("Yu Gothic UI", 9),
-            text_color="#8A97AD",
+            corner_radius=10,
+            fg_color="#F0ECFF",
         )
-        self.latest_date.pack(
+        latest_chip.pack(
             side="right",
         )
 
-        hero = ctk.CTkFrame(
+        ctk.CTkLabel(
+            latest_chip,
+            text="LATEST",
+            font=("Yu Gothic UI", 9, "bold"),
+            text_color="#7C5CFC",
+        ).pack(
+            padx=10,
+            pady=5,
+        )
+
+        content = ctk.CTkFrame(
             frame,
             fg_color="transparent",
         )
-        hero.pack(
-            fill="x",
+        content.pack(
+            fill="both",
+            expand=True,
             padx=16,
-            pady=(0, 10),
+            pady=(0, 16),
         )
 
         preview = ctk.CTkFrame(
-            hero,
-            width=235,
-            height=170,
+            content,
+            width=245,
+            height=205,
             corner_radius=14,
             fg_color="#F1F5F9",
         )
@@ -909,7 +1085,7 @@ class DashboardPage(ctk.CTkFrame):
             side="left",
             fill="both",
             expand=True,
-            padx=(0, 12),
+            padx=(0, 14),
         )
         preview.pack_propagate(False)
 
@@ -927,8 +1103,8 @@ class DashboardPage(ctk.CTkFrame):
         )
 
         summary = ctk.CTkFrame(
-            hero,
-            width=145,
+            content,
+            width=165,
             fg_color="transparent",
         )
         summary.pack(
@@ -944,7 +1120,7 @@ class DashboardPage(ctk.CTkFrame):
             text_color="#F04483",
         ).pack(
             anchor="w",
-            pady=(5, 0),
+            pady=(4, 0),
         )
 
         score_row = ctk.CTkFrame(
@@ -953,12 +1129,13 @@ class DashboardPage(ctk.CTkFrame):
         )
         score_row.pack(
             anchor="w",
+            pady=(0, 3),
         )
 
         self.latest_score = ctk.CTkLabel(
             score_row,
             text="--",
-            font=("Yu Gothic UI", 36, "bold"),
+            font=("Yu Gothic UI", 40, "bold"),
             text_color="#2F80ED",
         )
         self.latest_score.pack(
@@ -968,93 +1145,92 @@ class DashboardPage(ctk.CTkFrame):
         ctk.CTkLabel(
             score_row,
             text="\u70b9",
-            font=("Yu Gothic UI", 15, "bold"),
+            font=("Yu Gothic UI", 14, "bold"),
             text_color="#71809C",
         ).pack(
             side="left",
             padx=(3, 0),
-            pady=(13, 0),
+            pady=(17, 0),
+        )
+
+        separator = ctk.CTkFrame(
+            summary,
+            height=1,
+            fg_color="#E7ECF4",
+        )
+        separator.pack(
+            fill="x",
+            pady=(7, 10),
         )
 
         ctk.CTkLabel(
             summary,
-            text="\u6700\u65b0\u306eAI\u5206\u6790",
-            font=("Yu Gothic UI", 9),
+            text="\u5206\u6790\u65e5\u6642",
+            font=("Yu Gothic UI", 9, "bold"),
             text_color="#8A97AD",
         ).pack(
             anchor="w",
-            pady=(8, 0),
         )
 
-        insight_container = ctk.CTkFrame(
+        self.latest_date = ctk.CTkLabel(
+            summary,
+            text="--",
+            font=("Yu Gothic UI", 10, "bold"),
+            text_color="#44516A",
+            justify="left",
+            anchor="w",
+            wraplength=155,
+        )
+        self.latest_date.pack(
+            fill="x",
+            anchor="w",
+            pady=(2, 12),
+        )
+
+        self.latest_detail_button = ctk.CTkButton(
+            summary,
+            text="\u8a73\u7d30\u3092\u898b\u308b  \u2192",
+            height=34,
+            corner_radius=10,
+            fg_color="#7C5CFC",
+            hover_color="#6847E8",
+            text_color="#FFFFFF",
+            font=("Yu Gothic UI", 10, "bold"),
+            command=self._open_latest_detail,
+        )
+        self.latest_detail_button.pack(
+            fill="x",
+            pady=(5, 0),
+        )
+
+        # Existing refresh logic still updates these three widgets.
+        # Keep them alive but do not show them on the compact dashboard.
+        hidden = ctk.CTkFrame(
             frame,
             fg_color="transparent",
         )
-        insight_container.pack(
-            fill="both",
-            expand=True,
-            padx=16,
-            pady=(0, 14),
+
+        self.insight_observation = ctk.CTkLabel(
+            hidden,
+            text="--",
         )
 
-        def make_insight_card(title, accent, background):
-            card = ctk.CTkFrame(
-                insight_container,
-                corner_radius=11,
-                fg_color=background,
-                border_width=1,
-                border_color="#E7ECF4",
-            )
-            card.pack(
-                fill="x",
-                pady=3,
-            )
-
-            ctk.CTkLabel(
-                card,
-                text=title,
-                font=("Yu Gothic UI", 10, "bold"),
-                text_color=accent,
-            ).pack(
-                anchor="w",
-                padx=11,
-                pady=(7, 2),
-            )
-
-            body = ctk.CTkLabel(
-                card,
-                text="--",
-                justify="left",
-                anchor="w",
-                wraplength=390,
-                font=("Yu Gothic UI", 9),
-                text_color="#44516A",
-            )
-            body.pack(
-                fill="x",
-                padx=11,
-                pady=(0, 7),
-            )
-
-            return body
-
-        self.insight_observation = make_insight_card(
-            "\u2726  AI\u306e\u898b\u7acb\u3066",
-            "#2F80ED",
-            "#F8FAFF",
+        self.insight_problem = ctk.CTkLabel(
+            hidden,
+            text="--",
         )
 
-        self.insight_problem = make_insight_card(
-            "\u25b3  \u6539\u5584\u30dd\u30a4\u30f3\u30c8",
-            "#D97706",
-            "#FFFBF3",
+        self.insight_action = ctk.CTkLabel(
+            hidden,
+            text="--",
         )
 
-        self.insight_action = make_insight_card(
-            "\u2713  \u6b21\u306b\u3084\u308b\u3053\u3068",
-            "#059669",
-            "#F3FCF8",
-        )
+
+    def _open_latest_detail(self):
+        callback = self.on_show_history
+
+        if callable(callback):
+            callback()
 
 
     def _build_bottom_panels(self, parent):
@@ -1081,6 +1257,7 @@ class DashboardPage(ctk.CTkFrame):
             0,
             "\u2605  \u9ad8\u5f97\u70b9\u30e9\u30f3\u30ad\u30f3\u30b0",
             "#F5A623",
+            "#FFF8E7",
         )
 
         low_card = self._create_ranking_card(
@@ -1088,39 +1265,96 @@ class DashboardPage(ctk.CTkFrame):
             1,
             "\u25c7  \u6539\u5584\u512a\u5148\u30e9\u30f3\u30ad\u30f3\u30b0",
             "#7C5CFC",
+            "#F4F0FF",
         )
 
         self.high_rank_labels = []
         self.low_rank_labels = []
 
         for index in range(5):
-            high_label = ctk.CTkLabel(
+            high_row = ctk.CTkFrame(
                 high_card,
-                text=f"{index + 1}\u4f4d   --",
-                anchor="w",
+                height=34,
+                corner_radius=9,
+                fg_color="#FFFDF8",
+            )
+            high_row.pack(
+                fill="x",
+                padx=14,
+                pady=3,
+            )
+            high_row.pack_propagate(False)
+
+            high_rank = ctk.CTkLabel(
+                high_row,
+                width=28,
+                text=str(index + 1),
                 font=("Yu Gothic UI", 10, "bold"),
+                text_color="#F5A623",
+            )
+            high_rank.pack(
+                side="left",
+                padx=(8, 3),
+            )
+
+            high_label = ctk.CTkLabel(
+                high_row,
+                text="--",
+                anchor="w",
+                font=("Yu Gothic UI", 9, "bold"),
                 text_color="#44516A",
             )
             high_label.pack(
+                side="left",
                 fill="x",
-                padx=15,
+                expand=True,
+                padx=(3, 8),
+            )
+            self.high_rank_labels.append(
+                high_label
+            )
+
+            low_row = ctk.CTkFrame(
+                low_card,
+                height=34,
+                corner_radius=9,
+                fg_color="#FBFAFF",
+            )
+            low_row.pack(
+                fill="x",
+                padx=14,
                 pady=3,
             )
-            self.high_rank_labels.append(high_label)
+            low_row.pack_propagate(False)
+
+            low_rank = ctk.CTkLabel(
+                low_row,
+                width=28,
+                text=str(index + 1),
+                font=("Yu Gothic UI", 10, "bold"),
+                text_color="#7C5CFC",
+            )
+            low_rank.pack(
+                side="left",
+                padx=(8, 3),
+            )
 
             low_label = ctk.CTkLabel(
-                low_card,
-                text=f"{index + 1}\u4f4d   --",
+                low_row,
+                text="--",
                 anchor="w",
-                font=("Yu Gothic UI", 10, "bold"),
+                font=("Yu Gothic UI", 9, "bold"),
                 text_color="#44516A",
             )
             low_label.pack(
+                side="left",
                 fill="x",
-                padx=15,
-                pady=3,
+                expand=True,
+                padx=(3, 8),
             )
-            self.low_rank_labels.append(low_label)
+            self.low_rank_labels.append(
+                low_label
+            )
 
         actions = ctk.CTkFrame(
             bottom,
@@ -1158,7 +1392,7 @@ class DashboardPage(ctk.CTkFrame):
         ctk.CTkButton(
             actions,
             text="\u25b6  AI\u5206\u6790\u3092\u958b\u59cb",
-            height=39,
+            height=42,
             corner_radius=11,
             fg_color="#7C5CFC",
             hover_color="#6847E8",
@@ -1167,28 +1401,41 @@ class DashboardPage(ctk.CTkFrame):
         ).pack(
             fill="x",
             padx=15,
-            pady=(0, 7),
+            pady=(0, 8),
+        )
+
+        action_row = ctk.CTkFrame(
+            actions,
+            fg_color="transparent",
+        )
+        action_row.pack(
+            fill="x",
+            padx=15,
+            pady=(0, 8),
         )
 
         ctk.CTkButton(
-            actions,
-            text="\u21bb  \u30c7\u30fc\u30bf\u3092\u66f4\u65b0",
-            height=35,
+            action_row,
+            text="\u21bb  \u66f4\u65b0",
+            height=36,
             corner_radius=10,
             fg_color="#2F80ED",
             hover_color="#256ED0",
             font=("Yu Gothic UI", 10, "bold"),
-            command=lambda: self.refresh_dashboard(force=True),
+            command=lambda: self.refresh_dashboard(
+                force=True
+            ),
         ).pack(
+            side="left",
             fill="x",
-            padx=15,
-            pady=4,
+            expand=True,
+            padx=(0, 4),
         )
 
         ctk.CTkButton(
-            actions,
-            text="\u25a3  \u30cf\u30a4\u30e9\u30a4\u30c8\u4fdd\u5b58",
-            height=35,
+            action_row,
+            text="\u25a3  \u4fdd\u5b58",
+            height=36,
             corner_radius=10,
             fg_color="transparent",
             border_width=1,
@@ -1198,10 +1445,37 @@ class DashboardPage(ctk.CTkFrame):
             font=("Yu Gothic UI", 10, "bold"),
             command=self.save_highlight_replay,
         ).pack(
+            side="left",
+            fill="x",
+            expand=True,
+            padx=(4, 0),
+        )
+
+        footer = ctk.CTkFrame(
+            actions,
+            fg_color="transparent",
+        )
+        footer.pack(
             fill="x",
             padx=15,
-            pady=(4, 14),
+            pady=(4, 12),
         )
+
+        ctk.CTkFrame(
+            footer,
+            height=1,
+            fg_color="#E7ECF4",
+        ).pack(
+            fill="x",
+            pady=(0, 8),
+        )
+
+        ctk.CTkLabel(
+            footer,
+            text="\u30c7\u30fc\u30bf\u3067\u3001\u3082\u3063\u3068\u826f\u3044\u914d\u4fe1\u3092\u3002",
+            font=("Yu Gothic UI", 9),
+            text_color="#8A97AD",
+        ).pack()
 
 
     def _create_ranking_card(
@@ -1210,6 +1484,7 @@ class DashboardPage(ctk.CTkFrame):
         column,
         title,
         accent,
+        soft_color,
     ):
         card = ctk.CTkFrame(
             parent,
@@ -1235,12 +1510,38 @@ class DashboardPage(ctk.CTkFrame):
         header.pack(
             fill="x",
             padx=15,
-            pady=(14, 9),
+            pady=(14, 10),
         )
+
+        icon_box = ctk.CTkFrame(
+            header,
+            width=30,
+            height=30,
+            corner_radius=9,
+            fg_color=soft_color,
+        )
+        icon_box.pack(
+            side="left",
+            padx=(0, 8),
+        )
+        icon_box.pack_propagate(False)
+
+        ctk.CTkLabel(
+            icon_box,
+            text=title[:1],
+            font=("Yu Gothic UI", 13, "bold"),
+            text_color=accent,
+        ).place(
+            relx=0.5,
+            rely=0.5,
+            anchor="center",
+        )
+
+        clean_title = title[3:]
 
         ctk.CTkLabel(
             header,
-            text=title,
+            text=clean_title,
             font=("Yu Gothic UI", 13, "bold"),
             text_color="#132347",
         ).pack(
@@ -1249,7 +1550,7 @@ class DashboardPage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             header,
-            text="\u30c7\u30fc\u30bf",
+            text="\u30e9\u30f3\u30ad\u30f3\u30b0",
             font=("Yu Gothic UI", 9, "bold"),
             text_color=accent,
         ).pack(
@@ -1257,7 +1558,6 @@ class DashboardPage(ctk.CTkFrame):
         )
 
         return card
-
 
     def _refresh_rankings(self):
         try:
@@ -1298,7 +1598,7 @@ class DashboardPage(ctk.CTkFrame):
             for index, label in enumerate(labels):
                 if index >= len(ranked_rows):
                     label.configure(
-                        text=f"{index + 1}\u4f4d   --"
+                        text="--"
                     )
                     continue
 
@@ -1321,7 +1621,6 @@ class DashboardPage(ctk.CTkFrame):
 
                 label.configure(
                     text=(
-                        f"{index + 1}\u4f4d   "
                         f"{score:g}\u70b9   "
                         f"ID:{history_id}   "
                         f"{created_at}"
@@ -1560,6 +1859,327 @@ class DashboardPage(ctk.CTkFrame):
     # Dashboard refresh
     # ==================================================
 
+
+    @staticmethod
+    def _configure_stat_delta(
+        value_label,
+        current,
+        previous,
+        unit,
+    ):
+        label = getattr(
+            value_label,
+            "_delta_label",
+            None,
+        )
+
+        if label is None:
+            return
+
+        if (
+            current is None
+            or previous is None
+        ):
+            label.configure(
+                text="\u524d\u65e5\u6bd4  \u2014",
+                text_color="#9AA7BD",
+            )
+            return
+
+        difference = (
+            float(current)
+            - float(previous)
+        )
+
+        if abs(difference) < 0.05:
+            label.configure(
+                text=(
+                    "\u524d\u65e5\u6bd4  "
+                    f"0{unit}"
+                ),
+                text_color="#9AA7BD",
+            )
+            return
+
+        if difference > 0:
+            arrow = "\u2191"
+            color = "#16A34A"
+            sign = "+"
+        else:
+            arrow = "\u2193"
+            color = "#E5484D"
+            sign = ""
+
+        if unit == "\u70b9":
+            value_text = (
+                f"{difference:+.1f}"
+                if difference > 0
+                else f"{difference:.1f}"
+            )
+        else:
+            integer_difference = int(
+                round(difference)
+            )
+            value_text = (
+                f"+{integer_difference}"
+                if integer_difference > 0
+                else str(integer_difference)
+            )
+
+        label.configure(
+            text=(
+                f"{arrow} "
+                "\u524d\u65e5\u6bd4 "
+                f"{value_text}{unit}"
+            ),
+            text_color=color,
+        )
+
+
+
+    def _refresh_kpi_trends(self):
+        rows = self.history.get_daily_score_stats(
+            days=7
+        )
+
+        by_day = {
+            str(row[0]): {
+                "count": int(row[1] or 0),
+                "average": (
+                    float(row[2])
+                    if row[2] is not None
+                    else None
+                ),
+                "maximum": (
+                    float(row[3])
+                    if row[3] is not None
+                    else None
+                ),
+                "minimum": (
+                    float(row[4])
+                    if row[4] is not None
+                    else None
+                ),
+            }
+            for row in rows
+        }
+
+        today_date = datetime.now().date()
+
+        date_keys = [
+            (
+                today_date
+                - timedelta(days=offset)
+            ).isoformat()
+            for offset in range(6, -1, -1)
+        ]
+
+        empty = {
+            "count": 0,
+            "average": None,
+            "maximum": None,
+            "minimum": None,
+        }
+
+        seven_day_rows = [
+            by_day.get(
+                key,
+                empty,
+            )
+            for key in date_keys
+        ]
+
+        total_count = sum(
+            row["count"]
+            for row in seven_day_rows
+        )
+
+        weighted_score_total = sum(
+            (
+                row["average"]
+                * row["count"]
+            )
+            for row in seven_day_rows
+            if (
+                row["average"] is not None
+                and row["count"] > 0
+            )
+        )
+
+        seven_day_average = (
+            weighted_score_total / total_count
+            if total_count > 0
+            else None
+        )
+
+        maximum_values = [
+            row["maximum"]
+            for row in seven_day_rows
+            if row["maximum"] is not None
+        ]
+
+        minimum_values = [
+            row["minimum"]
+            for row in seven_day_rows
+            if row["minimum"] is not None
+        ]
+
+        seven_day_max = (
+            max(maximum_values)
+            if maximum_values
+            else None
+        )
+
+        seven_day_min = (
+            min(minimum_values)
+            if minimum_values
+            else None
+        )
+
+        yesterday_key = (
+            today_date
+            - timedelta(days=1)
+        ).isoformat()
+
+        yesterday_count = by_day.get(
+            yesterday_key,
+            empty,
+        )["count"]
+
+        def set_small_text(
+            value_label,
+            text_value,
+            color="#8A97AD",
+        ):
+            label = getattr(
+                value_label,
+                "_delta_label",
+                None,
+            )
+
+            if label is not None:
+                label.configure(
+                    text=text_value,
+                    text_color=color,
+                )
+
+        set_small_text(
+            self.count_value,
+            (
+                "\u76f4\u8fd17\u65e5 "
+                f"{total_count}\u56de"
+            ),
+            "#2F80ED",
+        )
+
+        set_small_text(
+            self.average_value,
+            (
+                "\u76f4\u8fd17\u65e5 "
+                + (
+                    f"{seven_day_average:.1f}\u70b9"
+                    if seven_day_average is not None
+                    else "\u2014"
+                )
+            ),
+            "#7C5CFC",
+        )
+
+        set_small_text(
+            self.max_value,
+            (
+                "\u76f4\u8fd17\u65e5 "
+                + (
+                    f"{seven_day_max:g}\u70b9"
+                    if seven_day_max is not None
+                    else "\u2014"
+                )
+            ),
+            "#F04483",
+        )
+
+        set_small_text(
+            self.min_value,
+            (
+                "\u76f4\u8fd17\u65e5 "
+                + (
+                    f"{seven_day_min:g}\u70b9"
+                    if seven_day_min is not None
+                    else "\u2014"
+                )
+            ),
+            "#66758F",
+        )
+
+        set_small_text(
+            self.today_value,
+            (
+                "\u6628\u65e5 "
+                f"{yesterday_count}\u56de"
+            ),
+            "#18B981",
+        )
+
+        count_points = [
+            row["count"]
+            for row in seven_day_rows
+        ]
+
+        def score_points(field):
+            return [
+                row[field]
+                for row in seven_day_rows
+                if row[field] is not None
+            ]
+
+        spark_specs = (
+            (
+                self.count_value,
+                count_points,
+                "#2F80ED",
+            ),
+            (
+                self.average_value,
+                score_points("average"),
+                "#7C5CFC",
+            ),
+            (
+                self.max_value,
+                score_points("maximum"),
+                "#F04483",
+            ),
+            (
+                self.min_value,
+                score_points("minimum"),
+                "#66758F",
+            ),
+            (
+                self.today_value,
+                count_points,
+                "#18B981",
+            ),
+        )
+
+        for value_label, points, color in spark_specs:
+            canvas = getattr(
+                value_label,
+                "_spark_canvas",
+                None,
+            )
+
+            if canvas is None:
+                continue
+
+            if len(points) < 2:
+                canvas.delete("all")
+                continue
+
+            self._draw_stat_sparkline(
+                canvas,
+                points,
+                color,
+            )
+
     def refresh_dashboard(self, force=False):
         if self._destroying:
             return
@@ -1591,6 +2211,8 @@ class DashboardPage(ctk.CTkFrame):
             self.today_value.configure(
                 text=f"{self._display_number(today)}回"
             )
+
+            self._refresh_kpi_trends()
 
             self._refresh_rankings()
 

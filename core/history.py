@@ -355,6 +355,46 @@ class HistoryDB:
 
             return cursor.fetchall()
 
+
+    def get_daily_score_stats(
+        self,
+        days: int = 7,
+    ):
+        days = max(
+            2,
+            min(
+                30,
+                int(days),
+            ),
+        )
+
+        since_modifier = (
+            f"-{days - 1} days"
+        )
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                SELECT
+                    DATE(created_at) AS day,
+                    COUNT(*) AS analysis_count,
+                    AVG(score) AS average_score,
+                    MAX(score) AS maximum_score,
+                    MIN(score) AS minimum_score
+                FROM ai_history
+                WHERE DATE(created_at) >= DATE(
+                    'now',
+                    'localtime',
+                    ?
+                )
+                GROUP BY DATE(created_at)
+                ORDER BY day ASC
+                """,
+                (since_modifier,),
+            )
+
+            return cursor.fetchall()
+
     def get_latest(self):
         with self._connect() as conn:
             cursor = conn.execute(
