@@ -169,6 +169,14 @@ class AutoAnalyzer:
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
 
+        # Prevent manual and automatic analyses from running
+        # at the same time.
+        self._analysis_lock = threading.Lock()
+
+        # Temporal information-density state.
+        self._high_density_streak = 0
+        self._very_high_density_streak = 0
+
     # ==================================================
     # Public API
     # ==================================================
@@ -181,6 +189,9 @@ class AutoAnalyzer:
 
             self._running = True
             self._stop_event.clear()
+
+            self._high_density_streak = 0
+            self._very_high_density_streak = 0
 
             self._thread = threading.Thread(
                 target=self._loop,
@@ -282,6 +293,22 @@ class AutoAnalyzer:
     # ==================================================
 
     def _analyze_once(self) -> Optional[dict]:
+        if not self._analysis_lock.acquire(
+            blocking=False
+        ):
+            self._emit(
+                "status",
+                "\u5206\u6790\u51e6\u7406\u304c"
+                "\u5b9f\u884c\u4e2d\u3067\u3059\u3002"
+            )
+            return None
+
+        try:
+            return self._analyze_once_impl()
+        finally:
+            self._analysis_lock.release()
+
+    def _analyze_once_impl(self) -> Optional[dict]:
         if not self._obs_connected():
             raise ConnectionError(
                 "OBSに接続されていません。OBSとWebSocket設定を確認してください。"
@@ -432,6 +459,9 @@ class AutoAnalyzer:
         )
 
         if no_stream_visual:
+            self._high_density_streak = 0
+            self._very_high_density_streak = 0
+
             message = (
                 "\u914d\u4fe1\u6620\u50cf\u3092"
                 "\u691c\u51fa\u3067\u304d\u306a"
@@ -459,6 +489,45 @@ class AutoAnalyzer:
                     timespec="seconds"
                 ),
             }
+
+        element_count = int(
+            information.get(
+                "element_count",
+                0,
+            )
+        )
+
+        if element_count >= 180:
+            self._high_density_streak += 1
+        else:
+            self._high_density_streak = 0
+
+        if element_count >= 250:
+            self._very_high_density_streak += 1
+        else:
+            self._very_high_density_streak = 0
+
+        single_frame_score = information["score"]
+
+        if self._very_high_density_streak >= 2:
+            temporal_information_score = 11
+        elif self._high_density_streak >= 2:
+            temporal_information_score = 13
+        else:
+            temporal_information_score = 15
+
+        information["single_frame_score"] = (
+            single_frame_score
+        )
+        information["score"] = (
+            temporal_information_score
+        )
+        information["high_density_streak"] = (
+            self._high_density_streak
+        )
+        information["very_high_density_streak"] = (
+            self._very_high_density_streak
+        )
 
         raw_answer = self.ai.analyze_image(
             analysis_image_path,
