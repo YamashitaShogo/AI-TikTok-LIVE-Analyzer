@@ -13,7 +13,7 @@ import urllib.error
 from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
 
-AI_RATE_LIMIT = int(os.getenv("AI_RATE_LIMIT", "5"))
+AI_RATE_LIMIT = int(os.getenv("AI_RATE_LIMIT", "15"))
 AI_RATE_WINDOW = int(os.getenv("AI_RATE_WINDOW", "60"))
 
 _ai_request_history = defaultdict(deque)
