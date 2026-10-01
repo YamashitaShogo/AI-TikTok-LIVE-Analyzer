@@ -1,4 +1,6 @@
 import time
+import base64
+from io import BytesIO
 from collections import defaultdict, deque
 from threading import Lock
 from fastapi import FastAPI, HTTPException
@@ -43,6 +45,10 @@ class AIAnalyzeRequest(BaseModel):
     prompt: str
     image_base64: str | None = None
     images_base64: list[str] | None = None
+
+class AITranscribeRequest(BaseModel):
+    license_key: str
+    audio_base64: str
 
 class ContactRequest(BaseModel):
     name: str
@@ -352,21 +358,9 @@ def analyze_ai(request: AIAnalyzeRequest):
         content = [
             {
                 "type": "input_text",
-                "text": (
-                    prompt
-                    + "\n\n"
-                    + "以下の画像はReplay Bufferから抽出した"
-                    + "時系列フレームです。"
-                    + "最初の画像が最も古く、最後の画像が最も新しいです。"
-                    + "各画像を個別に見るだけでなく、"
-                    + "時間経過による変化も含めて分析してください。"
-                ),
+                "text": prompt,
             }
         ]
-
-        # A single image is not a Replay Buffer time series.
-        if len(images_base64) == 1:
-            content[0]["text"] = prompt
 
         for image_base64 in images_base64:
             content.append(
@@ -481,3 +475,125 @@ def contact(request: ContactRequest):
         "ok": True,
         "message": "お問い合わせを受け付けました。",
     }
+
+@app.post("/ai/transcribe")
+def transcribe_audio(request: AITranscribeRequest):
+    key = request.license_key.strip().upper()
+
+    if not key:
+        raise HTTPException(
+            status_code=400,
+            detail="ライセンスキーが空です。",
+        )
+
+    licenses = load_licenses()
+    license_data = licenses.get(key)
+
+    if not license_data:
+        raise HTTPException(
+            status_code=403,
+            detail="ライセンスキーが無効です。",
+        )
+
+    if not license_data.get("active", False):
+        raise HTTPException(
+            status_code=403,
+            detail="このライセンスは停止されています。",
+        )
+
+    expires_at = license_data.get("expires_at")
+
+    if expires_at:
+        try:
+            expires_date = datetime.fromisoformat(expires_at)
+
+            if datetime.now() > expires_date:
+                raise HTTPException(
+                    status_code=403,
+                    detail="ライセンスの有効期限が切れています。",
+                )
+
+        except ValueError:
+            raise HTTPException(
+                status_code=500,
+                detail="ライセンスの有効期限データが不正です。",
+            )
+
+    check_ai_rate_limit(key)
+
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="サーバーのOpenAI APIキーが設定されていません。",
+        )
+
+    audio_base64 = request.audio_base64.strip()
+
+    if not audio_base64:
+        raise HTTPException(
+            status_code=400,
+            detail="音声データが空です。",
+        )
+
+    try:
+        audio_bytes = base64.b64decode(
+            audio_base64,
+            validate=True,
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="音声データの形式が不正です。",
+        )
+
+    if len(audio_bytes) > 10 * 1024 * 1024:
+        raise HTTPException(
+            status_code=400,
+            detail="音声データが大きすぎます。",
+        )
+
+    try:
+        client = OpenAI(
+            api_key=api_key,
+            timeout=90.0,
+            max_retries=0,
+        )
+
+        started_at = time.perf_counter()
+
+        response = client.audio.transcriptions.create(
+            model="gpt-transcribe",
+            file=(
+                "audio.wav",
+                audio_bytes,
+                "audio/wav",
+            ),
+        )
+
+        elapsed = time.perf_counter() - started_at
+
+        print(
+            f"[AI TRANSCRIBE] OpenAI response: "
+            f"{elapsed:.2f} sec"
+        )
+
+        text = str(
+            getattr(response, "text", "") or ""
+        ).strip()
+
+        return {
+            "text": text,
+        }
+
+    except Exception as exc:
+        print(
+            f"[AI TRANSCRIBE ERROR] "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="音声の文字起こしに失敗しました。",
+        )
