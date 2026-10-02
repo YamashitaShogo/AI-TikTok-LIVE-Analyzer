@@ -4,9 +4,10 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 project_root = Path(SPECPATH)
 datas = collect_data_files("customtkinter")
+datas += collect_data_files("webview")
 hiddenimports = []
 
-for package in ("customtkinter", "openai", "httpx", "pydantic", "obsws_python", "reportlab", "PIL"):
+for package in ("customtkinter", "openai", "httpx", "pydantic", "reportlab", "PIL", "webview", "pyaudiowpatch"):
     try:
         hiddenimports += collect_submodules(package)
     except Exception:
@@ -22,7 +23,7 @@ for file_name in (".env.example",):
     if file_path.exists():
         datas.append((str(file_path), "."))
 
-icon_path = project_root / "assets" / "app.ico"
+icon_path = project_root / "assets" / "LivemetryPulse.ico"
 icon_value = str(icon_path) if icon_path.exists() else None
 
 a = Analysis(

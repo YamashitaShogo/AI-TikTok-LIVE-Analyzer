@@ -18,7 +18,7 @@ IMPORTANT GENERAL RULES:
 - TikTok-native elements remain outside the evaluation even when they appear on top of or inside the visible livestream video area.
 - TikTok's native comment area must never be treated as visual clutter, excessive UI, focus competition, wasted space, content obstruction, or layout imbalance.
 - Judge composition, subject scale, dead space, visibility, and visual hierarchy primarily inside the actual livestream video content.
-- Only evaluate UI or overlays negatively when they are clearly part of the streamer's own video or OBS composition.
+- Only evaluate UI or overlays negatively when they are clearly part of the streamer's own video composition.
 - Do not mark multiple issues for the same visual condition unless each issue is independently and clearly present.
 - Global brightness, exposure, darkness, and screen information density are evaluated separately by Python.
 - Do not use global darkness or high information density as reasons to set any of the six issue flags to true.
@@ -51,7 +51,7 @@ Do NOT mark true merely because:
 
 content_obstruction_issue:
 True only when an element controlled by the streamer or included in the
-streamer's own OBS/video composition substantially covers important content
+streamer's own video composition substantially covers important content
 such as:
 - the main subject's face,
 - a featured product,
@@ -138,7 +138,7 @@ Do NOT mark true for ordinary close-up livestream framing.
 
 ui_dominance_issue:
 True only when UI, text, panels, or overlays that are part of the streamer's
-own video or OBS composition occupy so much visual attention that they compete
+own video composition occupy so much visual attention that they compete
 with the main stream content.
 
 TikTok native comments, chat panels, reaction icons, gift notifications,

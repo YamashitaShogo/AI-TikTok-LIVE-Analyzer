@@ -64,3 +64,6 @@ tests/results/
 
 # Gift validation results
 tests/gift_validation/results/
+
+# Runtime gift history images
+database/gift_history_images/

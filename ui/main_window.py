@@ -7,15 +7,16 @@ from tkinter import messagebox
 import customtkinter as ctk
 from PIL import Image
 
+from core.auto_analyzer import AutoAnalyzer
 from core.license_manager import LicenseManager
-from core.obs_client import OBSClient
 from core.settings import Settings
+from core.viewer_collector_manager import ViewerCollectorManager
 from ui.pages.ai import AIPage
 from ui.pages.analytics import AnalyticsPage
 from ui.pages.dashboard import DashboardPage
 from ui.pages.history import HistoryPage
 from ui.pages.gifts import GiftPage
-from ui.pages.obs import OBSPage
+from ui.pages.viewer import ViewerPage
 from ui.pages.settings import SettingsPage
 from ui import theme
 
@@ -76,7 +77,16 @@ class MainWindow(ctk.CTk):
             self.set_app_icon,
         )
 
-        self.obs = OBSClient()
+        self.auto_analyzer = AutoAnalyzer(
+            callback=self._on_auto_analyzer_event,
+        )
+
+        # TikTok Viewer / Collector is launched automatically.
+        # It runs in a child process so pywebview and CustomTkinter
+        # do not compete for the same GUI event loop.
+        self.viewer_collector = ViewerCollectorManager()
+
+        self._latest_auto_result = None
         self.current_page = None
 
         # -----------------------------------------------
@@ -194,7 +204,7 @@ class MainWindow(ctk.CTk):
 
         ctk.CTkLabel(
             brand_text,
-            text="v1.4.0",
+            text="v1.5.0",
             font=(theme.FONT_FAMILY, 10),
             text_color=theme.TEXT_MUTED,
         ).pack(
@@ -255,16 +265,10 @@ class MainWindow(ctk.CTk):
             self.show_dashboard,
         )
 
-        self.obs_button = create_nav_button(
-            "obs",
-            "\u25a3    OBS",
-            self.show_obs,
-        )
-
-        self.ai_button = create_nav_button(
-            "ai",
-            "\u2726    AI\u5206\u6790",
-            self.show_ai,
+        self.viewer_button = create_nav_button(
+            "viewer",
+            "\u25a3    TikTok Viewer",
+            self.show_viewer,
         )
 
         self.history_button = create_nav_button(
@@ -425,12 +429,32 @@ class MainWindow(ctk.CTk):
 
         self.show_dashboard()
 
+        # Start TikTok Viewer shortly after the main window is ready.
+        self.after(
+            700,
+            self._start_viewer_collector,
+        )
+
         self.refresh_license_status()
 
         self.protocol(
             "WM_DELETE_WINDOW",
             self.on_close,
         )
+
+    def _start_viewer_collector(self):
+        """Livemetry Pulseと一緒にTikTok Viewerを自動起動する。"""
+        if self._closing:
+            return
+
+        try:
+            self.viewer_collector.start()
+            print("TikTok Viewer Collectorを起動しました。")
+        except Exception as error:
+            print(
+                "TikTok Viewer Collector起動エラー:",
+                repr(error),
+            )
 
     def set_app_icon(self):
         """アプリのタイトルバーアイコンを設定します。"""
@@ -601,6 +625,28 @@ class MainWindow(ctk.CTk):
     # Pages
     # ==================================================
 
+    def _on_auto_analyzer_event(
+        self,
+        event,
+        data,
+    ):
+        if self._closing:
+            return
+
+        if (
+            event == "result"
+            and isinstance(data, dict)
+        ):
+            self._latest_auto_result = data
+
+        page = self.current_page
+
+        if isinstance(page, DashboardPage):
+            page.on_auto_analyzer_event(
+                event,
+                data,
+            )
+
     def clear_page(self):
         """現在表示しているページを削除します。"""
         if self.current_page is not None:
@@ -626,26 +672,33 @@ class MainWindow(ctk.CTk):
         self.clear_page()
         self.current_page = DashboardPage(
             self.content,
-            self.obs,
             on_show_history=self.show_history,
+            auto_analyzer=self.auto_analyzer,
         )
         self.current_page.pack(
             fill="both",
             expand=True,
         )
+
+        if self._latest_auto_result is not None:
+            self.current_page.on_auto_analyzer_event(
+                "result",
+                self._latest_auto_result,
+            )
+
         self._set_active_nav("dashboard")
 
-    def show_obs(self):
+    def show_viewer(self):
         self.clear_page()
-        self.current_page = OBSPage(
+        self.current_page = ViewerPage(
             self.content,
-            self.obs,
+            viewer_manager=self.viewer_collector,
         )
         self.current_page.pack(
             fill="both",
             expand=True,
         )
-        self._set_active_nav("obs")
+        self._set_active_nav("viewer")
 
     def show_ai(self):
         if not self.require_license():
@@ -654,7 +707,6 @@ class MainWindow(ctk.CTk):
         self.clear_page()
         self.current_page = AIPage(
             self.content,
-            self.obs,
         )
         self.current_page.pack(
             fill="both",
@@ -683,7 +735,6 @@ class MainWindow(ctk.CTk):
         self.clear_page()
         self.current_page = GiftPage(
             self.content,
-            self.obs,
         )
         self.current_page.pack(
             fill="both",
@@ -708,9 +759,8 @@ class MainWindow(ctk.CTk):
     def show_settings(self):
         self.clear_page()
         self.current_page = SettingsPage(
-        self.content,
-        self.obs,
-    )
+            self.content,
+        )
         self.current_page.pack(
             fill="both",
             expand=True,
@@ -745,16 +795,26 @@ class MainWindow(ctk.CTk):
         self._closing = True
 
         try:
+            self.auto_analyzer.stop()
+        except Exception as error:
+            print(
+                "AutoAnalyzer stop error:",
+                repr(error),
+            )
+
+        try:
+            self.viewer_collector.stop()
+        except Exception as error:
+            print(
+                "ViewerCollector stop error:",
+                repr(error),
+            )
+
+        try:
             if self.current_page is not None:
                 self.current_page.destroy()
                 self.current_page = None
         except Exception:
             pass
-
-        try:
-            if hasattr(self.obs, "disconnect"):
-                self.obs.disconnect()
-        except Exception as error:
-            print(f"OBS切断時のエラー: {error}")
 
         self.destroy()

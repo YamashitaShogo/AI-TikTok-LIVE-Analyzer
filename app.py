@@ -308,4 +308,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    if "--viewer-collector" in sys.argv:
+        import core.viewer_collector
+    else:
+        main()

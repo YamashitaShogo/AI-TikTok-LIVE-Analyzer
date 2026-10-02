@@ -2,12 +2,12 @@ import base64
 import json
 import logging
 from io import BytesIO
+from pathlib import Path
 from urllib import error, request
 
 from PIL import Image
 
 from core.license_manager import LicenseManager
-from core.obs_client import OBSClient
 
 
 logger = logging.getLogger(__name__)
@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 class AIClient:
     SERVER_ANALYZE_URL = (
         "https://ai-tiktok-live-analyzer.onrender.com/ai/analyze"
+    )
+    SERVER_TRANSCRIBE_URL = (
+        "https://ai-tiktok-live-analyzer.onrender.com/ai/transcribe"
     )
     SERVER_TIMEOUT = 120
 
@@ -29,11 +32,14 @@ class AIClient:
         )
         raise exc
 
+    @staticmethod
+    def _resolve_image_path(image_path) -> Path:
+        """渡された画像パスを通常のファイルパスとして解決する。"""
+        return Path(str(image_path)).expanduser().resolve()
+
     def analyze_image(self, image_path, prompt):
         try:
-            image_path = OBSClient.resolve_screenshot_path(
-                image_path
-            )
+            image_path = self._resolve_image_path(image_path)
 
             if not image_path.exists():
                 raise FileNotFoundError(
@@ -173,6 +179,116 @@ class AIClient:
                 exc,
             )
 
+
+    def transcribe_audio(self, audio_path):
+        try:
+            audio_path = (
+                Path(str(audio_path))
+                .expanduser()
+                .resolve()
+            )
+
+            if not audio_path.exists():
+                raise FileNotFoundError(
+                    f"\u97f3\u58f0\u30d5\u30a1\u30a4\u30eb\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093: {audio_path}"
+                )
+
+            if audio_path.stat().st_size <= 0:
+                raise ValueError(
+                    "\u97f3\u58f0\u30d5\u30a1\u30a4\u30eb\u306e\u30b5\u30a4\u30ba\u304c0\u3067\u3059\u3002"
+                )
+
+            if audio_path.stat().st_size > 10 * 1024 * 1024:
+                raise ValueError(
+                    "\u97f3\u58f0\u30d5\u30a1\u30a4\u30eb\u304c\u5927\u304d\u3059\u304e\u307e\u3059\u3002"
+                )
+
+            audio_base64 = base64.b64encode(
+                audio_path.read_bytes()
+            ).decode("utf-8")
+
+            license_data = (
+                LicenseManager.get_license_data()
+            )
+
+            license_key = str(
+                license_data.get("license_key", "")
+            ).strip()
+
+            if not license_key:
+                raise ValueError(
+                    "\u30e9\u30a4\u30bb\u30f3\u30b9\u30ad\u30fc\u304c\u4fdd\u5b58\u3055\u308c\u3066\u3044\u307e\u305b\u3093\u3002"
+                )
+
+            payload = json.dumps(
+                {
+                    "license_key": license_key,
+                    "audio_base64": audio_base64,
+                }
+            ).encode("utf-8")
+
+            req = request.Request(
+                self.SERVER_TRANSCRIBE_URL,
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                method="POST",
+            )
+
+            try:
+                with request.urlopen(
+                    req,
+                    timeout=self.SERVER_TIMEOUT,
+                ) as response:
+                    result = json.loads(
+                        response.read().decode("utf-8")
+                    )
+
+            except error.HTTPError as exc:
+                try:
+                    error_data = json.loads(
+                        exc.read().decode("utf-8")
+                    )
+
+                    message = error_data.get(
+                        "detail",
+                        f"HTTP\u30a8\u30e9\u30fc: {exc.code}",
+                    )
+
+                except Exception:
+                    message = f"HTTP\u30a8\u30e9\u30fc: {exc.code}"
+
+                raise RuntimeError(message) from exc
+
+            except error.URLError as exc:
+                raise RuntimeError(
+                    "AI\u30b5\u30fc\u30d0\u30fc\u3078\u63a5\u7d9a\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002"
+                ) from exc
+
+            if not isinstance(result, dict):
+                raise RuntimeError(
+                    "AI\u30b5\u30fc\u30d0\u30fc\u304b\u3089\u4e0d\u6b63\u306a\u5fdc\u7b54\u304c\u8fd4\u3055\u308c\u307e\u3057\u305f\u3002"
+                )
+
+            output_text = str(
+                result.get("text", "")
+            ).strip()
+
+            if not output_text:
+                raise RuntimeError(
+                    "\u6587\u5b57\u8d77\u3053\u3057\u7d50\u679c\u304c\u8fd4\u3055\u308c\u307e\u305b\u3093\u3067\u3057\u305f\u3002"
+                )
+
+            return output_text
+
+        except Exception as exc:
+            self._raise_with_details(
+                "transcribe_audio",
+                exc,
+            )
+
     def clear_client(self):
         # サーバー方式ではローカルOpenAIクライアントを
         # 保持しないため、互換性維持用のno-op。
@@ -193,7 +309,7 @@ class AIClient:
             frame_labels = []
 
             for image_path in image_paths:
-                image_path = OBSClient.resolve_screenshot_path(
+                image_path = self._resolve_image_path(
                     image_path
                 )
 

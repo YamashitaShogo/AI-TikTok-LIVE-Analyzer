@@ -1,5 +1,6 @@
 import json
 import queue
+import shutil
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -24,12 +25,11 @@ class DashboardPage(ctk.CTkFrame):
     def __init__(
         self,
         parent,
-        obs,
         on_show_history=None,
+        auto_analyzer=None,
     ):
         super().__init__(parent)
 
-        self.obs = obs
         self.on_show_history = on_show_history
         self.history = HistoryDB()
 
@@ -47,13 +47,41 @@ class DashboardPage(ctk.CTkFrame):
         self._last_screenshot_mtime: Optional[float] = None
         self._screenshot_image = None
 
-        self.auto_analyzer = AutoAnalyzer(
-            obs=self.obs,
-            callback=self.on_auto_analyzer_event,
-            interval=self.analysis_interval,
+        self._owns_auto_analyzer = (
+            auto_analyzer is None
         )
 
+        if auto_analyzer is None:
+            self.auto_analyzer = AutoAnalyzer(
+                callback=self.on_auto_analyzer_event,
+                interval=self.analysis_interval,
+            )
+        else:
+            self.auto_analyzer = auto_analyzer
+
         self._build_ui()
+
+        if self.auto_analyzer.is_running():
+            self.start_button.configure(
+                state="disabled"
+            )
+            self.stop_button.configure(
+                state="normal"
+            )
+            self.status.configure(
+                text=(
+                    "\U0001f7e2 "
+                    "AI\u5206\u6790\u306f"
+                    "\u30d0\u30c3\u30af\u30b0\u30e9\u30a6\u30f3\u30c9\u3067"
+                    "\u5b9f\u884c\u4e2d\u3067\u3059"
+                )
+            )
+            self.countdown_label.configure(
+                text=(
+                    "\u6b21\u306e\u5206\u6790\u3092"
+                    "\u5f85\u6a5f\u4e2d..."
+                )
+            )
         self.refresh_dashboard(force=True)
         self._start_event_polling()
         self._start_periodic_refresh()
@@ -216,39 +244,6 @@ class DashboardPage(ctk.CTkFrame):
         )
 
         # -----------------------------------------
-        # OBS chip
-        # -----------------------------------------
-
-        status_chip = ctk.CTkFrame(
-            header,
-            corner_radius=18,
-            fg_color="#FFFFFF",
-            border_width=1,
-            border_color="#DDE6F5",
-        )
-        status_chip.place(
-            relx=1.0,
-            x=-18,
-            y=17,
-            anchor="ne",
-        )
-
-        self.obs_status = ctk.CTkLabel(
-            status_chip,
-            text="?  OBS \u78ba\u8a8d\u4e2d",
-            font=(
-                "Yu Gothic UI",
-                10,
-                "bold",
-            ),
-            text_color="#367BF5",
-        )
-        self.obs_status.pack(
-            padx=15,
-            pady=8,
-        )
-
-
     def _build_controls(self):
         controls = ctk.CTkFrame(
             self,
@@ -272,77 +267,33 @@ class DashboardPage(ctk.CTkFrame):
         # Session inputs
         # -----------------------------------------
 
-        session = ctk.CTkFrame(
+        # TikTok Viewer status
+        status_chip = ctk.CTkFrame(
             controls,
-            fg_color="transparent",
+            corner_radius=18,
+            fg_color="#FFFFFF",
+            border_width=1,
+            border_color="#DDE6F5",
         )
-        session.grid(
-            row=0,
-            column=0,
-            sticky="ew",
-            padx=(18, 10),
-            pady=(15, 9),
-        )
-
-        session.grid_columnconfigure(1, weight=1)
-        session.grid_columnconfigure(3, weight=1)
-
-        ctk.CTkLabel(
-            session,
-            text="\u914d\u4fe1\u30bf\u30a4\u30c8\u30eb",
-            font=("Yu Gothic UI", 10, "bold"),
-            text_color="#71809C",
-        ).grid(
+        status_chip.grid(
             row=0,
             column=0,
             sticky="w",
-            padx=(0, 8),
+            padx=(18, 8),
+            pady=(10, 6),
         )
 
-        self.title_entry = ctk.CTkEntry(
-            session,
-            placeholder_text="\u4f8b\uff1a\u591c\u306eLIVE\u914d\u4fe1",
-            height=38,
-            corner_radius=10,
-            fg_color="#F8FAFD",
-            border_color="#DDE4EF",
-            text_color="#132347",
-        )
-        self.title_entry.grid(
-            row=0,
-            column=1,
-            sticky="ew",
-            padx=(0, 16),
-        )
-
-        ctk.CTkLabel(
-            session,
-            text="TikTok",
+        self.viewer_status = ctk.CTkLabel(
+            status_chip,
+            text="? TikTok LIVE????",
             font=("Yu Gothic UI", 10, "bold"),
-            text_color="#71809C",
-        ).grid(
-            row=0,
-            column=2,
-            sticky="w",
-            padx=(0, 8),
+            text_color="#367BF5",
+        )
+        self.viewer_status.pack(
+            padx=15,
+            pady=8,
         )
 
-        self.username_entry = ctk.CTkEntry(
-            session,
-            placeholder_text="@username",
-            height=38,
-            corner_radius=10,
-            fg_color="#F8FAFD",
-            border_color="#DDE4EF",
-            text_color="#132347",
-        )
-        self.username_entry.grid(
-            row=0,
-            column=3,
-            sticky="ew",
-        )
-
-        # -----------------------------------------
         # Main actions
         # -----------------------------------------
 
@@ -355,7 +306,7 @@ class DashboardPage(ctk.CTkFrame):
             column=1,
             sticky="e",
             padx=(8, 18),
-            pady=(15, 9),
+            pady=(10, 6),
         )
 
         self.start_button = ctk.CTkButton(
@@ -405,7 +356,7 @@ class DashboardPage(ctk.CTkFrame):
             columnspan=2,
             sticky="ew",
             padx=18,
-            pady=(0, 13),
+            pady=(0, 9),
         )
         lower.grid_columnconfigure(0, weight=1)
 
@@ -445,7 +396,7 @@ class DashboardPage(ctk.CTkFrame):
             column=0,
             columnspan=2,
             sticky="ew",
-            pady=(8, 4),
+            pady=(6, 3),
         )
         self.score_progress.set(0)
 
@@ -1203,6 +1154,94 @@ class DashboardPage(ctk.CTkFrame):
             pady=(5, 0),
         )
 
+        breakdown = ctk.CTkFrame(
+            frame,
+            corner_radius=12,
+            fg_color="#F8FAFC",
+            border_width=1,
+            border_color="#E7ECF4",
+        )
+        breakdown.pack(
+            fill="x",
+            padx=16,
+            pady=(0, 16),
+        )
+
+        for column in range(5):
+            breakdown.grid_columnconfigure(
+                column,
+                weight=1,
+                uniform="score_breakdown",
+            )
+
+        breakdown_specs = (
+            (
+                "composition",
+                "\u69cb\u56f3",
+                25,
+            ),
+            (
+                "brightness",
+                "\u660e\u308b\u3055",
+                20,
+            ),
+            (
+                "visibility",
+                "\u8996\u8a8d\u6027",
+                20,
+            ),
+            (
+                "information",
+                "\u60c5\u5831\u91cf",
+                15,
+            ),
+            (
+                "clarity",
+                "\u660e\u77ad\u3055",
+                20,
+            ),
+        )
+
+        self.score_breakdown_labels = {}
+
+        for column, (
+            key,
+            label_text,
+            maximum,
+        ) in enumerate(breakdown_specs):
+            item = ctk.CTkFrame(
+                breakdown,
+                fg_color="transparent",
+            )
+            item.grid(
+                row=0,
+                column=column,
+                sticky="ew",
+                padx=5,
+                pady=9,
+            )
+
+            ctk.CTkLabel(
+                item,
+                text=label_text,
+                font=("Yu Gothic UI", 9, "bold"),
+                text_color="#8A97AD",
+            ).pack()
+
+            value_label = ctk.CTkLabel(
+                item,
+                text=f"-- / {maximum}",
+                font=("Yu Gothic UI", 11, "bold"),
+                text_color="#44516A",
+            )
+            value_label.pack(
+                pady=(2, 0),
+            )
+
+            self.score_breakdown_labels[key] = (
+                value_label
+            )
+
         # Existing refresh logic still updates these three widgets.
         # Keep them alive but do not show them on the compact dashboard.
         hidden = ctk.CTkFrame(
@@ -1434,7 +1473,7 @@ class DashboardPage(ctk.CTkFrame):
 
         ctk.CTkButton(
             action_row,
-            text="\u25a3  \u4fdd\u5b58",
+            text="▣  ハイライト画像保存",
             height=36,
             corner_radius=10,
             fg_color="transparent",
@@ -1443,7 +1482,7 @@ class DashboardPage(ctk.CTkFrame):
             text_color="#44516A",
             hover_color="#F4F7FC",
             font=("Yu Gothic UI", 10, "bold"),
-            command=self.save_highlight_replay,
+            command=self.save_highlight_frame,
         ).pack(
             side="left",
             fill="x",
@@ -1640,10 +1679,12 @@ class DashboardPage(ctk.CTkFrame):
 
     def start_stream(self):
         try:
-            if not self.obs.is_connected():
-                self._set_obs_status(False)
+            viewer_path = self._get_viewer_image_path()
+
+            if not self._viewer_capture_is_available(viewer_path):
+                self._set_viewer_status(False)
                 self.status.configure(
-                    text="❌ OBSに接続されていません"
+                    text="❌ TikTok Viewerの映像を取得できていません"
                 )
                 return
 
@@ -1660,7 +1701,7 @@ class DashboardPage(ctk.CTkFrame):
             if hasattr(self.auto_analyzer, "interval"):
                 self.auto_analyzer.interval = self.analysis_interval
 
-            self._set_obs_status(True)
+            self._set_viewer_status(True)
             self.start_button.configure(state="disabled")
             self.stop_button.configure(state="normal")
             self.status.configure(
@@ -1670,7 +1711,14 @@ class DashboardPage(ctk.CTkFrame):
                 text="最初の分析を実行中..."
             )
 
-            self.auto_analyzer.start()
+            started = self.auto_analyzer.start()
+
+            if started is False:
+                self.start_button.configure(state="normal")
+                self.stop_button.configure(state="disabled")
+                self.status.configure(
+                    text="⚠️ AI分析を開始できませんでした"
+                )
 
         except Exception as exc:
             self.status.configure(
@@ -1698,6 +1746,12 @@ class DashboardPage(ctk.CTkFrame):
                 text="次の分析まで：--秒"
             )
 
+            self._set_viewer_status(
+                self._viewer_capture_is_available(
+                    self._get_viewer_image_path()
+                )
+            )
+
         except Exception as exc:
             self.status.configure(
                 text=(
@@ -1706,35 +1760,60 @@ class DashboardPage(ctk.CTkFrame):
                 )
             )
 
-    def save_highlight_replay(self):
+    def save_highlight_frame(self):
+        """TikTok Viewerの最新フレームをハイライト画像として保存する。"""
         try:
-            if not self.obs.is_connected():
+            source = self._get_viewer_image_path()
+
+            if not self._viewer_capture_is_available(source):
                 self.status.configure(
-                    text="❌ OBSに接続されていません"
+                    text="❌ TikTok LIVEの最新映像を取得できていません"
                 )
                 return
 
-            if not self.obs.is_replay_buffer_active():
-                self.status.configure(
-                    text="⚠️ リプレイバッファが開始されていません"
-                )
-                return
+            base = os.getenv("LOCALAPPDATA")
 
-            success = self.obs.save_replay_buffer()
+            if not base:
+                base = os.path.join(
+                    os.path.expanduser("~"),
+                    "AppData",
+                    "Local",
+                )
 
-            if success:
-                self.status.configure(
-                    text="🔥 盛り上がり映像を保存しました"
+            highlight_dir = (
+                Path(base)
+                / "AI-TikTok-LIVE-Analyzer"
+                / "highlights"
+            )
+            highlight_dir.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
+            timestamp = datetime.now().strftime(
+                "%Y%m%d_%H%M%S"
+            )
+            destination = (
+                highlight_dir
+                / f"highlight_{timestamp}.jpg"
+            )
+
+            shutil.copy2(
+                source,
+                destination,
+            )
+
+            self.status.configure(
+                text=(
+                    "🔥 ハイライト画像を保存しました："
+                    f"{destination.name}"
                 )
-            else:
-                self.status.configure(
-                    text="❌ 盛り上がり映像の保存に失敗しました"
-                )
+            )
 
         except Exception as exc:
             self.status.configure(
                 text=(
-                    "❌ リプレイ保存エラー："
+                    "❌ ハイライト保存エラー："
                     f"{type(exc).__name__}: {exc}"
                 )
             )
@@ -1793,6 +1872,42 @@ class DashboardPage(ctk.CTkFrame):
             elif event == "result":
                 score = data.get("score") if isinstance(data, dict) else None
                 score_text = "--" if score is None else str(score)
+
+                breakdown = (
+                    data.get("score_breakdown")
+                    if isinstance(data, dict)
+                    else None
+                )
+
+                if isinstance(breakdown, dict):
+                    maximums = {
+                        "composition": 25,
+                        "brightness": 20,
+                        "visibility": 20,
+                        "information": 15,
+                        "clarity": 20,
+                    }
+
+                    for key, maximum in maximums.items():
+                        widget = self.score_breakdown_labels.get(
+                            key
+                        )
+
+                        if widget is None:
+                            continue
+
+                        value = breakdown.get(key)
+
+                        if value is None:
+                            text_value = f"-- / {maximum}"
+                        else:
+                            text_value = (
+                                f"{int(value)} / {maximum}"
+                            )
+
+                        widget.configure(
+                            text=text_value
+                        )
 
                 self.status.configure(
                     text=f"✅ 分析完了（{score_text}点）"
@@ -2185,8 +2300,10 @@ class DashboardPage(ctk.CTkFrame):
             return
 
         try:
-            self._set_obs_status(
-                self.obs.is_connected()
+            self._set_viewer_status(
+                self._viewer_capture_is_available(
+                    self._get_viewer_image_path()
+                )
             )
 
             count = self.history.get_count()
@@ -2636,7 +2753,11 @@ class DashboardPage(ctk.CTkFrame):
     # Screenshot
     # ==================================================
 
-    def _get_screenshot_path(self):
+    def _get_viewer_image_path(self):
+        """
+        TikTok Viewerが保存している最新LIVEフレームを返す。
+        OBSスクリーンショットには依存しない。
+        """
         base = os.getenv("LOCALAPPDATA")
 
         if not base:
@@ -2646,34 +2767,34 @@ class DashboardPage(ctk.CTkFrame):
                 "Local",
             )
 
-        default = (
+        return (
             Path(base)
             / "AI-TikTok-LIVE-Analyzer"
-            / "images"
-            / "current.png"
+            / "capture"
+            / "latest.jpg"
         )
 
+    @staticmethod
+    def _viewer_capture_is_available(
+        path: Path,
+        max_age_seconds: int = 15,
+    ) -> bool:
+        """
+        latest.jpg が存在し、0バイトではなく、
+        Collectorから最近更新されているか確認する。
+        """
         try:
-            settings = Settings.load()
+            if not path.exists():
+                return False
 
-            configured = settings.get(
-                "screenshot_path",
-                "images/current.png",
-            )
+            if path.stat().st_size <= 0:
+                return False
 
-            configured_path = Path(configured)
+            age = datetime.now().timestamp() - path.stat().st_mtime
+            return age <= max_age_seconds
 
-            if configured_path.is_absolute():
-                return configured_path
-
-            return (
-                Path(base)
-                / "AI-TikTok-LIVE-Analyzer"
-                / configured_path
-            )
-
-        except Exception:
-            return default
+        except (OSError, ValueError):
+            return False
 
     def _screenshot_widget_alive(self):
         """スクリーンショット表示先がまだ有効か確認する。"""
@@ -2701,7 +2822,7 @@ class DashboardPage(ctk.CTkFrame):
         if not self._screenshot_widget_alive():
             return
 
-        path = self._get_screenshot_path()
+        path = self._get_viewer_image_path()
 
         if not path.exists():
             if force:
@@ -2797,14 +2918,16 @@ class DashboardPage(ctk.CTkFrame):
         except Exception:
             return self.DEFAULT_INTERVAL
 
-    def _set_obs_status(self, connected):
+    def _set_viewer_status(self, connected):
         if connected:
-            self.obs_status.configure(
-                text="📡 OBS状態：接続済み"
+            self.viewer_status.configure(
+                text="● TikTok LIVE：取得中",
+                text_color="#18B981",
             )
         else:
-            self.obs_status.configure(
-                text="📡 OBS状態：未接続"
+            self.viewer_status.configure(
+                text="● TikTok LIVE：未取得",
+                text_color="#E63B57",
             )
 
     @staticmethod
@@ -2837,10 +2960,11 @@ class DashboardPage(ctk.CTkFrame):
 
         self._destroying = True
 
-        try:
-            self.auto_analyzer.stop()
-        except Exception:
-            pass
+        if self._owns_auto_analyzer:
+            try:
+                self.auto_analyzer.stop()
+            except Exception:
+                pass
 
         self._cancel_countdown()
 

@@ -22,6 +22,7 @@ class HistoryPage(ctk.CTkFrame):
         self._destroying = False
         self._refresh_job = None
         self._selected_id: Optional[int] = None
+        self._follow_latest = True
         self._rows = []
         self._display_limit = 10
         self._display_step = 10
@@ -373,13 +374,18 @@ class HistoryPage(ctk.CTkFrame):
             self._create_history_item(row)
 
         # 選択中の履歴が残っていれば再選択
-        if self._selected_id in new_ids:
+        if self._follow_latest:
+            self.show_detail(rows[0])
+
+        elif self._selected_id in new_ids:
             selected = next(
                 row for row in rows
                 if row[0] == self._selected_id
             )
             self.show_detail(selected)
+
         else:
+            self._follow_latest = True
             self.show_detail(rows[0])
 
     def load_more(self):
@@ -511,7 +517,8 @@ class HistoryPage(ctk.CTkFrame):
             text="詳細",
             width=70,
             command=lambda selected=row: self.show_detail(
-                selected
+                selected,
+                user_selected=True,
             )
         )
         open_button.pack(
@@ -520,11 +527,25 @@ class HistoryPage(ctk.CTkFrame):
             pady=10
         )
 
-    def show_detail(self, row):
+    def show_detail(
+        self,
+        row,
+        user_selected=False,
+    ):
         if self._destroying:
             return
 
         self._selected_id = row[0]
+
+        if user_selected:
+            latest_id = (
+                self._rows[0][0]
+                if self._rows
+                else None
+            )
+            self._follow_latest = (
+                self._selected_id == latest_id
+            )
 
         # 詳細表示では画像パス付きデータを取得
         detail = self.history.get_by_id_with_image(

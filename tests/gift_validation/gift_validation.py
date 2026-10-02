@@ -16,7 +16,7 @@ from core.gift_analyzer import GiftAnalyzer
 
 
 ROOT = Path(__file__).resolve().parent
-IMAGE_DIR = ROOT / "images"
+IMAGE_DIR = PROJECT_ROOT / "test_images"
 LABELS_PATH = ROOT / "labels.csv"
 RESULTS_DIR = ROOT / "results"
 

@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 > nul
 cd /d "%~dp0"
-title Livemetry Pulse v1.0.0 Build
+title Livemetry Pulse v1.5.0 Build
 
 echo ==========================================
-echo Livemetry Pulse v1.0.0
+echo Livemetry Pulse v1.5.0
 echo 配布用 One Folder EXE 作成
 echo ==========================================
 echo.
@@ -21,7 +21,7 @@ if not exist "version_info.txt" (
   exit /b 1
 )
 
-if not exist "assets\AI_TikTok_LIVE_Analyzer.ico" (
+if not exist "assets\LivemetryPulse.ico" (
   echo [エラー] アイコンがありません。
   pause
   exit /b 1

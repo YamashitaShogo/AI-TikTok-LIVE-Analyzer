@@ -10,20 +10,25 @@ import customtkinter as ctk
 from core.ai_client import AIClient
 from core.history import HistoryDB
 
-import time
-
-from core.video_analyzer import extract_frames
 from core.settings import Settings
+from pathlib import Path
 
 class AIPage(ctk.CTkFrame):
     """手動AI分析ページ完成版。"""
 
-    IMAGE_PATH = os.path.join(
-        os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
-        "AI-TikTok-LIVE-Analyzer",
-        "images",
-        "current.png",
+    CAPTURE_DIR = (
+        Path(
+            os.environ.get(
+                "LOCALAPPDATA",
+                os.path.expanduser("~"),
+            )
+        )
+        / "AI-TikTok-LIVE-Analyzer"
+        / "capture"
     )
+    IMAGE_PATH = CAPTURE_DIR / "latest.jpg"
+    PAYLOAD_PATH = CAPTURE_DIR / "analysis_payload.json"
+    MAX_FRAME_AGE_SECONDS = 15
 
     DEFAULT_PROMPT = """
     あなたはTikTok LIVE配信の映像分析アドバイザーです。
@@ -144,10 +149,9 @@ class AIPage(ctk.CTkFrame):
     ・画像から判断できない項目を明記する
     """.strip()
 
-    def __init__(self, parent, obs):
+    def __init__(self, parent):
         super().__init__(parent)
 
-        self.obs = obs
         self.ai = AIClient()
         self.history = HistoryDB()
 
@@ -176,7 +180,7 @@ class AIPage(ctk.CTkFrame):
         self.result.pack(fill="both", expand=True, padx=20, pady=(0, 12))
         self.result.insert(
             "1.0",
-            "「AI分析開始」を押すと、OBSの現在シーンを分析します。",
+            "「AI分析開始」を押すと、TikTok Viewerの最新LIVE映像を分析します。",
         )
         self.result.configure(state="disabled")
 
@@ -265,22 +269,60 @@ class AIPage(ctk.CTkFrame):
             self.status_label.configure(text="❌ プロンプトが空です")
             return
 
+        frame_path = self.IMAGE_PATH
+
         try:
-            if not self.obs.is_connected():
-                self.status_label.configure(text="❌ OBSに接続されていません")
+            if not frame_path.exists():
+                self.status_label.configure(
+                    text="❌ TikTok Viewerの映像がありません"
+                )
                 self._set_result(
-                    "OBSを起動し、WebSocket接続を確認してください。"
+                    "TikTok ViewerでLIVE映像を取得してから分析してください。"
                 )
                 return
-        except Exception:
-            self.status_label.configure(text="❌ OBS接続状態を確認できません")
+
+            stat = frame_path.stat()
+
+            if stat.st_size <= 0:
+                self.status_label.configure(
+                    text="❌ TikTok Viewerの映像が空です"
+                )
+                return
+
+            age = max(
+                0.0,
+                __import__("time").time() - stat.st_mtime,
+            )
+
+            if age > self.MAX_FRAME_AGE_SECONDS:
+                self.status_label.configure(
+                    text="❌ TikTok Viewerの映像が更新されていません"
+                )
+                self._set_result(
+                    f"最新フレームが{age:.0f}秒前です。"
+                    "Viewerが取得中になっているか確認してください。"
+                )
+                return
+
+        except OSError as exc:
+            self.status_label.configure(
+                text="❌ Viewer映像を確認できません"
+            )
+            self._set_result(str(exc))
             return
 
         self._analysis_running = True
-        self.analysis_button.configure(state="disabled", text="分析中...")
+        self.analysis_button.configure(
+            state="disabled",
+            text="分析中...",
+        )
         self.save_button.configure(state="disabled")
-        self.status_label.configure(text="📸 スクリーンショット取得中...")
-        self._set_result("OBSの現在シーンを取得しています...")
+        self.status_label.configure(
+            text="📸 TikTok Viewerの最新映像を取得中..."
+        )
+        self._set_result(
+            "TikTok Viewerの最新LIVE映像を分析準備しています..."
+        )
 
         self._worker = threading.Thread(
             target=self._analysis_worker,
@@ -292,78 +334,31 @@ class AIPage(ctk.CTkFrame):
 
     def _analysis_worker(self, prompt_text: str):
         try:
-            # 保存前の最新リプレイを記録
-            previous_replay_path = self.obs.get_last_replay_path()
+            frame_path = self.IMAGE_PATH
 
-            # Replay Buffer確認
-            if not self.obs.is_replay_buffer_active():
+            if not frame_path.exists():
                 raise RuntimeError(
-                    "OBSのReplay Bufferが開始されていません。"
+                    "TikTok Viewerの最新映像が見つかりません。"
                 )
 
-            self._safe_after(
-                lambda: self.status_label.configure(
-                    text="🎬 Replay Buffer保存中..."
-                )
+            runtime_prompt = (
+                prompt_text
+                + "\n\n"
+                + "【今回の入力について】\n"
+                + "今回はTikTok Viewerから取得した"
+                  "最新LIVEフレーム1枚のみを分析します。\n"
+                + "Replay動画や複数フレームではありません。\n"
+                + "時系列変化は判断できないため、"
+                  "時系列に関する項目は「評価対象なし」としてください。\n"
+                + "TikTok標準UIやコラボ/バトルの標準分割レイアウトを、"
+                  "配信者が直すべき構図ミスとして扱わないでください。"
             )
-
-            # Replay Buffer保存
-            if not self.obs.save_replay_buffer():
-                raise RuntimeError(
-                    "Replay Bufferの保存に失敗しました。"
-                )
-
-            # OBS側で保存完了するまで少し待つ
-            replay_path = None
-
-            for _ in range(20):
-                time.sleep(0.25)
-
-                candidate = self.obs.get_last_replay_path()
-
-                if (
-                    candidate
-                    and candidate != previous_replay_path
-                    and os.path.exists(candidate)
-                ):
-                    replay_path = candidate
-                    break
-
-            if not replay_path:
-                raise RuntimeError(
-                    "保存したReplay動画のパスを取得できませんでした。"
-                )
-
-            print(f"[AIPage] replay_path={replay_path}")
-
-            self._safe_after(
-                lambda: self.status_label.configure(
-                    text="🎞️ 動画からフレーム抽出中..."
-                )
-            )
-
-            frames = extract_frames(
-                replay_path,
-                interval_seconds=5,
-                max_frames=6,
-            )
-
-            if not frames:
-                raise RuntimeError(
-                    "Replay動画からフレームを抽出できませんでした。"
-                )
-
-            print(f"[AIPage] extracted_frames={len(frames)}")
-
-            for frame_path in frames:
-                print(f"[AIPage] frame={frame_path}")
-                # 抽出したフレームを確認用にログ出力
 
             self._safe_after(self._show_analyzing)
 
-            answer = self.ai.analyze_images(
-                frames,
-                prompt_text,
+            answer = self.ai.analyze_image(
+                str(frame_path),
+                runtime_prompt,
             )
 
             if not answer or not str(answer).strip():
@@ -378,7 +373,7 @@ class AIPage(ctk.CTkFrame):
                 score=score,
                 prompt=prompt_text,
                 answer=answer,
-                image_path=frames[-1],
+                image_path=str(frame_path),
             )
 
             self._safe_after(
@@ -387,11 +382,16 @@ class AIPage(ctk.CTkFrame):
                     score,
                 )
             )
-        
+
         except Exception as exc:
             traceback.print_exc()
-            error_text = str(exc).strip() or "不明なエラーが発生しました。"
-            self._safe_after(lambda text=error_text: self._show_error(text))
+            error_text = (
+                str(exc).strip()
+                or "不明なエラーが発生しました。"
+            )
+            self._safe_after(
+                lambda text=error_text: self._show_error(text)
+            )
 
     def _show_analyzing(self):
         if not self._page_is_alive():
@@ -438,12 +438,6 @@ class AIPage(ctk.CTkFrame):
         answer: str,
         image_path: Optional[str] = None,
     ):
-        self.history.save(
-            score=score,
-            prompt=prompt,
-            result=answer,
-            image_path=image_path,
-        )
         save = getattr(self.history, "save", None)
         if not callable(save):
             raise AttributeError("HistoryDBにsaveメソッドがありません。")

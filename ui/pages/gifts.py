@@ -1,3 +1,4 @@
+import os
 import sys
 import threading
 from pathlib import Path
@@ -9,7 +10,6 @@ from core.gift_analyzer import GiftAnalyzer
 from core.gift_frame_gate import GiftFrameGate
 from core.gift_monitor_controller import GiftMonitorController
 from core.gift_monitor_worker import GiftMonitorWorker
-from core.gift_obs_monitor import GiftOBSMonitor
 from core.gift_stream_analyzer import GiftStreamAnalyzer
 from core.history import HistoryDB
 
@@ -28,12 +28,23 @@ class GiftPage(ctk.CTkFrame):
 
     HISTORY_LIMIT = 100
 
-    def __init__(self, master, obs):
+    def __init__(self, master):
         super().__init__(master)
 
-        self.obs = obs
         self.history = HistoryDB()
         self.selected_image_path = None
+
+        local_appdata = os.environ.get(
+            "LOCALAPPDATA",
+            str(Path.home()),
+        )
+
+        self.viewer_image_path = (
+            Path(local_appdata)
+            / "AI-TikTok-LIVE-Analyzer"
+            / "capture"
+            / "latest.jpg"
+        )
 
         catalog_path = resource_path(
             "data/gifts/gift_catalog.json"
@@ -62,14 +73,9 @@ class GiftPage(ctk.CTkFrame):
             ),
         )
 
-        self.obs_monitor = GiftOBSMonitor(
-            obs=self.obs,
-            controller=self.monitor_controller,
-            screenshot_path="images/gift_monitor.png",
-        )
-
         self.monitor_worker = GiftMonitorWorker(
-            monitor=self.obs_monitor,
+            controller=self.monitor_controller,
+            source_image_path=self.viewer_image_path,
             capture_interval_seconds=1.0,
             max_capture_backlog=30,
         )
@@ -81,6 +87,7 @@ class GiftPage(ctk.CTkFrame):
 
         self._build_ui()
         self.load_history()
+
 
     def _build_ui(self):
         header = ctk.CTkFrame(
@@ -170,13 +177,13 @@ class GiftPage(ctk.CTkFrame):
             padx=(10, 0),
         )
 
-        self.obs_analyze_button = ctk.CTkButton(
+        self.viewer_analyze_button = ctk.CTkButton(
             button_frame,
-            text="OBSから取得して分析",
+            text="Viewerから取得して分析",
             width=170,
-            command=self.start_obs_analysis,
+            command=self.start_viewer_analysis,
         )
-        self.obs_analyze_button.pack(
+        self.viewer_analyze_button.pack(
             side="left",
             padx=(10, 0),
         )
@@ -214,7 +221,7 @@ class GiftPage(ctk.CTkFrame):
 
         monitor_title = ctk.CTkLabel(
             monitor_frame,
-            text="OBS ギフト監視",
+            text="TikTok Viewer ギフト監視",
             font=ctk.CTkFont(
                 size=18,
                 weight="bold",
@@ -333,21 +340,13 @@ class GiftPage(ctk.CTkFrame):
         if self.monitoring:
             return
 
-        if self.obs is None or not self.obs.is_connected():
-            messagebox.showwarning(
-                "ギフト監視",
-                "OBSに接続されていません。",
-            )
-            return
-
         started = self.monitor_worker.start()
 
         if not started:
             self.monitor_status_label.configure(
                 text=(
                     "監視を開始できません。"
-                    " 前回の停止処理中か、"
-                    "OBS接続を確認してください。"
+                    " TikTok Viewerが「取得中」か確認してください。"
                 )
             )
             return
@@ -364,15 +363,16 @@ class GiftPage(ctk.CTkFrame):
         self.analyze_button.configure(
             state="disabled"
         )
-        self.obs_analyze_button.configure(
+        self.viewer_analyze_button.configure(
             state="disabled"
         )
 
         self.monitor_status_label.configure(
-            text="監視中 / OBSを1秒間隔で取得しています"
+            text="監視中 / TikTok Viewer映像を取得しています"
         )
 
         self._schedule_monitor_event_poll()
+
 
     def stop_monitoring(self):
         if not self.monitoring:
@@ -391,7 +391,7 @@ class GiftPage(ctk.CTkFrame):
             state="disabled"
         )
 
-        self.obs_analyze_button.configure(
+        self.viewer_analyze_button.configure(
             state="normal"
         )
 
@@ -406,6 +406,7 @@ class GiftPage(ctk.CTkFrame):
         self.monitor_status_label.configure(
             text="停止中"
         )
+
 
     def _schedule_monitor_event_poll(self):
         if self.monitor_after_id is not None:
@@ -627,54 +628,64 @@ class GiftPage(ctk.CTkFrame):
             state="normal"
         )
 
-    def start_obs_analysis(self):
-        if self.obs is None or not self.obs.is_connected():
-            messagebox.showwarning(
-                "ギフト分析",
-                "OBSに接続されていません。",
+    def start_viewer_analysis(self):
+        image_path = self.viewer_image_path
+
+        try:
+            if not image_path.exists():
+                messagebox.showwarning(
+                    "ギフト分析",
+                    "TikTok Viewerの映像がありません。",
+                )
+                return
+
+            stat = image_path.stat()
+
+            if stat.st_size <= 0:
+                messagebox.showwarning(
+                    "ギフト分析",
+                    "TikTok Viewerの映像が空です。",
+                )
+                return
+
+            import time
+
+            age = max(
+                0.0,
+                time.time() - stat.st_mtime,
             )
-            return
 
-        scene = self.obs.get_current_scene()
+            if age > 15:
+                messagebox.showwarning(
+                    "ギフト分析",
+                    "TikTok Viewerの映像が更新されていません。",
+                )
+                return
 
-        if not scene:
+        except OSError as exc:
             messagebox.showerror(
                 "ギフト分析",
-                "現在のOBSシーンを取得できませんでした。",
+                f"Viewer映像を確認できません。\n{exc}",
             )
             return
-
-        screenshot_path = "images/current.png"
-
-        result = self.obs.save_screenshot(
-            scene,
-            screenshot_path,
-        )
-
-        if not result:
-            messagebox.showerror(
-                "ギフト分析",
-                "OBSスクリーンショットの取得に失敗しました。",
-            )
-            return
-
-        resolved_path = self.obs.resolve_screenshot_path(
-            screenshot_path
-        )
 
         self.selected_image_path = str(
-            resolved_path
+            image_path
         )
 
         self.selected_image_label.configure(
-            text=Path(resolved_path).name
+            text=image_path.name
         )
 
         self.analysis_status_label.configure(
-            text="OBS画像を取得しました。AI分析を開始します..."
+            text=(
+                "TikTok Viewerの最新映像を取得しました。"
+                "AI分析を開始します..."
+            )
         )
 
         self.start_analysis()
+
 
     def start_analysis(self):
         if not self.selected_image_path:

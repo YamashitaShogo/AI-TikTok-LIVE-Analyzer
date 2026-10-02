@@ -1,31 +1,29 @@
+from __future__ import annotations
+
+import os
 import queue
+import shutil
 import threading
 import time
 from pathlib import Path
 from typing import Any
 
-from core.gift_obs_monitor import GiftOBSMonitor
+from core.gift_candidate_queue import GiftCandidateQueue
 
 
 class GiftMonitorWorker:
-    """
-    Capture OBS frames independently from AI analysis.
+    """TikTok Viewer の latest.jpg を監視してギフト分析へ渡す。"""
 
-    Capture thread:
-        OBS -> unique screenshot -> capture backlog
-
-    Analysis thread:
-        capture backlog -> frame gate -> AI / pending queue
-
-    This prevents a slow AI request from stopping OBS capture.
-    """
+    MAX_SOURCE_AGE_SECONDS = 15.0
 
     def __init__(
         self,
-        monitor: GiftOBSMonitor,
+        controller,
+        source_image_path: str | Path | None = None,
         capture_interval_seconds: float = 1.0,
         max_capture_backlog: int = 30,
-        capture_directory: str | Path = "images/gift_capture_spool",
+        capture_directory: str | Path | None = None,
+        pending_directory: str | Path | None = None,
     ):
         if capture_interval_seconds <= 0:
             raise ValueError(
@@ -37,28 +35,46 @@ class GiftMonitorWorker:
                 "max_capture_backlog must be greater than 0"
             )
 
-        self.monitor = monitor
-        self.obs = monitor.obs
-        self.controller = monitor.controller
-        self.candidate_queue = monitor.candidate_queue
+        base = (
+            Path(
+                os.environ.get(
+                    "LOCALAPPDATA",
+                    str(Path.home()),
+                )
+            )
+            / "AI-TikTok-LIVE-Analyzer"
+        )
 
-        self.capture_interval_seconds = (
-            capture_interval_seconds
+        self.source_image_path = Path(
+            source_image_path
+            or (base / "capture" / "latest.jpg")
         )
 
         self.capture_directory = Path(
             capture_directory
+            or (base / "gift_capture_spool")
         )
-
         self.capture_directory.mkdir(
             parents=True,
             exist_ok=True,
         )
 
+        self.controller = controller
+        self.candidate_queue = GiftCandidateQueue(
+            directory=(
+                pending_directory
+                or (base / "gift_pending")
+            ),
+            max_items=max_capture_backlog,
+        )
+
+        self.capture_interval_seconds = float(
+            capture_interval_seconds
+        )
+
         self._capture_queue = queue.Queue(
             maxsize=max_capture_backlog
         )
-
         self._event_queue = queue.Queue()
 
         self._stop_event = threading.Event()
@@ -68,6 +84,7 @@ class GiftMonitorWorker:
 
         self._running = False
         self._state_lock = threading.Lock()
+        self._last_source_mtime_ns: int | None = None
 
     @property
     def is_running(self) -> bool:
@@ -80,9 +97,29 @@ class GiftMonitorWorker:
 
     @property
     def pending_count(self) -> int:
-        return len(
-            self.candidate_queue
-        )
+        return len(self.candidate_queue)
+
+    def _source_is_available(self) -> bool:
+        path = self.source_image_path
+
+        try:
+            if not path.exists():
+                return False
+
+            stat = path.stat()
+
+            if stat.st_size <= 0:
+                return False
+
+            age = max(
+                0.0,
+                time.time() - stat.st_mtime,
+            )
+
+            return age <= self.MAX_SOURCE_AGE_SECONDS
+
+        except OSError:
+            return False
 
     def start(self) -> bool:
         with self._state_lock:
@@ -101,23 +138,20 @@ class GiftMonitorWorker:
             ):
                 return False
 
-            if self.obs is None:
-                return False
-
-            if not self.obs.is_connected():
+            if not self._source_is_available():
                 return False
 
             self._running = True
 
         self._shutdown_requested = False
         self._stop_event.clear()
+        self._last_source_mtime_ns = None
 
         self._capture_thread = threading.Thread(
             target=self._capture_loop,
-            name="GiftCaptureWorker",
+            name="GiftViewerCaptureWorker",
             daemon=True,
         )
-
         self._analysis_thread = threading.Thread(
             target=self._analysis_loop,
             name="GiftAnalysisWorker",
@@ -132,6 +166,7 @@ class GiftMonitorWorker:
             capture_interval_seconds=(
                 self.capture_interval_seconds
             ),
+            source_path=str(self.source_image_path),
         )
 
         return True
@@ -147,39 +182,18 @@ class GiftMonitorWorker:
             self._running = False
 
         if wait:
-            threads = (
+            for thread in (
                 self._capture_thread,
                 self._analysis_thread,
-            )
-
-            for thread in threads:
+            ):
                 if (
                     thread is not None
                     and thread.is_alive()
                 ):
-                    thread.join(
-                        timeout=timeout
-                    )
+                    thread.join(timeout=timeout)
 
-        backlog_paths = (
-            self._drain_capture_backlog()
-        )
-
-        if wait:
-            self._delete_paths(
-                backlog_paths
-            )
-        elif backlog_paths:
-            threading.Thread(
-                target=self._delete_paths,
-                args=(backlog_paths,),
-                name="GiftCleanupWorker",
-                daemon=True,
-            ).start()
-
-        self._emit(
-            "stopped",
-        )
+        self._clear_capture_backlog()
+        self._emit("stopped")
 
     def shutdown(
         self,
@@ -187,52 +201,17 @@ class GiftMonitorWorker:
         timeout: float = 5.0,
     ) -> None:
         self._shutdown_requested = True
-
         self.stop(
             wait=wait,
             timeout=timeout,
         )
 
         analysis_thread = self._analysis_thread
-
         if (
             analysis_thread is None
             or not analysis_thread.is_alive()
         ):
             self.candidate_queue.clear()
-
-    def _drain_capture_backlog(
-        self,
-    ) -> list[Path]:
-        paths = []
-
-        while True:
-            try:
-                image_path = (
-                    self._capture_queue.get_nowait()
-                )
-            except queue.Empty:
-                break
-
-            paths.append(
-                Path(image_path)
-            )
-
-        return paths
-
-    def _delete_paths(
-        self,
-        paths: list[Path],
-    ) -> None:
-        for image_path in paths:
-            self._delete_file(
-                image_path
-            )
-
-    def _clear_capture_backlog(self) -> None:
-        self._delete_paths(
-            self._drain_capture_backlog()
-        )
 
     def get_event_nowait(
         self,
@@ -282,64 +261,67 @@ class GiftMonitorWorker:
             )
 
     def _capture_once(self) -> None:
-        if self.obs is None:
+        source = self.source_image_path
+
+        if not source.exists():
             self._emit(
                 "capture_skipped",
-                reason="obs_missing",
+                reason="viewer_image_missing",
             )
             return
 
-        if not self.obs.is_connected():
-            self._emit(
-                "capture_skipped",
-                reason="obs_not_connected",
-            )
-            return
-
-        scene = self.obs.get_current_scene()
-
-        if not scene:
-            self._emit(
-                "capture_skipped",
-                reason="scene_unavailable",
-            )
-            return
-
-        filename = (
-            f"gift_capture_"
-            f"{time.time_ns()}.png"
-        )
-
-        requested_path = (
-            self.capture_directory
-            / filename
-        )
-
-        saved = self.obs.save_screenshot(
-            scene,
-            str(requested_path),
-        )
-
-        if not saved:
+        try:
+            stat = source.stat()
+        except OSError as exc:
             self._emit(
                 "capture_error",
-                error="screenshot_failed",
+                error=str(exc),
             )
             return
 
-        resolved_path = Path(
-            self.obs.resolve_screenshot_path(
-                str(requested_path)
+        if stat.st_size <= 0:
+            self._emit(
+                "capture_skipped",
+                reason="viewer_image_empty",
             )
+            return
+
+        age = max(
+            0.0,
+            time.time() - stat.st_mtime,
+        )
+
+        if age > self.MAX_SOURCE_AGE_SECONDS:
+            self._emit(
+                "capture_skipped",
+                reason="viewer_image_stale",
+                age_seconds=age,
+            )
+            return
+
+        if self._last_source_mtime_ns == stat.st_mtime_ns:
+            return
+
+        self._last_source_mtime_ns = stat.st_mtime_ns
+
+        suffix = source.suffix.lower() or ".jpg"
+        snapshot = (
+            self.capture_directory
+            / f"gift_capture_{time.time_ns()}{suffix}"
+        )
+
+        shutil.copy2(
+            source,
+            snapshot,
         )
 
         if (
-            not resolved_path.exists()
-            or resolved_path.stat().st_size <= 0
+            not snapshot.exists()
+            or snapshot.stat().st_size <= 0
         ):
             self._emit(
                 "capture_error",
-                error="screenshot_missing",
+                error="viewer_snapshot_missing",
             )
             return
 
@@ -348,14 +330,12 @@ class GiftMonitorWorker:
                 not self._running
                 or self._stop_event.is_set()
             ):
-                self._delete_file(
-                    resolved_path
-                )
+                self._delete_file(snapshot)
                 return
 
             try:
                 self._capture_queue.put_nowait(
-                    resolved_path
+                    snapshot
                 )
 
             except queue.Full:
@@ -374,7 +354,7 @@ class GiftMonitorWorker:
                     )
 
                 self._capture_queue.put_nowait(
-                    resolved_path
+                    snapshot
                 )
 
                 self._emit(
@@ -391,7 +371,7 @@ class GiftMonitorWorker:
 
             self._emit(
                 "captured",
-                path=str(resolved_path),
+                path=str(snapshot),
                 backlog=(
                     self.capture_backlog_count
                 ),
@@ -479,7 +459,6 @@ class GiftMonitorWorker:
 
         if not pending_path.exists():
             self.candidate_queue.acknowledge()
-
             self._emit(
                 "pending_missing",
                 path=str(pending_path),
@@ -521,6 +500,19 @@ class GiftMonitorWorker:
                 self.pending_count
             ),
         )
+
+    def _clear_capture_backlog(self) -> None:
+        while True:
+            try:
+                image_path = (
+                    self._capture_queue.get_nowait()
+                )
+            except queue.Empty:
+                break
+
+            self._delete_file(
+                image_path
+            )
 
     @staticmethod
     def _delete_file(

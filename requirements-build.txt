@@ -1,7 +1,9 @@
-﻿pyinstaller
+pyinstaller
 customtkinter
 Pillow
 openai
-obsws-python
 websocket-client
 reportlab
+pywebview
+
+pyaudiowpatch

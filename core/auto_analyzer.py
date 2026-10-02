@@ -9,12 +9,8 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 from PIL import Image
 from core.ai_client import AIClient
+from core.audio_capture import capture_system_audio
 from core.brightness_analyzer import BrightnessAnalyzer
-from core.gift_frame_gate import GiftFrameGate
-from core.gift_monitor_controller import GiftMonitorController
-from core.gift_monitor_worker import GiftMonitorWorker
-from core.gift_obs_monitor import GiftOBSMonitor
-from core.gift_stream_analyzer import GiftStreamAnalyzer
 from core.information_analyzer import InformationAnalyzer
 from core.hybrid_score_calculator import HybridScoreCalculator
 from core.hybrid_analysis_formatter import HybridAnalysisFormatter
@@ -25,7 +21,7 @@ from core.settings import Settings
 
 class AutoAnalyzer:
     """
-    OBSの現在シーンを一定間隔で画像保存し、AI分析して履歴に保存する。
+    TikTok Viewerの最新映像とコメントを一定間隔でAI分析して履歴に保存する。
 
     callback(event, data) のevent:
         "status" : 状態メッセージ
@@ -34,12 +30,13 @@ class AutoAnalyzer:
     """
 
     DEFAULT_INTERVAL = 30
-    DEFAULT_IMAGE_PATH = os.path.join(
-        os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
-        "AI-TikTok-LIVE-Analyzer",
-        "images",
-        "current.png",
-    )
+
+    VIEWER_CAPTURE_DIR = Path(
+        os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
+    ) / "AI-TikTok-LIVE-Analyzer" / "capture"
+
+    VIEWER_IMAGE_PATH = VIEWER_CAPTURE_DIR / "latest.jpg"
+    VIEWER_PAYLOAD_PATH = VIEWER_CAPTURE_DIR / "analysis_payload.json"
 
     DEFAULT_PROMPT = """
 あなたはTikTok LIVE配信画面を評価する分析AIです。
@@ -114,55 +111,14 @@ class AutoAnalyzer:
 
     def __init__(
         self,
-        obs,
         callback: Optional[Callable[[str, Any], None]] = None,
         interval: int = DEFAULT_INTERVAL,
-        image_path: str = DEFAULT_IMAGE_PATH,
     ):
-        self.obs = obs
         self.callback = callback
         self.interval = max(5, int(interval))
-        self.image_path = image_path
 
         self.ai = AIClient()
         self.history = HistoryDB()
-
-        catalog_path = (
-            Path(__file__).resolve().parent.parent
-            / "data"
-            / "gifts"
-            / "gift_catalog.json"
-        )
-
-        self.gift_stream_analyzer = GiftStreamAnalyzer(
-            catalog_path=catalog_path,
-            history_db=self.history,
-        )
-
-        self.gift_monitor_controller = GiftMonitorController(
-            stream_analyzer=self.gift_stream_analyzer,
-            frame_gate=GiftFrameGate(
-                roi=(
-                    0.70,
-                    0.18,
-                    0.24,
-                    0.62,
-                ),
-                analyze_first_frame=False,
-            ),
-        )
-
-        self.gift_obs_monitor = GiftOBSMonitor(
-            obs=self.obs,
-            controller=self.gift_monitor_controller,
-            screenshot_path="images/gift_monitor.png",
-        )
-
-        self.gift_monitor_worker = GiftMonitorWorker(
-            monitor=self.gift_obs_monitor,
-            capture_interval_seconds=1.0,
-            max_capture_backlog=30,
-        )
 
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -200,19 +156,6 @@ class AutoAnalyzer:
             )
             self._thread.start()
 
-        try:
-            gift_started = self.gift_monitor_worker.start()
-
-            if not gift_started:
-                print(
-                    "[Gift Monitor] start skipped"
-                )
-        except Exception as exc:
-            print(
-                "[Gift Monitor] start error:",
-                repr(exc),
-            )
-
         print("AI分析開始")
         return True
 
@@ -222,16 +165,6 @@ class AutoAnalyzer:
             was_running = self._running
             self._running = False
             self._stop_event.set()
-
-        try:
-            self.gift_monitor_worker.stop(
-                wait=False
-            )
-        except Exception as exc:
-            print(
-                "[Gift Monitor] stop error:",
-                repr(exc),
-            )
 
         # Tkinter終了時に固まらないよう短時間だけ待つ
         thread = self._thread
@@ -309,130 +242,190 @@ class AutoAnalyzer:
             self._analysis_lock.release()
 
     def _analyze_once_impl(self) -> Optional[dict]:
-        if not self._obs_connected():
-            raise ConnectionError(
-                "OBSに接続されていません。OBSとWebSocket設定を確認してください。"
-            )
-
-        scene_name = self.obs.get_current_scene()
-        if not scene_name:
-            raise RuntimeError("OBSの現在シーンを取得できませんでした。")
-
-        os.makedirs(
-            os.path.dirname(self.image_path) or ".",
+        """
+        TikTok Viewerが保存した最新フレームと直近コメントを使って分析する。
+        OBS接続は映像分析には必須としない。
+        """
+        self.VIEWER_CAPTURE_DIR.mkdir(
+            parents=True,
             exist_ok=True,
         )
 
-        self._emit("status", "OBS画面を取得しています...")
+        image_path = self.VIEWER_IMAGE_PATH
+        payload_path = self.VIEWER_PAYLOAD_PATH
 
-        screenshot_result = self.obs.save_screenshot(
-            scene_name,
-            self.image_path,
+        self._emit(
+            "status",
+            "TikTok LIVE映像を取得しています...",
         )
 
-        # 実装によってはFalseを返す
-        if screenshot_result is False:
-            raise RuntimeError("OBS画面の保存に失敗しました。")
-
-        if not os.path.exists(self.image_path):
+        if not image_path.exists():
             raise FileNotFoundError(
-                f"スクリーンショットが見つかりません: {self.image_path}"
+                "TikTok Viewerの映像がまだありません。"
+                f"\n{image_path}"
             )
 
-        if os.path.getsize(self.image_path) <= 0:
-            raise RuntimeError("保存されたスクリーンショットが空です。")
+        if image_path.stat().st_size <= 0:
+            raise RuntimeError(
+                "TikTok Viewerの最新映像が空です。"
+            )
 
-        # スクリーンショットの書き込み完了を待つ
+        # 書き込み途中の画像を読まないように確認する
         for _ in range(10):
             try:
-                with Image.open(self.image_path) as img:
+                with Image.open(image_path) as img:
                     img.verify()
                 break
             except (OSError, IOError):
                 time.sleep(0.2)
         else:
             raise RuntimeError(
-                "スクリーンショットの読み込みに失敗しました。"
+                "TikTok Viewerの最新映像を読み込めませんでした。"
             )
 
-        analysis_image_path = str(
-            Path(self.image_path).with_name(
-                "analysis_crop.png"
-            )
-        )
+        comments = []
 
-        with Image.open(self.image_path) as source_image:
-            width, height = source_image.size
-
-            default_left_ratio = 510 / 1920
-            default_right_ratio = 1000 / 1920
-
+        if payload_path.exists():
             try:
-                settings = Settings.load()
+                with payload_path.open(
+                    "r",
+                    encoding="utf-8",
+                ) as file:
+                    payload = json.load(file)
 
-                if not isinstance(settings, dict):
-                    settings = {}
+                if isinstance(payload, dict):
+                    raw_comments = payload.get(
+                        "comments",
+                        [],
+                    )
 
-                left_ratio = float(
-                    settings.get(
-                        "analysis_crop_left_ratio",
-                        default_left_ratio,
-                    )
-                )
-                right_ratio = float(
-                    settings.get(
-                        "analysis_crop_right_ratio",
-                        default_right_ratio,
-                    )
-                )
+                    if isinstance(raw_comments, list):
+                        for item in raw_comments:
+                            if not isinstance(item, dict):
+                                continue
 
-                if not (
-                    0.0 <= left_ratio < right_ratio <= 1.0
-                ):
-                    raise ValueError(
-                        "Invalid analysis crop ratios"
-                    )
+                            username = str(
+                                item.get("username", "")
+                            ).strip()
+
+                            comment = str(
+                                item.get("comment", "")
+                            ).strip()
+
+                            if not comment:
+                                continue
+
+                            comments.append(
+                                {
+                                    "username": username,
+                                    "comment": comment,
+                                }
+                            )
 
             except (
-                TypeError,
-                ValueError,
+                OSError,
+                json.JSONDecodeError,
             ):
-                left_ratio = default_left_ratio
-                right_ratio = default_right_ratio
+                traceback.print_exc()
 
-            crop_box = (
-                round(width * left_ratio),
-                0,
-                round(width * right_ratio),
-                height,
-            )
+        # Viewerから取った映像は既にvideo要素そのものなので、
+        # 従来のOBS用固定クロップは行わない。
+        analysis_image_path = str(image_path)
 
-            left, top, right, bottom = crop_box
-
-            if (
-                left < 0
-                or top < 0
-                or right > width
-                or bottom > height
-                or right <= left
-                or bottom <= top
-            ):
-                raise RuntimeError(
-                    f"Invalid analysis crop: {crop_box}"
-                )
-
-            analysis_image = source_image.crop(
-                crop_box
-            ).copy()
-
-        analysis_image.save(
-            analysis_image_path,
-            format="PNG",
+        comment_categories = (
+            self._classify_comment_categories(comments)
+            if comments
+            else {}
         )
 
         prompt = SIMPLIFIED_HYBRID_PROMPT
 
-        self._emit("status", "AI分析中...")
+        if comments:
+            comment_lines = []
+
+            for item in comments[-30:]:
+                username = (
+                    item["username"]
+                    or "ユーザー名不明"
+                )
+
+                comment_lines.append(
+                    f"・{username}: {item['comment']}"
+                )
+
+            prompt = (
+                prompt
+                + "\n\n"
+                + "【直近30秒の視聴者コメント】\n"
+                + f"コメント件数: {len(comments)}件\n"
+                + "コメント分類: "
+                + (
+                    " / ".join(
+                        f"{name}:{count}件"
+                        for name, count in comment_categories.items()
+                        if count > 0
+                    )
+                    or "分類なし"
+                )
+                + "\n"
+                + "\n".join(comment_lines)
+                + "\n\n"
+                + "【コメント利用ルール】\n"
+                + "・上記コメントは実際に取得された視聴者コメントです。\n"
+                + "・コメント本文から確認できる反応だけを扱ってください。\n"
+                + "・映像に写っていない事実をコメントだけから断定しないでください。\n"
+                + "・コメント内容は画面構図・明るさ・視認性などの"
+                  "issue判定や画面スコアには影響させないでください。\n"
+                + "・visual_observation と priority_action は"
+                  "映像についてだけ記述してください。\n"
+                + "・コメントが1件以上ある場合、main_reasonを必ず次の形式にしてください。\n"
+                + "  映像についての分析理由"
+                  "[[COMMENT_TREND]]"
+                  "コメント全体から読み取れる話題・反応"
+                  "[[COMMENT_ACTION]]"
+                  "配信者が次に拾うとよい話題や返し方"
+                  "[[NEXT_BEST_ACTION]]"
+                  "今この瞬間に最優先で実行するとよい一手\n"
+                + "・[[COMMENT_TREND]]、[[COMMENT_ACTION]]、"
+                  "[[NEXT_BEST_ACTION]] は角括弧を含めて完全一致で出力し、"
+                  "表記を変更しないでください。\n"
+                + "・COMMENT_TRENDはコメントの内容を要約し、"
+                  "見えていない視聴者心理を断定しないでください。\n"
+                + "・コメント件数は上に明示された実数をそのまま扱ってください。"
+                  "3件以上ある場合は「コメント数が少ない」と表現しないでください。\n"
+                + "・3件以上あっても共通話題が見つからない場合は、"
+                  "「話題が分散しており、傾向判断は限定的です」としてください。\n"
+                + "・1〜2件しかない場合だけ、"
+                  "「コメント数が少なく、傾向判断は限定的です」と表現できます。\n"
+                + "・コメントに明記されていないジャンルや状況を推測しないでください。"
+                  "例えば「戦う」という語だけからゲーム配信と断定してはいけません。\n"
+                + "・ゲーム、恋愛、課金、ギフト、イベント等の分類は、"
+                  "コメント本文にそれを裏付ける明示的な語がある場合だけ使ってください。\n"
+                + "・COMMENT_ACTIONは1文で、実際のコメントに書かれている"
+                  "語句や話題を根拠にした『口頭での返答・質問』だけを書いてください。\n"
+                + "・COMMENT_ACTIONでは、スマホ・商品・物体を動かす、指で示す、"
+                  "カメラへ近づける、画面を見せる等の物理動作を提案しないでください。\n"
+                + "・NEXT_BEST_ACTIONは1文だけにし、コメントが1件以上ある場合は"
+                  "必ず視聴者への『発話』だけを提案してください。\n"
+                + "・コメントがある場合、NEXT_BEST_ACTIONにはカメラ位置、構図、照明、"
+                  "マイク位置、スマホ操作、物体の移動などの画面改善・物理動作を"
+                  "含めないでください。画面改善はpriority_actionだけに書いてください。\n"
+                + "・NEXT_BEST_ACTIONはCOMMENT_ACTIONをさらに短くした"
+                  "『今すぐ口に出す一言・質問』にしてください。\n"
+                + "・『見どころはここです』『今のポイントは〜』のように、"
+                  "コメント本文に根拠のない内容を新しく足さないでください。\n"
+                + "・バトル、TAP、初見などがコメントに明示されている場合は、"
+                  "その語をそのまま活かした短い返答を優先してください。\n"
+                + "・視聴者コメントに『できない』『持っていけない』などの制約が"
+                  "書かれている場合、その制約に反する提案をしないでください。\n"
+                + "・NEXT_BEST_ACTIONで新しい事実や新しい問題を作らず、"
+                  "実際のコメントに根拠がある内容だけを使ってください。"
+            )
+
+        self._emit(
+            "status",
+            "AI分析中...",
+        )
 
         brightness = BrightnessAnalyzer.analyze(
             analysis_image_path
@@ -463,13 +456,8 @@ class AutoAnalyzer:
             self._very_high_density_streak = 0
 
             message = (
-                "\u914d\u4fe1\u6620\u50cf\u3092"
-                "\u691c\u51fa\u3067\u304d\u306a"
-                "\u304b\u3063\u305f\u305f\u3081"
-                "\u3001\u4eca\u56de\u306e"
-                "\u5206\u6790\u3092"
-                "\u30b9\u30ad\u30c3\u30d7"
-                "\u3057\u307e\u3057\u305f\u3002"
+                "配信映像を検出できなかったため、"
+                "今回の分析をスキップしました。"
             )
 
             self._emit(
@@ -482,9 +470,10 @@ class AutoAnalyzer:
                 "reason": "no_stream_visual",
                 "score": None,
                 "answer": message,
-                "image_path": self.image_path,
+                "image_path": str(image_path),
                 "analysis_image_path": analysis_image_path,
-                "scene": scene_name,
+                "scene": "TikTok Viewer",
+                "comments": comments,
                 "analyzed_at": datetime.now().isoformat(
                     timespec="seconds"
                 ),
@@ -528,6 +517,83 @@ class AutoAnalyzer:
         information["very_high_density_streak"] = (
             self._very_high_density_streak
         )
+
+        audio_transcript = ""
+
+        try:
+            audio_path = capture_system_audio(
+                seconds=10,
+            )
+
+            audio_transcript = (
+                self.ai.transcribe_audio(
+                    audio_path
+                )
+            )
+
+        except Exception as exc:
+            print(
+                f"[AUTO ANALYZER AUDIO] "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+            try:
+                import os
+                import traceback
+
+                log_dir = os.path.join(
+                    os.getenv("LOCALAPPDATA", ""),
+                    "AI-TikTok-LIVE-Analyzer",
+                    "logs",
+                )
+                os.makedirs(log_dir, exist_ok=True)
+
+                log_path = os.path.join(
+                    log_dir,
+                    "audio_error.log",
+                )
+
+                with open(
+                    log_path,
+                    "a",
+                    encoding="utf-8",
+                ) as log_file:
+                    log_file.write(
+                        f"{type(exc).__name__}: {exc}\n"
+                    )
+                    log_file.write(
+                        traceback.format_exc()
+                    )
+                    log_file.write("\n")
+            except Exception:
+                pass
+
+        if audio_transcript:
+            prompt = (
+                prompt
+                + "\n\n"
+                + "\u3010\u76f4\u8fd110\u79d2\u306e\u914d\u4fe1\u97f3\u58f0"
+                  "\uff08\u6587\u5b57\u8d77\u3053\u3057\uff09\u3011\n"
+                + audio_transcript
+                + "\n\n"
+                + "\u3010\u97f3\u58f0\u5229\u7528\u30eb\u30fc\u30eb\u3011\n"
+                + "\u30fb\u4e0a\u8a18\u306f\u914d\u4fe1\u4e2d\u306b"
+                  "\u53d6\u5f97\u3057\u305f\u97f3\u58f0\u306e"
+                  "\u6587\u5b57\u8d77\u3053\u3057\u3067\u3059\u3002\n"
+                + "\u30fb\u6587\u5b57\u8d77\u3053\u3057\u306b\u306f"
+                  "\u8a8d\u8b58\u8aa4\u308a\u304c\u542b\u307e\u308c\u308b"
+                  "\u53ef\u80fd\u6027\u304c\u3042\u308a\u307e\u3059\u3002\n"
+                + "\u30fb\u97f3\u58f0\u306f\u914d\u4fe1\u8005\u306e"
+                  "\u767a\u8a71\u5185\u5bb9\u3084\u4f1a\u8a71\u306e"
+                  "\u6587\u8108\u3092\u628a\u63e1\u3059\u308b\u305f\u3081"
+                  "\u3060\u3051\u306b\u4f7f\u7528\u3057\u3066"
+                  "\u304f\u3060\u3055\u3044\u3002\n"
+                + "\u30fb\u97f3\u58f0\u5185\u5bb9\u306f\u753b\u9762\u69cb\u56f3"
+                  "\u30fb\u660e\u308b\u3055\u30fb\u8996\u8a8d\u6027\u306a\u3069"
+                  "\u306e\u753b\u9762\u30b9\u30b3\u30a2\u306b"
+                  "\u5f71\u97ff\u3055\u305b\u306a\u3044\u3067"
+                  "\u304f\u3060\u3055\u3044\u3002"
+            )
 
         raw_answer = self.ai.analyze_image(
             analysis_image_path,
@@ -629,6 +695,158 @@ class AutoAnalyzer:
             or ""
         ).strip()
 
+        # コメント分析は画面分析と分離して表示する。
+        visual_main_reason = main_reason
+        comment_trend = ""
+        comment_action = ""
+        next_best_action = ""
+
+        if comments and re.search(
+            r"\[+COMMENT_TREND\]+",
+            main_reason,
+        ):
+            parts = re.split(
+                r"\[+COMMENT_TREND\]+",
+                main_reason,
+                maxsplit=1,
+            )
+
+            visual_main_reason = parts[0].strip()
+            comment_part = parts[1].strip() if len(parts) > 1 else ""
+
+            action_parts = re.split(
+                r"\[+COMMENT_ACTION\]+",
+                comment_part,
+                maxsplit=1,
+            )
+
+            comment_trend = (
+                action_parts[0].strip()
+                if action_parts
+                else ""
+            )
+
+            action_part = (
+                action_parts[1].strip()
+                if len(action_parts) > 1
+                else ""
+            )
+
+            next_parts = re.split(
+                r"\[+NEXT_BEST_ACTION\]+",
+                action_part,
+                maxsplit=1,
+            )
+
+            comment_action = (
+                next_parts[0].strip()
+                if next_parts
+                else ""
+            )
+
+            next_best_action = (
+                next_parts[1].strip()
+                if len(next_parts) > 1
+                else ""
+            )
+
+            if not comment_action:
+                comment_action = (
+                    "直近コメントの話題を1つ拾い、"
+                    "視聴者が返しやすい質問につなげてください。"
+                )
+
+            if not next_best_action:
+                next_best_action = comment_action
+
+        elif comments:
+            # 旧形式の回答が返った場合の互換フォールバック。
+            match_comment = re.search(
+                r"(視聴者コメントでは[^。！？]*[。！？]?)",
+                main_reason,
+            )
+
+            if match_comment:
+                comment_trend = match_comment.group(1).strip()
+                visual_main_reason = (
+                    main_reason[:match_comment.start()]
+                    + main_reason[match_comment.end():]
+                ).strip()
+
+            if not comment_trend:
+                comment_trend = (
+                    "取得したコメントはありますが、"
+                    "今回のAI回答から明確な傾向を分離できませんでした。"
+                )
+
+            comment_action = (
+                "直近コメントの話題を1つ拾い、"
+                "視聴者が返しやすい質問につなげてください。"
+            )
+            next_best_action = comment_action
+
+        if not next_best_action:
+            next_best_action = (
+                comment_action
+                if comments
+                else priority_action
+            )
+
+        # コメント用アクションに画面改善・物理動作が混ざった場合は、
+        # 安全な「発話のみ」のフォールバックに戻す。
+        if comments:
+            physical_terms = (
+                "カメラ",
+                "フレーム",
+                "構図",
+                "照明",
+                "ライト",
+                "マイク",
+                "画角",
+                "背景",
+                "レンズ",
+                "スマホ",
+                "画面",
+                "商品",
+                "物体",
+                "指で",
+                "指し",
+                "近づけ",
+                "持って",
+                "持ち",
+                "見せ",
+                "映し",
+                "中央に",
+                "距離",
+                "固定",
+                "移動",
+            )
+
+            if any(
+                term in comment_action
+                for term in physical_terms
+            ):
+                comment_action = (
+                    "直近コメントの話題を1つ拾って短く返し、"
+                    "視聴者が答えやすい質問を1つ返してください。"
+                )
+
+            if any(
+                term in next_best_action
+                for term in physical_terms
+            ):
+                next_best_action = comment_action
+
+        # 実際の件数と矛盾する表現を補正する。
+        if len(comments) >= 3 and comment_trend:
+            comment_trend = comment_trend.replace(
+                "コメント数が少なく、傾向判断は限定的です",
+                "話題が分散しており、傾向判断は限定的です",
+            ).replace(
+                "コメント数が少ないため、傾向判断は限定的です",
+                "話題が分散しており、傾向判断は限定的です",
+            )
+
         # ???????AI????
         # Python????????????
         if brightness.get("is_black_screen") is True:
@@ -636,14 +854,40 @@ class AutoAnalyzer:
 
         elif (
             visual_observation
-            and main_reason
+            and visual_main_reason
             and priority_action
         ):
             answer = (
                 "\u3010AI\u306b\u3088\u308b\u753b\u9762\u5206\u6790\u3011\n"
                 f"{visual_observation}\n\n"
                 "\u3010\u5206\u6790\u7406\u7531\u3011\n"
-                f"{main_reason}\n\n"
+                f"{visual_main_reason}"
+            )
+
+            if comments:
+                category_text = (
+                    " / ".join(
+                        f"{name} {count}件"
+                        for name, count in comment_categories.items()
+                        if count > 0
+                    )
+                    or "分類なし"
+                )
+
+                answer = (
+                    f"{answer}\n\n"
+                    "【コメント分類】\n"
+                    f"{category_text}\n\n"
+                    "【視聴者コメントの傾向】\n"
+                    f"{comment_trend}\n\n"
+                    "【配信で拾うとよい反応】\n"
+                    f"{comment_action}\n\n"
+                    "【今この配信でやると良い一手】\n"
+                    f"{next_best_action}"
+                )
+
+            answer = (
+                f"{answer}\n\n"
                 "\u3010\u6700\u512a\u5148\u306e\u6539\u5584\u3011\n"
                 f"{priority_action}"
             )
@@ -652,6 +896,43 @@ class AutoAnalyzer:
             # ?????????AI??????
             # ??????????????????
             answer = fallback_answer
+
+        # 実際に取得したコメントを分析結果にも残して、
+        # コメント連携が目視で確認できるようにする。
+        if comments:
+            comment_preview_lines = []
+
+            for item in comments[-5:]:
+                username = (
+                    item.get("username")
+                    or "ユーザー名不明"
+                )
+                comment_text = (
+                    item.get("comment")
+                    or ""
+                ).strip()
+
+                if not comment_text:
+                    continue
+
+                comment_preview_lines.append(
+                    f"・{username}: {comment_text}"
+                )
+
+            if comment_preview_lines:
+                answer = (
+                    f"{answer}\n\n"
+                    "【直近30秒の視聴者コメント】\n"
+                    + "\n".join(comment_preview_lines)
+                )
+
+        if audio_transcript:
+            answer = (
+                f"{answer}\n\n"
+                + "\u3010\u76f4\u8fd110\u79d2\u306e\u914d\u4fe1\u97f3\u58f0"
+                  "\uff08\u6587\u5b57\u8d77\u3053\u3057\uff09\u3011\n"
+                + audio_transcript
+            )
 
         gift_insight = self._format_gift_insight(
             gift_summary
@@ -680,19 +961,40 @@ class AutoAnalyzer:
             score=score,
             prompt=prompt,
             answer=answer,
-            image_path=self.image_path,
+            image_path=str(image_path),
         )
         print("履歴保存成功")
 
         result = {
             "score": score,
             "answer": answer,
-            "image_path": self.image_path,
-            "scene": scene_name,
+            "image_path": str(image_path),
+            "scene": "TikTok Viewer",
             "gift_summary": gift_summary,
+            "comments": comments,
+            "comment_categories": comment_categories,
+            "score_breakdown": {
+                "composition": scores["composition"],
+                "brightness": scores["brightness"],
+                "visibility": scores["visibility"],
+                "information": scores["information"],
+                "clarity": scores["clarity"],
+                "calculated_total": scores["total"],
+                "final_total": score,
+            },
+            "brightness_analysis": dict(brightness),
+            "information_analysis": dict(information),
+            "active_issues": [
+                name
+                for name, active in issues.items()
+                if active
+            ],
             "ai_explanation": {
                 "visual_observation": visual_observation,
-                "main_reason": main_reason,
+                "main_reason": visual_main_reason,
+                "comment_trend": comment_trend,
+                "comment_action": comment_action,
+                "next_best_action": next_best_action,
                 "priority_action": priority_action,
             },
             "analyzed_at": datetime.now().isoformat(
@@ -706,6 +1008,188 @@ class AutoAnalyzer:
     # ==================================================
     # Helpers
     # ==================================================
+
+    @staticmethod
+    def _classify_comment_categories(
+        comments: list[dict[str, str]],
+    ) -> dict[str, int]:
+        """
+        直近コメントを軽量ルールで1件につき1カテゴリへ分類する。
+        AIの推測ではなく、本文に現れた表現だけを使う。
+        """
+        categories = {
+            "質問": 0,
+            "挨拶": 0,
+            "バトル・応援": 0,
+            "ギフト関連": 0,
+            "参加・誘い": 0,
+            "見た目・ビジュアル": 0,
+            "ツッコミ・笑い": 0,
+            "リアクション": 0,
+            "雑談": 0,
+        }
+
+        greeting_words = (
+            "おはよ",
+            "おはよう",
+            "こんにちは",
+            "こんばんは",
+            "おつ",
+            "お疲れ",
+            "またね",
+            "ばいばい",
+            "バイバイ",
+            "初見",
+        )
+
+        battle_words = (
+            "バトル",
+            "battle",
+            "tap",
+            "タップ",
+            "応援",
+            "ヒーロー",
+            "勝とう",
+            "勝つ",
+            "勝ち",
+        )
+
+        gift_words = (
+            "ギフト",
+            "gift",
+            "投げ",
+            "コイン",
+            "バラ",
+            "薔薇",
+        )
+
+        participation_words = (
+            "一緒に",
+            "参加",
+            "来て",
+            "おいで",
+            "また行く",
+            "また来る",
+            "戦おう",
+            "やろう",
+            "入る",
+            "入って",
+        )
+
+        visual_words = (
+            "かわいい",
+            "可愛い",
+            "かっこいい",
+            "イケメン",
+            "顔",
+            "髪",
+            "服",
+            "衣装",
+            "メイク",
+            "背景",
+            "色",
+            "ピンク",
+            "赤",
+            "青",
+            "白",
+            "黒",
+        )
+
+        laugh_words = (
+            "www",
+            "ww",
+            "w",
+            "笑",
+            "🤣",
+            "😂",
+            "草",
+            "うるさ",
+            "なんで",
+            "ツッコミ",
+        )
+
+        for item in comments:
+            comment = str(
+                item.get("comment", "")
+            ).strip()
+
+            if not comment:
+                continue
+
+            lower = comment.lower()
+
+            if (
+                "?" in comment
+                or "？" in comment
+                or any(
+                    word in comment
+                    for word in (
+                        "ですか",
+                        "なの",
+                        "なに",
+                        "何",
+                        "どう",
+                        "どこ",
+                        "いつ",
+                        "誰",
+                    )
+                )
+            ):
+                categories["質問"] += 1
+                continue
+
+            member_level_limit = re.search(
+                r"メンレ[ベべ]\s*"
+                r"(?:[0-9０-９]+|[〇○]+)\s*"
+                r"(?:以下|未満)",
+                comment,
+            )
+
+            if (
+                any(word in lower for word in battle_words)
+                or member_level_limit
+            ):
+                categories["バトル・応援"] += 1
+                continue
+
+            if any(word in lower for word in greeting_words):
+                categories["挨拶"] += 1
+                continue
+
+            if any(word in lower for word in gift_words):
+                categories["ギフト関連"] += 1
+                continue
+
+            if any(word in comment for word in participation_words):
+                categories["参加・誘い"] += 1
+                continue
+
+            if any(word in comment for word in visual_words):
+                categories["見た目・ビジュアル"] += 1
+                continue
+
+            if any(word in lower for word in laugh_words):
+                categories["ツッコミ・笑い"] += 1
+                continue
+
+            visible_chars = re.sub(
+                r"[\s\W_]+",
+                "",
+                comment,
+                flags=re.UNICODE,
+            )
+
+            if len(visible_chars) <= 2:
+                categories["リアクション"] += 1
+                continue
+
+            categories["雑談"] += 1
+
+        return {
+            name: count
+            for name, count in categories.items()
+            if count > 0
+        }
 
     @staticmethod
     def _format_gift_insight(
@@ -769,12 +1253,6 @@ class AutoAnalyzer:
             )
 
         return " ".join(lines)
-
-    def _obs_connected(self) -> bool:
-        try:
-            return bool(self.obs.is_connected())
-        except Exception:
-            return False
 
     def _load_prompt(self) -> str:
         """

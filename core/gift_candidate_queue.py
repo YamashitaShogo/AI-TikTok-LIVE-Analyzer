@@ -29,7 +29,11 @@ class GiftCandidateQueue:
                 "max_items must be greater than 0"
             )
 
-        self.directory = Path(directory)
+        self.directory = (
+            Path(directory)
+            .expanduser()
+            .resolve()
+        )
         self.max_items = max_items
 
         self.directory.mkdir(

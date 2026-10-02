@@ -6,7 +6,7 @@ import threading
 import customtkinter as ctk
 from io import BytesIO
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import messagebox
 from urllib import error, request
 
 from PIL import Image
@@ -31,14 +31,10 @@ class SettingsPage(ctk.CTkFrame):
 
 
     DEFAULTS = {
-        "obs_host": "localhost",
-        "obs_port": 4455,
-        "obs_password": "",
         "license_key": "",
         "license_status": "未認証",
         "appearance_mode": "dark",
         "analysis_interval": 30,
-        "screenshot_path": "images/current.png",
         "ai_prompt": (
             "あなたはTikTok LIVE分析AIです。\n\n"
             "・配信画面を100点満点で評価してください。\n"
@@ -48,16 +44,12 @@ class SettingsPage(ctk.CTkFrame):
         ),
     }
 
-    def __init__(self, parent, obs_client=None):
+    def __init__(self, parent):
         super().__init__(parent)
-
-        self.obs_client = obs_client
 
         self._destroying = False
         self._event_queue = queue.Queue()
         self._poll_job = None
-        self._password_visible = False
-
         self._build_ui()
         self.load_settings()
         self._start_event_polling()
@@ -88,7 +80,6 @@ class SettingsPage(ctk.CTkFrame):
         self.scroll.grid_columnconfigure(0, weight=1)
 
         self._build_quick_setup_section()
-        self._build_obs_section()
         self._build_ai_section()
         self._build_license_section()
         self._build_analysis_section()
@@ -99,39 +90,31 @@ class SettingsPage(ctk.CTkFrame):
     def _build_quick_setup_section(self):
         frame = ctk.CTkFrame(self.scroll)
         frame.pack(fill="x", padx=4, pady=(8, 14))
-    
+
         ctk.CTkLabel(
             frame,
             text="🚀 初回セットアップ",
             font=("Yu Gothic UI", 20, "bold"),
-        ).pack(
-            anchor="w",
-            padx=16,
-            pady=(14, 8),
-        )
-    
+        ).pack(anchor="w", padx=16, pady=(14, 8))
+
         guide_text = (
-            "初めて利用する場合は、次の順番で設定してください。\n\n"
-            "① OBS Studioを起動してWebSocketを有効にする\n"
-            "② OBSのホスト・ポート・パスワードを設定する\n"
-            "③ 「OBS接続テスト」で接続を確認する\n"
-            "④ ライセンスキーを入力して認証する\n"
-            "⑤ 「AIサーバー接続テスト」で接続を確認する\n"
-            "⑥ 「設定を保存」を押す\n"
-            "⑦ DashboardからAI分析を開始する"
+            "初めて利用する場合は、次の順番で確認してください。\n\n"
+            "① TikTok ViewerでLIVE映像が「取得中」になることを確認\n"
+            "② ライセンスキーを入力して認証\n"
+            "③ 「AIサーバー接続テスト」で接続を確認\n"
+            "④ AI分析間隔などを設定\n"
+            "⑤ 「設定を保存」を押す\n"
+            "⑥ DashboardからAI分析を開始"
         )
-    
+
         ctk.CTkLabel(
             frame,
             text=guide_text,
             justify="left",
             anchor="w",
             font=("Yu Gothic UI", 14),
-        ).pack(
-            fill="x",
-            padx=16,
-            pady=(0, 14),
-        )
+        ).pack(fill="x", padx=16, pady=(0, 14))
+
     
     def _section(self, title):
         frame = ctk.CTkFrame(self.scroll)
@@ -179,74 +162,6 @@ class SettingsPage(ctk.CTkFrame):
             pady=7,
         )
 
-    def _build_obs_section(self):
-        body = self._section("📺 OBS WebSocket")
-
-        self._field_label(body, "ホスト", 0)
-        self.obs_host_entry = ctk.CTkEntry(
-            body,
-            placeholder_text="localhost",
-        )
-        self.obs_host_entry.grid(
-            row=0, column=1, sticky="ew", pady=7
-        )
-
-        self._field_label(body, "ポート", 1)
-        self.obs_port_entry = ctk.CTkEntry(
-            body,
-            placeholder_text="4455",
-        )
-        self.obs_port_entry.grid(
-            row=1, column=1, sticky="ew", pady=7
-        )
-
-        self._field_label(body, "パスワード", 2)
-        password_row = ctk.CTkFrame(body, fg_color="transparent")
-        password_row.grid(
-            row=2, column=1, sticky="ew", pady=7
-        )
-        password_row.grid_columnconfigure(0, weight=1)
-
-        self.obs_password_entry = ctk.CTkEntry(
-            password_row,
-            show="●",
-            placeholder_text="OBS WebSocketパスワード",
-        )
-        self.obs_password_entry.grid(
-            row=0, column=0, sticky="ew"
-        )
-
-        ctk.CTkButton(
-            password_row,
-            text="表示",
-            width=65,
-            command=self.toggle_obs_password,
-        ).grid(row=0, column=1, padx=(8, 0))
-
-        self.obs_test_button = ctk.CTkButton(
-            body,
-            text="OBS接続テスト",
-            width=160,
-            command=self.test_obs_connection,
-        )
-        self.obs_test_button.grid(
-            row=3,
-            column=1,
-            sticky="w",
-            pady=(10, 0),
-        )
-
-        self.obs_test_label = ctk.CTkLabel(
-            body,
-            text="",
-            anchor="w",
-        )
-        self.obs_test_label.grid(
-            row=4,
-            column=1,
-            sticky="w",
-            pady=(5, 0),
-        )
 
 
     def _build_ai_section(self):
@@ -366,37 +281,14 @@ class SettingsPage(ctk.CTkFrame):
             pady=(0, 5),
         )
 
-        self._field_label(body, "画像保存先", 2)
-
-        path_row = ctk.CTkFrame(body, fg_color="transparent")
-        path_row.grid(
-            row=2, column=1, sticky="ew", pady=7
-        )
-        path_row.grid_columnconfigure(0, weight=1)
-
-        self.screenshot_path_entry = ctk.CTkEntry(
-            path_row,
-            placeholder_text="images/current.png",
-        )
-        self.screenshot_path_entry.grid(
-            row=0, column=0, sticky="ew"
-        )
-
-        ctk.CTkButton(
-            path_row,
-            text="参照",
-            width=65,
-            command=self.select_screenshot_path,
-        ).grid(row=0, column=1, padx=(8, 0))
-
-        self._field_label(body, "分析プロンプト", 3)
+        self._field_label(body, "分析プロンプト", 2)
         self.prompt_text = ctk.CTkTextbox(
             body,
             height=190,
             wrap="word",
         )
         self.prompt_text.grid(
-            row=3,
+            row=2,
             column=1,
             sticky="ew",
             pady=7,
@@ -549,6 +441,9 @@ class SettingsPage(ctk.CTkFrame):
             if isinstance(loaded, dict):
                 settings.update(loaded)
 
+                for suffix in ("host", "port", "password"):
+                    settings.pop("obs_" + suffix, None)
+
         except (OSError, json.JSONDecodeError) as exc:
             messagebox.showwarning(
                 "設定読込",
@@ -561,19 +456,7 @@ class SettingsPage(ctk.CTkFrame):
 
     def load_settings(self):
         settings = self._read_settings_file()
-    
-        self._set_entry(
-            self.obs_host_entry,
-            settings.get("obs_host", "localhost"),
-        )
-        self._set_entry(
-            self.obs_port_entry,
-            settings.get("obs_port", 4455),
-        )
-        self._set_entry(
-            self.obs_password_entry,
-            settings.get("obs_password", ""),
-        )
+
         self._set_entry(
             self.license_key_entry,
             settings.get("license_key", ""),
@@ -581,115 +464,59 @@ class SettingsPage(ctk.CTkFrame):
         self.license_status_label.configure(
             text=settings.get("license_status", "未認証")
         )
-    
+
+        if hasattr(self, "appearance_mode_var"):
+            appearance_mode = str(
+                settings.get("appearance_mode", "dark")
+            ).strip().lower()
+            self.appearance_mode_var.set(
+                self._appearance_mode_to_label(appearance_mode)
+            )
+
         self._set_entry(
             self.interval_entry,
             settings.get("analysis_interval", 30),
-        )
-        self._set_entry(
-            self.screenshot_path_entry,
-            settings.get(
-                "screenshot_path",
-                "images/current.png",
-            ),
-        )
-    
-        appearance_mode = str(
-            settings.get(
-                "appearance_mode",
-                "dark",
-            )
-        ).strip().lower()
-
-        if appearance_mode not in {
-            "light",
-            "dark",
-        }:
-            appearance_mode = "dark"
-
-        self.appearance_mode_var.set(
-            self._appearance_mode_to_label(
-                appearance_mode
-            )
-        )
-
-        ctk.set_appearance_mode(
-            appearance_mode
         )
 
         self.prompt_text.delete("1.0", "end")
         self.prompt_text.insert(
             "1.0",
-            settings.get(
-                "ai_prompt",
-                self.DEFAULTS["ai_prompt"],
-            ),
+            settings.get("ai_prompt", self.DEFAULTS["ai_prompt"]),
         )
-    
-        self.status_label.configure(
-            text="設定を読み込みました"
-        )
+
+        self.status_label.configure(text="設定を読み込みました")
+
     
     
     def collect_settings(self):
-        host = self.obs_host_entry.get().strip()
-        port_text = self.obs_port_entry.get().strip()
-        password = self.obs_password_entry.get()
         license_key = self.license_key_entry.get().strip()
         interval_text = self.interval_entry.get().strip()
-        screenshot_path = self.screenshot_path_entry.get().strip()
         prompt = self.prompt_text.get("1.0", "end").strip()
-    
-        if not host:
-            raise ValueError("OBSホストを入力してください。")
-    
-        try:
-            port = int(port_text)
-        except ValueError as exc:
-            raise ValueError(
-                "OBSポートは数字で入力してください。"
-            ) from exc
-    
-        if not 1 <= port <= 65535:
-            raise ValueError(
-                "OBSポートは1～65535で設定してください。"
-            )
-    
+
         try:
             interval = int(interval_text)
         except ValueError as exc:
-            raise ValueError(
-                "分析間隔は数字で入力してください。"
-            ) from exc
-    
+            raise ValueError("AI分析間隔は数字で入力してください。") from exc
+
         if not 10 <= interval <= 3600:
-            raise ValueError(
-                "分析間隔は10～3600秒で設定してください。"
-            )
-    
-        if not screenshot_path:
-            raise ValueError(
-                "スクリーンショット保存先を入力してください。"
-            )
-    
+            raise ValueError("AI分析間隔は10〜3600秒で設定してください。")
         if not prompt:
-            raise ValueError(
-                "AI分析プロンプトを入力してください。"
+            raise ValueError("AI分析プロンプトを入力してください。")
+
+        appearance_mode = "dark"
+        if hasattr(self, "appearance_mode_var"):
+            appearance_mode = self._appearance_label_to_mode(
+                self.appearance_mode_var.get()
             )
-    
+
         return {
-            "obs_host": host,
-            "obs_port": port,
-            "obs_password": password,
             "license_key": license_key,
             "license_status": self.license_status_label.cget("text"),
-            "appearance_mode": self._appearance_label_to_mode(
-                self.appearance_mode_var.get()
-            ),
+            "appearance_mode": appearance_mode,
             "analysis_interval": interval,
-            "screenshot_path": screenshot_path,
             "ai_prompt": prompt,
         }
+
     
     
     def save_settings(self):
@@ -726,14 +553,6 @@ class SettingsPage(ctk.CTkFrame):
     
             temp_path.replace(self._get_settings_path())
     
-            screenshot = Path(
-                new_settings["screenshot_path"]
-            )
-            if screenshot.parent != Path("."):
-                screenshot.parent.mkdir(
-                    parents=True,
-                    exist_ok=True,
-                )
     
             self.status_label.configure(
                 text="✅ 保存しました"
@@ -762,25 +581,13 @@ class SettingsPage(ctk.CTkFrame):
         confirmed = messagebox.askyesno(
             "初期値に戻す",
             "入力内容を初期値に戻しますか？\n"
-            "保存ボタンを押すまではファイルに反映されません。",
+            "「設定を保存」を押すまではファイルには反映されません。",
         )
         if not confirmed:
             return
-    
+
         defaults = dict(self.DEFAULTS)
-    
-        self._set_entry(
-            self.obs_host_entry,
-            defaults["obs_host"],
-        )
-        self._set_entry(
-            self.obs_port_entry,
-            defaults["obs_port"],
-        )
-        self._set_entry(
-            self.obs_password_entry,
-            defaults["obs_password"],
-        )
+
         self._set_entry(
             self.license_key_entry,
             defaults["license_key"],
@@ -788,40 +595,23 @@ class SettingsPage(ctk.CTkFrame):
         self.license_status_label.configure(
             text=defaults["license_status"]
         )
-    
+
+        if hasattr(self, "appearance_mode_var"):
+            self.appearance_mode_var.set(
+                self._appearance_mode_to_label(
+                    defaults.get("appearance_mode", "dark")
+                )
+            )
+
         self._set_entry(
             self.interval_entry,
             defaults["analysis_interval"],
         )
-        self._set_entry(
-            self.screenshot_path_entry,
-            defaults["screenshot_path"],
-        )
-    
-        appearance_mode = defaults.get(
-            "appearance_mode",
-            "dark",
-        )
-
-        self.appearance_mode_var.set(
-            self._appearance_mode_to_label(
-                appearance_mode
-            )
-        )
-
-        ctk.set_appearance_mode(
-            appearance_mode
-        )
 
         self.prompt_text.delete("1.0", "end")
-        self.prompt_text.insert(
-            "1.0",
-            defaults["ai_prompt"],
-        )
-    
-        self.status_label.configure(
-            text="初期値を入力しました"
-        )
+        self.prompt_text.insert("1.0", defaults["ai_prompt"])
+        self.status_label.configure(text="初期値を入力しました")
+
     
     def verify_license(self):
         """オンラインライセンス認証。"""
@@ -989,91 +779,7 @@ class SettingsPage(ctk.CTkFrame):
     # Connection tests
     # ==================================================
 
-    def test_obs_connection(self):
-        try:
-            host = self.obs_host_entry.get().strip()
-            port = int(self.obs_port_entry.get().strip())
-            password = self.obs_password_entry.get()
 
-            if not host:
-                raise ValueError(
-                    "OBSホストを入力してください。"
-                )
-            if not 1 <= port <= 65535:
-                raise ValueError(
-                    "OBSポートが正しくありません。"
-                )
-
-        except ValueError as exc:
-            messagebox.showwarning(
-                "OBS接続テスト",
-                str(exc),
-            )
-            return
-
-        self.obs_test_button.configure(state="disabled")
-        self.obs_test_label.configure(
-            text="接続確認中..."
-        )
-
-        threading.Thread(
-            target=self._obs_test_worker,
-            args=(host, port, password),
-            daemon=True,
-        ).start()
-
-    def _obs_test_worker(self, host, port, password):
-        try:
-            if self.obs_client is None:
-                self._event_queue.put(
-                    (
-                        "obs_error",
-                        "❌ OBSクライアントが初期化されていません。",
-                    )
-                )
-                return
-
-            connected = self.obs_client.connect(
-                host,
-                port,
-                password,
-            )
-
-            if not connected:
-                self._event_queue.put(
-                    (
-                        "obs_error",
-                        "❌ OBSへ接続できませんでした。",
-                    )
-                )
-                return
-
-            client = self.obs_client.client
-
-            if client is not None:
-                version = client.get_version()
-                obs_version = getattr(
-                    version,
-                    "obs_version",
-                    "不明",
-                )
-            else:
-                obs_version = "不明"
-
-            self._event_queue.put(
-                (
-                    "obs_success",
-                    f"✅ 接続成功（OBS {obs_version}）",
-                )
-            )
-
-        except Exception as exc:
-            self._event_queue.put(
-                (
-                    "obs_error",
-                    f"❌ 接続失敗：{exc}",
-                )
-            )
 
 
     def test_ai_server_connection(self):
@@ -1198,17 +904,14 @@ class SettingsPage(ctk.CTkFrame):
             except queue.Empty:
                 break
 
-            if event.startswith("obs_"):
-                self.obs_test_label.configure(text=message)
-                self.obs_test_button.configure(state="normal")
-
-            elif event.startswith("ai_server_"):
+            if event.startswith("ai_server_"):
                 self.openai_test_label.configure(text=message)
                 self.openai_test_button.configure(state="normal")
 
             elif event == "license_result":
                 self.license_test_button.configure(state="normal")
                 self._apply_license_result(message)
+
 
     # ==================================================
     # Helpers
@@ -1219,41 +922,6 @@ class SettingsPage(ctk.CTkFrame):
         entry.delete(0, "end")
         entry.insert(0, str(value))
 
-    def toggle_obs_password(self):
-        self._password_visible = not self._password_visible
-        self.obs_password_entry.configure(
-            show="" if self._password_visible else "●"
-        )
-
-    def select_screenshot_path(self):
-        current = self.screenshot_path_entry.get().strip()
-        initial_name = Path(
-            current or "images/current.png"
-        ).name
-
-        selected = filedialog.asksaveasfilename(
-            title="スクリーンショット保存先",
-            defaultextension=".png",
-            initialfile=initial_name,
-            filetypes=[
-                ("PNG画像", "*.png"),
-                ("すべてのファイル", "*.*"),
-            ],
-        )
-
-        if selected:
-            try:
-                relative = os.path.relpath(
-                    selected,
-                    Path.cwd(),
-                )
-            except ValueError:
-                relative = selected
-
-            self._set_entry(
-                self.screenshot_path_entry,
-                relative,
-            )
 
     def destroy(self):
         if self._destroying:
