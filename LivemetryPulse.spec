@@ -7,7 +7,7 @@ datas = collect_data_files("customtkinter")
 datas += collect_data_files("webview")
 hiddenimports = []
 
-for package in ("customtkinter", "openai", "httpx", "pydantic", "reportlab", "PIL", "webview", "pyaudiowpatch"):
+for package in ("customtkinter", "openai", "httpx", "pydantic", "reportlab", "PIL", "webview", "pyaudiowpatch", "TikTokLive", "TikTokLiveProto"):
     try:
         hiddenimports += collect_submodules(package)
     except Exception:

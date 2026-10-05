@@ -1,6 +1,7 @@
 import json
 import os
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -41,6 +42,7 @@ class ViewerPage(ctk.CTkFrame):
         )
         self.frame_path = self.capture_dir / "latest.jpg"
         self.payload_path = self.capture_dir / "analysis_payload.json"
+        self.battle_path = self.capture_dir / "latest_battle.json"
 
         self._build_ui()
         self._refresh()
@@ -203,6 +205,20 @@ class ViewerPage(ctk.CTkFrame):
             pady=(16, 12),
         )
 
+        self.battle_value = ctk.CTkLabel(
+            control_card,
+            text="\u30d0\u30c8\u30eb: \u5f85\u6a5f\u4e2d",
+            font=("Yu Gothic UI", 13, "bold"),
+            text_color=("#132347", "#F8FAFC"),
+            justify="left",
+            anchor="w",
+        )
+        self.battle_value.pack(
+            fill="x",
+            padx=18,
+            pady=(0, 14),
+        )
+
         self.restart_button = ctk.CTkButton(
             control_card,
             text="↻  Viewerを再起動",
@@ -323,6 +339,77 @@ class ViewerPage(ctk.CTkFrame):
         except Exception:
             return 0
 
+    def _battle_state(self):
+        try:
+            if not self.battle_path.exists():
+                return None
+
+            data = json.loads(
+                self.battle_path.read_text(encoding="utf-8")
+            )
+
+            return data
+        except Exception:
+            return None
+
+    def _format_battle_state(self, data):
+        if not data:
+            return "\u30d0\u30c8\u30eb: \u5f85\u6a5f\u4e2d"
+
+        active = bool(data.get("active"))
+        show_finished = False
+
+        if not active:
+            finished_at = int(data.get("finished_at") or 0)
+            display_seconds = int(
+                data.get("result_display_seconds") or 120
+            )
+
+            if finished_at:
+                show_finished = (
+                    time.time() - finished_at
+                    < display_seconds
+                )
+
+            if not show_finished:
+                return "\u30d0\u30c8\u30eb: \u5f85\u6a5f\u4e2d"
+
+        mode = data.get("mode")
+        title = (
+            "\u30d0\u30c8\u30eb\u4e2d"
+            if active
+            else "\u30d0\u30c8\u30eb\u7d42\u4e86"
+        )
+
+        if mode == "team":
+            teams = data.get("teams", [])
+            parts = []
+
+            for index, team in enumerate(teams, start=1):
+                score = int(team.get("score", 0))
+                parts.append(f"{index}: {score:,}")
+
+            if parts:
+                return title + "\n" + "  /  ".join(parts)
+
+        if mode == "individual":
+            participants = data.get("participants", [])
+            parts = []
+
+            for index, participant in enumerate(
+                participants,
+                start=1,
+            ):
+                score = int(
+                    participant.get("score", 0)
+                )
+                parts.append(f"{index}: {score:,}")
+
+            if parts:
+                return title + "\n" + "  /  ".join(parts)
+
+        return "\u30d0\u30c8\u30eb: \u5f85\u6a5f\u4e2d"
+
     def _refresh_preview(self, mtime):
         if not mtime:
             return
@@ -358,6 +445,11 @@ class ViewerPage(ctk.CTkFrame):
 
         running = self._viewer_running()
         active, mtime, age = self._frame_state()
+        battle = self._battle_state()
+
+        self.battle_value.configure(
+            text=self._format_battle_state(battle)
+        )
 
         self.process_value.configure(
             text="起動中" if running else "停止中",

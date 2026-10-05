@@ -12,11 +12,17 @@ import json
 import time
 import base64
 import threading
+import re
 from collections import deque
 from datetime import datetime
 from pathlib import Path
 
 import webview
+
+try:
+    from core.battle_monitor import BattleMonitor
+except ModuleNotFoundError:
+    from battle_monitor import BattleMonitor
 
 
 # Windowsでは子プロセスの標準出力がcp932になる場合があるため、
@@ -54,6 +60,7 @@ ANALYSIS_PAYLOAD_PATH = CAPTURE_DIR / "analysis_payload.json"
 started = False
 seen_comments = set()
 comment_buffer = deque()
+battle_monitor = BattleMonitor()
 
 
 def capture_video_frame():
@@ -291,9 +298,19 @@ def save_analysis_payload(frame_ok):
 
 def collector_loop():
     time.sleep(3)
+    last_url = None
 
     while True:
         try:
+            current_url = window.get_current_url()
+            if current_url != last_url:
+                last_url = current_url
+                match = re.search(r"tiktok\.com/@([^/?]+)/live", current_url or "")
+                if match:
+                    unique_id = match.group(1)
+                    battle_monitor.start(unique_id)
+                else:
+                    battle_monitor.stop()
             frame_ok = capture_video_frame()
             new_comments = get_new_comments()
 

@@ -7,3 +7,4 @@ reportlab
 pywebview
 
 pyaudiowpatch
+TikTokLive==7.0.1
