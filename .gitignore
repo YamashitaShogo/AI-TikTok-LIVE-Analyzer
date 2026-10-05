@@ -67,3 +67,11 @@ tests/gift_validation/results/
 
 # Runtime gift history images
 database/gift_history_images/
+
+# Local development backups and tests
+*_before_*.py
+*_before_*.spec
+*_before_*.txt
+*_backup.png
+*_new.png
+battle_score_test*.py
