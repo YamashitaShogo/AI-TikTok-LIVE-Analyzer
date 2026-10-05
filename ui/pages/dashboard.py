@@ -181,9 +181,51 @@ class DashboardPage(ctk.CTkFrame):
             self.hero_canvas.delete("all")
 
             if self._hero_source is not None:
+                source_width, source_height = (
+                    self._hero_source.size
+                )
+
+                scale = max(
+                    width / source_width,
+                    height / source_height,
+                )
+
+                resized_width = max(
+                    1,
+                    round(source_width * scale),
+                )
+                resized_height = max(
+                    1,
+                    round(source_height * scale),
+                )
+
                 resized = self._hero_source.resize(
-                    (width, height),
+                    (
+                        resized_width,
+                        resized_height,
+                    ),
                     Image.Resampling.LANCZOS,
+                )
+
+                left = max(
+                    0,
+                    (resized_width - width) // 2,
+                )
+                top = max(
+                    0,
+                    round(
+                        (resized_height - height)
+                        * 0.08
+                    ),
+                )
+
+                resized = resized.crop(
+                    (
+                        left,
+                        top,
+                        left + width,
+                        top + height,
+                    )
                 )
 
                 self.hero_photo = (
