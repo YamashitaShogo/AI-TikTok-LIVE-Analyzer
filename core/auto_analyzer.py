@@ -522,7 +522,7 @@ class AutoAnalyzer:
 
         try:
             audio_path = capture_system_audio(
-                seconds=10,
+                seconds=20,
             )
 
             audio_transcript = (
@@ -572,7 +572,7 @@ class AutoAnalyzer:
             prompt = (
                 prompt
                 + "\n\n"
-                + "\u3010\u76f4\u8fd110\u79d2\u306e\u914d\u4fe1\u97f3\u58f0"
+                + "\u3010\u76f4\u8fd120\u79d2\u306e\u914d\u4fe1\u97f3\u58f0"
                   "\uff08\u6587\u5b57\u8d77\u3053\u3057\uff09\u3011\n"
                 + audio_transcript
                 + "\n\n"
@@ -940,7 +940,7 @@ class AutoAnalyzer:
         if audio_transcript:
             answer = (
                 f"{answer}\n\n"
-                + "\u3010\u76f4\u8fd110\u79d2\u306e\u914d\u4fe1\u97f3\u58f0"
+                + "\u3010\u76f4\u8fd120\u79d2\u306e\u914d\u4fe1\u97f3\u58f0"
                   "\uff08\u6587\u5b57\u8d77\u3053\u3057\uff09\u3011\n"
                 + audio_transcript
             )

@@ -17,7 +17,7 @@ LATEST_AUDIO_PATH = CAPTURE_DIR / "latest_audio.wav"
 
 
 def capture_system_audio(
-    seconds=10,
+    seconds=20,
     samplerate=48000,
     output_path=LATEST_AUDIO_PATH,
 ):
