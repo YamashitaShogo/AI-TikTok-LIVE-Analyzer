@@ -24,6 +24,8 @@ class HistoryPage(ctk.CTkFrame):
         self._selected_id: Optional[int] = None
         self._follow_latest = True
         self._rows = []
+        self._history_cards = {}
+        self._history_thumb_images = {}
         self._display_limit = 10
         self._display_step = 10
 
@@ -36,270 +38,304 @@ class HistoryPage(ctk.CTkFrame):
     # ==================================================
 
     def _build_ui(self):
-        header = ctk.CTkFrame(
-            self,
-            fg_color="transparent"
-        )
-        header.pack(
-            fill="x",
-            padx=20,
-            pady=(20, 10)
-        )
+        """Build the redesigned history page without changing existing behavior."""
+        # Page palette
+        self.configure(fg_color=("#F5F7FC", "#0B1120"))
+
+        page = ctk.CTkFrame(self, fg_color="transparent")
+        page.pack(fill="both", expand=True, padx=22, pady=(18, 18))
+
+        # --------------------------------------------------
+        # Header
+        # --------------------------------------------------
+        header = ctk.CTkFrame(page, fg_color="transparent")
+        header.pack(fill="x", pady=(0, 14))
+
+        title_area = ctk.CTkFrame(header, fg_color="transparent")
+        title_area.pack(side="left", fill="x", expand=True)
+
+        title_row = ctk.CTkFrame(title_area, fg_color="transparent")
+        title_row.pack(anchor="w")
 
         ctk.CTkLabel(
-            header,
-            text="📋 AI分析履歴",
-            font=("Yu Gothic UI", 24, "bold")
+            title_row,
+            text="▣  AI分析履歴",
+            text_color=("#0F172A", "#F8FAFC"),
+            font=("Yu Gothic UI", 26, "bold"),
         ).pack(side="left")
 
         self.count_label = ctk.CTkLabel(
-            header,
+            title_row,
             text="0件",
-            font=("Yu Gothic UI", 14)
+            text_color="#64748B",
+            font=("Yu Gothic UI", 14),
         )
-        self.count_label.pack(
-            side="left",
-            padx=(15, 0)
-        )
-
-        self.refresh_button = ctk.CTkButton(
-            header,
-            text="🔄 更新",
-            width=110,
-            command=self.load_history
-        )
-        self.refresh_button.pack(
-            side="right",
-            padx=(8, 0)
-        )
-
-        self.load_more_button = ctk.CTkButton(
-            header,
-            text="\u3055\u3089\u306b\u8868\u793a",
-            width=110,
-            command=self.load_more
-        )
-        self.load_more_button.pack(
-            side="right",
-            padx=(8, 0)
-        )
-
-        self.export_button = ctk.CTkButton(
-            header,
-            text="📤 CSV出力",
-            width=120,
-            command=self.export_csv
-        )
-        self.export_button.pack(
-            side="right",
-            padx=(8, 0)
-        )
-
-        self.pdf_button = ctk.CTkButton(
-            header,
-            text="📄 PDF出力",
-            width=120,
-            command=self.export_pdf
-        )
-        self.pdf_button.pack(
-            side="right",
-            padx=(8, 0)
-        )
-
-        self.delete_all_button = ctk.CTkButton(
-            header,
-            text="🗑 全件削除",
-            width=120,
-            fg_color="#B91C1C",
-            hover_color="#991B1B",
-            command=self.delete_all
-        )
-        self.delete_all_button.pack(
-            side="right"
-        )
-
-        body = ctk.CTkFrame(
-            self,
-            fg_color="transparent"
-        )
-        body.pack(
-            fill="both",
-            expand=True,
-            padx=20,
-            pady=(0, 20)
-        )
-
-        body.grid_columnconfigure(0, weight=2)
-        body.grid_columnconfigure(1, weight=3)
-        body.grid_rowconfigure(0, weight=1)
-
-        # 左側：履歴一覧
-        list_panel = ctk.CTkFrame(body)
-        list_panel.grid(
-            row=0,
-            column=0,
-            sticky="nsew",
-            padx=(0, 8)
-        )
+        self.count_label.pack(side="left", padx=(16, 0), pady=(6, 0))
 
         ctk.CTkLabel(
-            list_panel,
-            text="履歴一覧",
-            font=("Yu Gothic UI", 17, "bold")
-        ).pack(
-            anchor="w",
-            padx=14,
-            pady=(14, 8)
+            title_area,
+            text="過去に実行したAI分析の履歴と詳細を確認できます。",
+            text_color="#64748B",
+            font=("Yu Gothic UI", 12),
+        ).pack(anchor="w", pady=(2, 0))
+
+        actions = ctk.CTkFrame(header, fg_color="transparent")
+        actions.pack(side="right", padx=(12, 0))
+
+        self.delete_all_button = ctk.CTkButton(
+            actions,
+            text="🗑 全件削除",
+            width=118,
+            height=36,
+            corner_radius=9,
+            fg_color="#FFF1F2",
+            hover_color="#FFE4E6",
+            text_color="#E11D48",
+            border_width=1,
+            border_color="#FB7185",
+            command=self.delete_all,
         )
+        self.delete_all_button.pack(side="left", padx=(0, 8))
+
+        self.pdf_button = ctk.CTkButton(
+            actions,
+            text="▣ PDF出力",
+            width=112,
+            height=36,
+            corner_radius=9,
+            fg_color=("#FFFFFF", "#111827"),
+            hover_color="#EFF6FF",
+            text_color="#2563EB",
+            border_width=1,
+            border_color="#93C5FD",
+            command=self.export_pdf,
+        )
+        self.pdf_button.pack(side="left", padx=(0, 8))
+
+        self.export_button = ctk.CTkButton(
+            actions,
+            text="▤ CSV出力",
+            width=112,
+            height=36,
+            corner_radius=9,
+            fg_color=("#FFFFFF", "#111827"),
+            hover_color="#EFF6FF",
+            text_color="#2563EB",
+            border_width=1,
+            border_color="#93C5FD",
+            command=self.export_csv,
+        )
+        self.export_button.pack(side="left", padx=(0, 8))
+
+        self.refresh_button = ctk.CTkButton(
+            actions,
+            text="↻ 更新",
+            width=100,
+            height=36,
+            corner_radius=9,
+            fg_color=("#FFFFFF", "#111827"),
+            hover_color="#EFF6FF",
+            text_color="#2563EB",
+            border_width=1,
+            border_color="#93C5FD",
+            command=self.load_history,
+        )
+        self.refresh_button.pack(side="left")
+
+        # --------------------------------------------------
+        # Two-column content
+        # --------------------------------------------------
+        body = ctk.CTkFrame(page, fg_color="transparent")
+        body.pack(fill="both", expand=True)
+        body.grid_columnconfigure(0, weight=5, uniform="history")
+        body.grid_columnconfigure(1, weight=7, uniform="history")
+        body.grid_rowconfigure(0, weight=1)
+
+        # Left: history list card
+        list_panel = ctk.CTkFrame(
+            body,
+            fg_color=("#FFFFFF", "#111827"),
+            corner_radius=16,
+            border_width=1,
+            border_color=("#E5EAF2", "#243047"),
+        )
+        list_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+
+        list_header = ctk.CTkFrame(list_panel, fg_color="transparent")
+        list_header.pack(fill="x", padx=16, pady=(15, 8))
+
+        ctk.CTkLabel(
+            list_header,
+            text="▤  履歴一覧",
+            text_color=("#0F172A", "#F8FAFC"),
+            font=("Yu Gothic UI", 17, "bold"),
+        ).pack(side="left")
+
+        self.load_more_button = ctk.CTkButton(
+            list_header,
+            text="さらに表示",
+            width=96,
+            height=30,
+            corner_radius=8,
+            fg_color="#EFF6FF",
+            hover_color="#DBEAFE",
+            text_color="#2563EB",
+            command=self.load_more,
+        )
+        self.load_more_button.pack(side="right")
 
         self.history_list = ctk.CTkScrollableFrame(
             list_panel,
-            fg_color="transparent"
+            fg_color="transparent",
+            corner_radius=0,
+            scrollbar_button_color=("#CBD5E1", "#475569"),
+            scrollbar_button_hover_color=("#94A3B8", "#64748B"),
         )
         self.history_list.pack(
             fill="both",
             expand=True,
-            padx=8,
-            pady=(0, 8)
+            padx=(10, 8),
+            pady=(0, 10),
         )
 
-        # 右側：詳細（スクロール対応）
-        detail_panel = ctk.CTkScrollableFrame(
+        # Right: detail card
+        detail_shell = ctk.CTkFrame(
             body,
-            scrollbar_button_color=("gray70", "gray35"),
-            scrollbar_button_hover_color=("gray60", "gray45")
+            fg_color=("#FFFFFF", "#111827"),
+            corner_radius=16,
+            border_width=1,
+            border_color=("#E5EAF2", "#243047"),
         )
-        detail_panel.grid(
-            row=0,
-            column=1,
-            sticky="nsew",
-            padx=(8, 0)
-        )
+        detail_shell.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        detail_shell.grid_rowconfigure(1, weight=1)
+        detail_shell.grid_columnconfigure(0, weight=1)
 
-        detail_header = ctk.CTkFrame(
-            detail_panel,
-            fg_color="transparent"
-        )
-        detail_header.pack(
-            fill="x",
-            padx=14,
-            pady=(14, 8)
-        )
+        detail_header = ctk.CTkFrame(detail_shell, fg_color="transparent")
+        detail_header.grid(row=0, column=0, sticky="ew", padx=16, pady=(15, 8))
 
         ctk.CTkLabel(
             detail_header,
-            text="分析詳細",
-            font=("Yu Gothic UI", 17, "bold")
+            text="▣  分析詳細",
+            text_color=("#0F172A", "#F8FAFC"),
+            font=("Yu Gothic UI", 17, "bold"),
         ).pack(side="left")
 
         self.delete_one_button = ctk.CTkButton(
             detail_header,
-            text="この履歴を削除",
-            width=140,
-            fg_color="#B91C1C",
-            hover_color="#991B1B",
+            text="🗑 この履歴を削除",
+            width=142,
+            height=32,
+            corner_radius=8,
+            fg_color="#E11D48",
+            hover_color="#BE123C",
             state="disabled",
-            command=self.delete_selected
+            command=self.delete_selected,
         )
         self.delete_one_button.pack(side="right")
 
-        self.meta_label = ctk.CTkLabel(
+        detail_panel = ctk.CTkScrollableFrame(
+            detail_shell,
+            fg_color="transparent",
+            corner_radius=0,
+            scrollbar_button_color=("#CBD5E1", "#475569"),
+            scrollbar_button_hover_color=("#94A3B8", "#64748B"),
+        )
+        detail_panel.grid(row=1, column=0, sticky="nsew", padx=(10, 8), pady=(0, 10))
+
+        # Metadata summary card
+        meta_card = ctk.CTkFrame(
             detail_panel,
+            fg_color=("#F8FAFC", "#0F172A"),
+            corner_radius=12,
+            border_width=1,
+            border_color=("#E2E8F0", "#334155"),
+        )
+        meta_card.pack(fill="x", padx=4, pady=(2, 12))
+
+        self.meta_label = ctk.CTkLabel(
+            meta_card,
             text="履歴を選択してください",
             justify="left",
             anchor="w",
-            font=("Yu Gothic UI", 14, "bold")
+            text_color=("#334155", "#CBD5E1"),
+            font=("Yu Gothic UI", 13, "bold"),
         )
-        self.meta_label.pack(
-            fill="x",
-            padx=14,
-            pady=(0, 8)
-        )
+        self.meta_label.pack(fill="x", padx=14, pady=12)
 
-        # ==================================================
-        # 分析時スクリーンショット
-        # ==================================================
-
+        # Screenshot section
         ctk.CTkLabel(
             detail_panel,
-            text="分析時スクリーンショット",
-            font=("Yu Gothic UI", 14, "bold")
-        ).pack(
-            anchor="w",
-            padx=14,
-            pady=(6, 4)
-        )
+            text="▧  分析時スクリーンショット",
+            text_color=("#0F172A", "#F8FAFC"),
+            font=("Yu Gothic UI", 14, "bold"),
+        ).pack(anchor="w", padx=4, pady=(0, 6))
 
         self.history_image_frame = ctk.CTkFrame(
             detail_panel,
-            height=280
+            height=270,
+            fg_color=("#F8FAFC", "#0F172A"),
+            corner_radius=12,
+            border_width=1,
+            border_color=("#E2E8F0", "#334155"),
         )
-        self.history_image_frame.pack(
-            fill="x",
-            padx=14,
-            pady=(0, 10)
-        )
-
+        self.history_image_frame.pack(fill="x", padx=4, pady=(0, 14))
         self.history_image_frame.pack_propagate(False)
 
         self.history_image_label = ctk.CTkLabel(
             self.history_image_frame,
-            text="画像は保存されていません"
+            text="画像は保存されていません",
+            text_color=("#94A3B8", "#64748B"),
+            font=("Yu Gothic UI", 12),
         )
-        self.history_image_label.pack(
-            fill="both",
-            expand=True,
-            padx=8,
-            pady=8
-        )
-
-        # CTkImageの参照保持用
+        self.history_image_label.pack(fill="both", expand=True, padx=8, pady=8)
         self._history_ctk_image = None
 
-        # AI分析結果
+        # Analysis result section
+        result_header = ctk.CTkFrame(detail_panel, fg_color="transparent")
+        result_header.pack(fill="x", padx=4, pady=(0, 6))
         ctk.CTkLabel(
-            detail_panel,
-            text="AI分析結果",
-            font=("Yu Gothic UI", 14, "bold")
-        ).pack(
-            anchor="w",
-            padx=14,
-            pady=(2, 4)
-        )
+            result_header,
+            text="✦  AI分析結果",
+            text_color=("#0F172A", "#F8FAFC"),
+            font=("Yu Gothic UI", 14, "bold"),
+        ).pack(side="left")
 
         self.result_text = ctk.CTkTextbox(
-            detail_panel
+            detail_panel,
+            height=180,
+            fg_color=("#FBFCFE", "#0F172A"),
+            text_color=("#1E293B", "#E2E8F0"),
+            corner_radius=10,
+            border_width=1,
+            border_color=("#E2E8F0", "#334155"),
+            font=("Yu Gothic UI", 12),
+            wrap="word",
         )
-        self.result_text.pack(
-            fill="both",
-            expand=True,
-            padx=14,
-            pady=(0, 14)
-        )
+        self.result_text.pack(fill="x", padx=4, pady=(0, 14))
         self.result_text.configure(state="disabled")
 
-        # プロンプト
+        # Prompt section
         ctk.CTkLabel(
             detail_panel,
-            text="プロンプト",
-            font=("Yu Gothic UI", 14, "bold")
-        ).pack(
-            anchor="w",
-            padx=14,
-            pady=(2, 4)
-        )
+            text="▣  プロンプト",
+            text_color=("#0F172A", "#F8FAFC"),
+            font=("Yu Gothic UI", 14, "bold"),
+        ).pack(anchor="w", padx=4, pady=(0, 6))
 
         self.prompt_text = ctk.CTkTextbox(
             detail_panel,
-            height=80
+            height=90,
+            fg_color=("#FBFCFE", "#0F172A"),
+            text_color=("#334155", "#CBD5E1"),
+            corner_radius=10,
+            border_width=1,
+            border_color=("#E2E8F0", "#334155"),
+            font=("Yu Gothic UI", 12),
+            wrap="word",
         )
-        self.prompt_text.pack(
-            fill="x",
-            padx=14,
-            pady=(0, 10)
-        )
+        self.prompt_text.pack(fill="x", padx=4, pady=(0, 6))
         self.prompt_text.configure(state="disabled")
-           
+
     # ==================================================
     # Load / display
     # ==================================================
@@ -356,6 +392,8 @@ class HistoryPage(ctk.CTkFrame):
 
         for widget in self.history_list.winfo_children():
             widget.destroy()
+        self._history_cards.clear()
+        self._history_thumb_images.clear()
 
         if not rows:
             ctk.CTkLabel(
@@ -474,58 +512,108 @@ class HistoryPage(ctk.CTkFrame):
         created_at = row[1]
         score = row[2]
 
+        is_selected = history_id == self._selected_id
         card = ctk.CTkFrame(
             self.history_list,
-            corner_radius=10
+            fg_color="#F8FBFF" if is_selected else "#FFFFFF",
+            corner_radius=11,
+            border_width=2 if is_selected else 1,
+            border_color="#3B82F6" if is_selected else "#E5EAF2",
         )
-        card.pack(
-            fill="x",
-            padx=4,
-            pady=5
+        card.pack(fill="x", padx=4, pady=5)
+        self._history_cards[history_id] = card
+
+        # Compact visual marker / thumbnail
+        thumb = ctk.CTkFrame(
+            card,
+            width=48,
+            height=48,
+            corner_radius=9,
+            fg_color="#EEF2FF",
         )
+        thumb.pack(side="left", padx=(10, 10), pady=9)
+        thumb.pack_propagate(False)
+
+        thumb_label = ctk.CTkLabel(
+            thumb,
+            text="AI",
+            text_color="#4F46E5",
+            font=("Yu Gothic UI", 12, "bold"),
+        )
+        thumb_label.pack(fill="both", expand=True)
+
+        # Load thumbnail if this history has an image.
+        try:
+            detail = self.history.get_by_id_with_image(history_id)
+            image_path = detail[5] if detail and len(detail) > 5 else None
+            if image_path and Path(image_path).exists():
+                with Image.open(image_path) as source:
+                    image = source.convert("RGB").copy()
+                    image.thumbnail((44, 44))
+                thumb_image = ctk.CTkImage(
+                    light_image=image,
+                    dark_image=image,
+                    size=image.size,
+                )
+                self._history_thumb_images[history_id] = thumb_image
+                thumb_label.configure(text="", image=thumb_image)
+        except Exception:
+            pass
 
         score_text = "--" if score is None else str(score)
 
-        title = ctk.CTkLabel(
+        score_label = ctk.CTkLabel(
             card,
             text=f"{score_text}点",
-            font=("Yu Gothic UI", 21, "bold"),
-            width=70
+            text_color=("#0F172A", "#F8FAFC"),
+            font=("Yu Gothic UI", 19, "bold"),
+            width=68,
+            anchor="w",
         )
-        title.pack(
-            side="left",
-            padx=(12, 8),
-            pady=10
-        )
+        score_label.pack(side="left", padx=(0, 8), pady=10)
 
         info = ctk.CTkLabel(
             card,
             text=f"ID: {history_id}\n{created_at}",
             justify="left",
             anchor="w",
-            font=("Yu Gothic UI", 13)
+            text_color="#64748B",
+            font=("Yu Gothic UI", 11),
         )
-        info.pack(
-            side="left",
-            fill="x",
-            expand=True,
-            pady=10
-        )
+        info.pack(side="left", fill="x", expand=True, pady=10)
 
         open_button = ctk.CTkButton(
             card,
             text="詳細",
-            width=70,
+            width=66,
+            height=30,
+            corner_radius=8,
+            fg_color="#EFF6FF" if not is_selected else "#3B82F6",
+            hover_color="#DBEAFE" if not is_selected else "#2563EB",
+            text_color="#2563EB" if not is_selected else "#FFFFFF",
             command=lambda selected=row: self.show_detail(
                 selected,
                 user_selected=True,
+            ),
+        )
+        open_button.pack(side="right", padx=(8, 10), pady=10)
+
+        # Make the card itself clickable as well.
+        def _open(_event=None, selected=row):
+            self.show_detail(selected, user_selected=True)
+
+        for widget in (card, thumb, thumb_label, score_label, info):
+            widget.bind("<Button-1>", _open)
+
+    def _refresh_selected_card_style(self):
+        """Update list-card highlight after the selected history changes."""
+        for history_id, card in self._history_cards.items():
+            selected = history_id == self._selected_id
+            card.configure(
+                fg_color="#F8FBFF" if selected else "#FFFFFF",
+                border_width=2 if selected else 1,
+                border_color="#3B82F6" if selected else "#E5EAF2",
             )
-        )
-        open_button.pack(
-            side="right",
-            padx=10,
-            pady=10
-        )
 
     def show_detail(
         self,
@@ -536,6 +624,7 @@ class HistoryPage(ctk.CTkFrame):
             return
 
         self._selected_id = row[0]
+        self._refresh_selected_card_style()
 
         if user_selected:
             latest_id = (
@@ -599,6 +688,7 @@ class HistoryPage(ctk.CTkFrame):
 
 
     def _clear_detail(self):
+        self._refresh_selected_card_style()
         self.meta_label.configure(
             text="履歴を選択してください"
         )

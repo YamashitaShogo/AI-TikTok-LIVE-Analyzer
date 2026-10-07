@@ -111,7 +111,7 @@ class MainWindow(ctk.CTk):
             container,
             width=theme.SIDEBAR_WIDTH,
             corner_radius=0,
-            fg_color=theme.SIDEBAR_BG,
+            fg_color=("#FFFFFF", "#0F172A"),
             border_width=0,
         )
         self.sidebar.pack(
@@ -199,14 +199,14 @@ class MainWindow(ctk.CTk):
             brand_text,
             text="Livemetry Pulse",
             font=(theme.FONT_FAMILY, 17, "bold"),
-            text_color=theme.TEXT_PRIMARY,
+            text_color=("#0F172A", "#F8FAFC"),
         ).pack(anchor="w")
 
         ctk.CTkLabel(
             brand_text,
             text="v1.5.0",
             font=(theme.FONT_FAMILY, 10),
-            text_color=theme.TEXT_MUTED,
+            text_color=("#94A3B8", "#94A3B8"),
         ).pack(
             anchor="w",
             pady=(1, 0),
@@ -346,7 +346,7 @@ class MainWindow(ctk.CTk):
             text="Pro",
             anchor="w",
             font=(theme.FONT_FAMILY, 17, "bold"),
-            text_color=theme.TEXT_PRIMARY,
+            text_color=("#0F172A", "#F8FAFC"),
         ).pack(
             fill="x",
             padx=14,

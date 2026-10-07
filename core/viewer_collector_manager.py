@@ -1,4 +1,7 @@
 import os
+import json
+import threading
+import time
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +24,13 @@ class ViewerCollectorManager:
     def __init__(self) -> None:
         self._process: Optional[subprocess.Popen] = None
         self._log_handle = None
+        self._last_theme = self._read_theme()
+        self._theme_thread = threading.Thread(
+            target=self._theme_watch_loop,
+            daemon=True,
+            name="ViewerThemeWatch",
+        )
+        self._theme_thread.start()
 
     @staticmethod
     def _collector_script() -> Path:
@@ -36,6 +46,64 @@ class ViewerCollectorManager:
         log_dir.mkdir(parents=True, exist_ok=True)
         return log_dir / "viewer_collector.log"
 
+    @staticmethod
+    def _read_theme() -> str:
+        try:
+            base = os.getenv("LOCALAPPDATA")
+
+            if not base:
+                base = str(Path.home() / "AppData" / "Local")
+
+            settings_path = (
+                Path(base)
+                / APP_NAME
+                / "settings.json"
+            )
+
+            if settings_path.exists():
+                data = json.loads(
+                    settings_path.read_text(encoding="utf-8")
+                )
+
+                mode = str(
+                    data.get("appearance_mode", "dark")
+                ).lower()
+
+                if mode in ("light", "dark"):
+                    return mode
+
+        except Exception:
+            pass
+
+        return "dark"
+
+    def _theme_watch_loop(self) -> None:
+        while True:
+            try:
+                mode = self._read_theme()
+
+                if mode != self._last_theme:
+                    old_mode = self._last_theme
+                    self._last_theme = mode
+
+                    print(
+                        f"[Viewer Theme] {old_mode} -> {mode}",
+                        flush=True,
+                    )
+
+                    if self.is_running():
+                        self.stop()
+                        time.sleep(0.5)
+                        self.start()
+
+            except Exception as exc:
+                print(
+                    "[Viewer Theme Watch Error]",
+                    repr(exc),
+                    flush=True,
+                )
+
+            time.sleep(1)
     def is_running(self) -> bool:
         return (
             self._process is not None

@@ -58,26 +58,40 @@ class SettingsPage(ctk.CTkFrame):
     # UI
     # ==================================================
 
+
     def _build_ui(self):
+        self.configure(fg_color=("#F6F8FC", "#0B1120"))
+
         header = ctk.CTkFrame(self, fg_color="transparent")
-        header.pack(fill="x", padx=24, pady=(20, 10))
+        header.pack(fill="x", padx=28, pady=(24, 12))
+
+        title_box = ctk.CTkFrame(header, fg_color="transparent")
+        title_box.pack(side="left")
 
         ctk.CTkLabel(
-            header,
-            text="⚙ 設定",
-            font=("Yu Gothic UI", 26, "bold"),
-        ).pack(side="left")
+            title_box,
+            text="設定",
+            font=("Yu Gothic UI", 28, "bold"),
+            text_color=("#111827", "#F8FAFC"),
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            title_box,
+            text="Livemetry Pulse の動作や分析設定を管理します。",
+            font=("Yu Gothic UI", 12),
+            text_color=("#64748B", "#94A3B8"),
+        ).pack(anchor="w", pady=(2, 0))
 
         self.status_label = ctk.CTkLabel(
             header,
             text="",
-            font=("Yu Gothic UI", 13),
+            font=("Yu Gothic UI", 12, "bold"),
+            text_color=("#4565D8", "#AFC0FF"),
         )
         self.status_label.pack(side="right")
 
         self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self.scroll.pack(fill="both", expand=True, padx=20, pady=(0, 20))
-        self.scroll.grid_columnconfigure(0, weight=1)
+        self.scroll.pack(fill="both", expand=True, padx=24, pady=(0, 24))
 
         self._build_quick_setup_section()
         self._build_ai_section()
@@ -86,16 +100,22 @@ class SettingsPage(ctk.CTkFrame):
         self._build_appearance_section()
         self._build_action_section()
 
-
     def _build_quick_setup_section(self):
-        frame = ctk.CTkFrame(self.scroll)
+        frame = ctk.CTkFrame(
+            self.scroll,
+            corner_radius=18,
+            fg_color=("#EEF2FF", "#17213A"),
+            border_width=1,
+            border_color=("#DDE5FF", "#2C3B63"),
+        )
         frame.pack(fill="x", padx=4, pady=(8, 14))
 
         ctk.CTkLabel(
             frame,
-            text="🚀 初回セットアップ",
-            font=("Yu Gothic UI", 20, "bold"),
-        ).pack(anchor="w", padx=16, pady=(14, 8))
+            text="初回セットアップ",
+            font=("Yu Gothic UI", 18, "bold"),
+            text_color=("#3049A8", "#C7D2FE"),
+        ).pack(anchor="w", padx=18, pady=(16, 6))
 
         guide_text = (
             "初めて利用する場合は、次の順番で確認してください。\n\n"
@@ -112,38 +132,30 @@ class SettingsPage(ctk.CTkFrame):
             text=guide_text,
             justify="left",
             anchor="w",
-            font=("Yu Gothic UI", 14),
-        ).pack(fill="x", padx=16, pady=(0, 14))
+            font=("Yu Gothic UI", 13),
+            text_color=("#475569", "#CBD5E1"),
+        ).pack(fill="x", padx=18, pady=(0, 16))
 
-    
     def _section(self, title):
-        frame = ctk.CTkFrame(self.scroll)
+        frame = ctk.CTkFrame(
+            self.scroll,
+            corner_radius=18,
+            fg_color=("#FFFFFF", "#111827"),
+            border_width=1,
+            border_color=("#E6EAF2", "#243047"),
+        )
         frame.pack(fill="x", padx=4, pady=8)
 
         ctk.CTkLabel(
             frame,
             text=title,
             font=("Yu Gothic UI", 18, "bold"),
-        ).pack(
-            anchor="w",
-            padx=16,
-            pady=(14, 10),
-        )
+            text_color=("#172033", "#F8FAFC"),
+        ).pack(anchor="w", padx=18, pady=(16, 10))
 
-        body = ctk.CTkFrame(
-            frame,
-            fg_color="transparent",
-        )
-        body.pack(
-            fill="x",
-            padx=16,
-            pady=(0, 16),
-        )
-        body.grid_columnconfigure(
-            1,
-            weight=1,
-        )
-
+        body = ctk.CTkFrame(frame, fg_color="transparent")
+        body.pack(fill="x", padx=18, pady=(0, 18))
+        body.grid_columnconfigure(1, weight=1)
         return body
 
     @staticmethod
@@ -153,20 +165,19 @@ class SettingsPage(ctk.CTkFrame):
             text=text,
             anchor="w",
             width=150,
-            font=("Yu Gothic UI", 14),
+            font=("Yu Gothic UI", 13, "bold"),
+            text_color=("#475569", "#CBD5E1"),
         ).grid(
             row=row,
             column=0,
             sticky="w",
-            padx=(0, 10),
-            pady=7,
+            padx=(0, 12),
+            pady=8,
         )
 
-
-
     def _build_ai_section(self):
-        body = self._section("🤖 AIサーバー")
-    
+        body = self._section("AIサーバー")
+
         ctk.CTkLabel(
             body,
             text=(
@@ -175,43 +186,33 @@ class SettingsPage(ctk.CTkFrame):
             ),
             justify="left",
             anchor="w",
-            font=("Yu Gothic UI", 14),
-        ).grid(
-            row=0,
-            column=0,
-            columnspan=2,
-            sticky="w",
-            pady=(0, 10),
-        )
-    
+            font=("Yu Gothic UI", 13),
+            text_color=("#64748B", "#94A3B8"),
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
+
         self.openai_test_button = ctk.CTkButton(
             body,
             text="AIサーバー接続テスト",
-            width=180,
+            width=190,
+            height=38,
+            corner_radius=10,
+            fg_color=("#4565D8", "#526EE8"),
+            hover_color=("#3855C2", "#617BF0"),
             command=self.test_ai_server_connection,
         )
-        self.openai_test_button.grid(
-            row=1,
-            column=1,
-            sticky="w",
-            pady=(10, 0),
-        )
-    
+        self.openai_test_button.grid(row=1, column=1, sticky="w", pady=(8, 0))
+
         self.openai_test_label = ctk.CTkLabel(
             body,
             text="",
             anchor="w",
+            font=("Yu Gothic UI", 12),
+            text_color=("#64748B", "#94A3B8"),
         )
-        self.openai_test_label.grid(
-            row=2,
-            column=1,
-            sticky="w",
-            pady=(5, 0),
-        )
-    
-    def _build_license_section(self):
-        body = self._section("🔑 ライセンス")
+        self.openai_test_label.grid(row=2, column=1, sticky="w", pady=(6, 0))
 
+    def _build_license_section(self):
+        body = self._section("ライセンス")
         self._field_label(body, "ライセンスキー", 0)
 
         license_row = ctk.CTkFrame(body, fg_color="transparent")
@@ -221,13 +222,21 @@ class SettingsPage(ctk.CTkFrame):
         self.license_key_entry = ctk.CTkEntry(
             license_row,
             placeholder_text="XXXX-XXXX-XXXX-XXXX",
+            height=40,
+            corner_radius=10,
+            fg_color=("#F8FAFC", "#0F172A"),
+            border_color=("#D9E0EA", "#334155"),
         )
         self.license_key_entry.grid(row=0, column=0, sticky="ew")
 
         self.license_test_button = ctk.CTkButton(
             license_row,
             text="認証",
-            width=80,
+            width=84,
+            height=40,
+            corner_radius=10,
+            fg_color=("#4565D8", "#526EE8"),
+            hover_color=("#3855C2", "#617BF0"),
             command=self.verify_license,
         )
         self.license_test_button.grid(row=0, column=1, padx=(8, 0))
@@ -236,151 +245,161 @@ class SettingsPage(ctk.CTkFrame):
             body,
             text="未認証",
             anchor="w",
-            text_color=("gray35", "gray70"),
+            font=("Yu Gothic UI", 12, "bold"),
+            text_color=("#64748B", "#94A3B8"),
         )
-        self.license_status_label.grid(
-            row=1,
-            column=1,
-            sticky="w",
-            pady=(4, 0),
-        )
+        self.license_status_label.grid(row=1, column=1, sticky="w", pady=(4, 0))
 
         ctk.CTkLabel(
             body,
             text="ライセンスはオンラインで認証されます。",
             anchor="w",
-            text_color=("gray35", "gray70"),
-        ).grid(
-            row=2,
-            column=1,
-            sticky="w",
-            pady=(8, 0),
-        )
+            font=("Yu Gothic UI", 11),
+            text_color=("#94A3B8", "#64748B"),
+        ).grid(row=2, column=1, sticky="w", pady=(8, 0))
 
     def _build_analysis_section(self):
-        body = self._section("📊 AI分析")
+        body = self._section("AI分析")
 
         self._field_label(body, "分析間隔（秒）", 0)
         self.interval_entry = ctk.CTkEntry(
             body,
             placeholder_text="30",
+            height=40,
+            corner_radius=10,
+            fg_color=("#F8FAFC", "#0F172A"),
+            border_color=("#D9E0EA", "#334155"),
         )
-        self.interval_entry.grid(
-            row=0, column=1, sticky="ew", pady=7
-        )
+        self.interval_entry.grid(row=0, column=1, sticky="ew", pady=7)
 
         ctk.CTkLabel(
             body,
             text="10～3600秒で設定してください。",
             anchor="w",
-            text_color=("gray35", "gray70"),
-        ).grid(
-            row=1,
-            column=1,
-            sticky="w",
-            pady=(0, 5),
-        )
+            font=("Yu Gothic UI", 11),
+            text_color=("#94A3B8", "#64748B"),
+        ).grid(row=1, column=1, sticky="w", pady=(0, 5))
 
         self._field_label(body, "分析プロンプト", 2)
         self.prompt_text = ctk.CTkTextbox(
             body,
             height=190,
             wrap="word",
+            corner_radius=12,
+            fg_color=("#F8FAFC", "#0F172A"),
+            border_width=1,
+            border_color=("#D9E0EA", "#334155"),
+            text_color=("#334155", "#E2E8F0"),
         )
-        self.prompt_text.grid(
-            row=2,
-            column=1,
-            sticky="ew",
-            pady=7,
-        )
+        self.prompt_text.grid(row=2, column=1, sticky="ew", pady=7)
 
     def _build_appearance_section(self):
-        body = self._section("\u5916\u89b3")
+        body = self._section("外観")
 
         self._field_label(
             body,
-            "\u30c6\u30fc\u30de",
+            "テーマ",
             0,
         )
 
         self.appearance_mode_var = ctk.StringVar(
-            value="\u30c0\u30fc\u30af"
+            value="ダーク"
         )
 
-        self.appearance_mode_control = ctk.CTkSegmentedButton(
+        theme_box = ctk.CTkFrame(
             body,
-            values=[
-                "\u30e9\u30a4\u30c8",
-                "\u30c0\u30fc\u30af",
-            ],
-            variable=self.appearance_mode_var,
-            command=self._on_appearance_change,
+            fg_color="transparent",
         )
-        self.appearance_mode_control.grid(
+        theme_box.grid(
             row=0,
             column=1,
             sticky="w",
-            pady=7,
+            pady=(6, 4),
         )
+
+        self.appearance_mode_control = ctk.CTkSegmentedButton(
+            theme_box,
+            values=[
+                "ライト",
+                "ダーク",
+            ],
+            variable=self.appearance_mode_var,
+            command=self._on_appearance_change,
+            width=240,
+            height=40,
+            corner_radius=10,
+            border_width=1,
+            fg_color=("#F1F5F9", "#1E293B"),
+            selected_color=("#4F6FEA", "#526EE8"),
+            selected_hover_color=("#3F5DD5", "#617BF0"),
+            unselected_color=("#F8FAFC", "#111827"),
+            unselected_hover_color=("#E8EEF8", "#273449"),
+            text_color=("#475569", "#CBD5E1"),
+            text_color_disabled=("#94A3B8", "#64748B"),
+            font=("Yu Gothic UI", 13, "bold"),
+            dynamic_resizing=False,
+        )
+        self.appearance_mode_control.pack()
 
         ctk.CTkLabel(
             body,
-            text=(
-                "\u753b\u9762\u306e\u5916\u89b3\u3092\u5909\u66f4\u3057\u307e\u3059\u3002"
-                "\u5909\u66f4\u306f\u3059\u3050\u306b\u53cd\u6620\u3055\u308c\u307e\u3059\u3002"
-            ),
+            text="アプリ全体の表示テーマを切り替えます。変更はすぐに反映されます。",
             anchor="w",
-            text_color=("gray35", "gray70"),
+            font=("Yu Gothic UI", 11),
+            text_color=("#94A3B8", "#64748B"),
         ).grid(
             row=1,
             column=1,
             sticky="w",
-            pady=(0, 5),
+            pady=(4, 8),
         )
-
-
     def _build_action_section(self):
-        actions = ctk.CTkFrame(self.scroll)
+        actions = ctk.CTkFrame(
+            self.scroll,
+            corner_radius=18,
+            fg_color=("#FFFFFF", "#111827"),
+            border_width=1,
+            border_color=("#E6EAF2", "#243047"),
+        )
         actions.pack(fill="x", padx=4, pady=(12, 24))
 
         self.save_button = ctk.CTkButton(
             actions,
-            text="💾 設定を保存",
+            text="設定を保存",
             height=42,
             width=180,
+            corner_radius=10,
+            fg_color=("#4565D8", "#526EE8"),
+            hover_color=("#3855C2", "#617BF0"),
             command=self.save_settings,
         )
-        self.save_button.pack(
-            side="left",
-            padx=(16, 8),
-            pady=16,
-        )
+        self.save_button.pack(side="left", padx=(16, 8), pady=16)
 
         ctk.CTkButton(
             actions,
-            text="↩ 再読み込み",
+            text="再読み込み",
             height=42,
             width=150,
+            corner_radius=10,
+            fg_color=("#FFFFFF", "#111827"),
+            hover_color=("#EEF2FF", "#1E293B"),
+            text_color=("#3157D5", "#AFC0FF"),
+            border_width=1,
+            border_color=("#D9E0F0", "#334155"),
             command=self.load_settings,
-        ).pack(
-            side="left",
-            padx=8,
-            pady=16,
-        )
+        ).pack(side="left", padx=8, pady=16)
 
         ctk.CTkButton(
             actions,
             text="初期値に戻す",
             height=42,
             width=150,
-            fg_color="#6B7280",
-            hover_color="#4B5563",
+            corner_radius=10,
+            fg_color=("#F3F4F6", "#1F2937"),
+            hover_color=("#E5E7EB", "#374151"),
+            text_color=("#4B5563", "#D1D5DB"),
             command=self.restore_defaults,
-        ).pack(
-            side="left",
-            padx=8,
-            pady=16,
-        )
+        ).pack(side="left", padx=8, pady=16)
 
     @staticmethod
     def _appearance_label_to_mode(value):

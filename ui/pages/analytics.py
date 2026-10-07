@@ -25,7 +25,9 @@ class AnalyticsPage(ctk.CTkFrame):
     # UI
     # ==================================================
 
+
     def _build_ui(self):
+        self.configure(fg_color=("#F6F8FC", "#0B1120"))
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
@@ -34,21 +36,39 @@ class AnalyticsPage(ctk.CTkFrame):
             row=0,
             column=0,
             sticky="ew",
-            padx=20,
-            pady=(18, 8),
+            padx=28,
+            pady=(24, 12),
         )
         header.grid_columnconfigure(0, weight=1)
 
+        title_box = ctk.CTkFrame(header, fg_color="transparent")
+        title_box.grid(row=0, column=0, sticky="w")
+
         ctk.CTkLabel(
-            header,
-            text="📈 分析レポート",
-            font=("Yu Gothic UI", 24, "bold"),
-        ).grid(row=0, column=0, sticky="w")
+            title_box,
+            text="Analytics",
+            font=("Yu Gothic UI", 28, "bold"),
+            text_color=("#111827", "#F8FAFC"),
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            title_box,
+            text="AI分析結果の傾向とスコア推移を確認できます。",
+            font=("Yu Gothic UI", 12),
+            text_color=("#64748B", "#94A3B8"),
+        ).pack(anchor="w", pady=(2, 0))
 
         ctk.CTkButton(
             header,
-            text="🔄 更新",
-            width=110,
+            text="↻  更新",
+            width=108,
+            height=38,
+            corner_radius=10,
+            fg_color=("#FFFFFF", "#111827"),
+            hover_color=("#EEF2FF", "#1E293B"),
+            text_color=("#3157D5", "#AFC0FF"),
+            border_width=1,
+            border_color=("#D9E0F0", "#334155"),
             command=self.refresh,
         ).grid(row=0, column=1, sticky="e")
 
@@ -60,8 +80,8 @@ class AnalyticsPage(ctk.CTkFrame):
             row=1,
             column=0,
             sticky="nsew",
-            padx=20,
-            pady=(0, 18),
+            padx=28,
+            pady=(0, 24),
         )
         body.grid_columnconfigure(0, weight=1)
 
@@ -71,72 +91,106 @@ class AnalyticsPage(ctk.CTkFrame):
 
     def _build_summary(self, parent):
         frame = ctk.CTkFrame(parent, fg_color="transparent")
-        frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        frame.grid(row=0, column=0, sticky="ew", pady=(0, 14))
 
         for column in range(5):
             frame.grid_columnconfigure(column, weight=1)
 
         self.total_value = self._create_card(
-            frame, 0, "総分析回数", "0回"
+            frame, 0, "総分析回数", "0回", "分析した累計回数"
         )
         self.average_value = self._create_card(
-            frame, 1, "平均スコア", "0点"
+            frame, 1, "平均スコア", "0点", "全履歴の平均"
         )
         self.max_value = self._create_card(
-            frame, 2, "最高スコア", "0点"
+            frame, 2, "最高スコア", "0点", "これまでの最高"
         )
         self.min_value = self._create_card(
-            frame, 3, "最低スコア", "0点"
+            frame, 3, "最低スコア", "0点", "改善余地の目安"
         )
         self.today_value = self._create_card(
-            frame, 4, "今日の分析", "0回"
+            frame, 4, "今日の分析", "0回", "本日の実行回数"
         )
 
-    def _create_card(self, parent, column, title, value):
-        card = ctk.CTkFrame(parent, corner_radius=12)
+    def _create_card(self, parent, column, title, value, caption):
+        card = ctk.CTkFrame(
+            parent,
+            corner_radius=16,
+            fg_color=("#FFFFFF", "#111827"),
+            border_width=1,
+            border_color=("#E6EAF2", "#243047"),
+        )
         card.grid(
             row=0,
             column=column,
             sticky="nsew",
-            padx=4,
+            padx=5,
         )
 
         ctk.CTkLabel(
             card,
             text=title,
-            font=("Yu Gothic UI", 13, "bold"),
-        ).pack(pady=(12, 2))
+            font=("Yu Gothic UI", 12, "bold"),
+            text_color=("#64748B", "#94A3B8"),
+        ).pack(anchor="w", padx=16, pady=(14, 1))
 
         label = ctk.CTkLabel(
             card,
             text=value,
-            font=("Yu Gothic UI", 25, "bold"),
+            font=("Yu Gothic UI", 26, "bold"),
+            text_color=("#172033", "#F8FAFC"),
         )
-        label.pack(pady=(0, 12))
+        label.pack(anchor="w", padx=16)
+
+        ctk.CTkLabel(
+            card,
+            text=caption,
+            font=("Yu Gothic UI", 10),
+            text_color=("#94A3B8", "#64748B"),
+        ).pack(anchor="w", padx=16, pady=(0, 14))
 
         return label
 
     def _build_graph(self, parent):
-        frame = ctk.CTkFrame(parent)
-        frame.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        frame = ctk.CTkFrame(
+            parent,
+            corner_radius=18,
+            fg_color=("#FFFFFF", "#111827"),
+            border_width=1,
+            border_color=("#E6EAF2", "#243047"),
+        )
+        frame.grid(row=1, column=0, sticky="ew", pady=(0, 14))
+
+        heading = ctk.CTkFrame(frame, fg_color="transparent")
+        heading.pack(fill="x", padx=18, pady=(16, 8))
 
         ctk.CTkLabel(
-            frame,
-            text=f"📊 直近{self.GRAPH_LIMIT}回のスコア推移",
+            heading,
+            text=f"スコア推移",
             font=("Yu Gothic UI", 18, "bold"),
-        ).pack(anchor="w", padx=15, pady=(12, 6))
+            text_color=("#172033", "#F8FAFC"),
+        ).pack(side="left")
+
+        ctk.CTkLabel(
+            heading,
+            text=f"直近{self.GRAPH_LIMIT}回",
+            font=("Yu Gothic UI", 11, "bold"),
+            text_color=("#4565D8", "#AFC0FF"),
+            fg_color=("#EEF2FF", "#1C2A4A"),
+            corner_radius=8,
+        ).pack(side="left", padx=(10, 0), ipadx=8, ipady=3)
 
         self.graph_canvas = ctk.CTkCanvas(
             frame,
             height=320,
             highlightthickness=0,
-            bg="#242424",
+            bg="#111827",
         )
         self.graph_canvas.pack(
             fill="x",
             expand=True,
-            padx=15,
-            pady=(0, 15),
+            padx=18,
+            pady=(0, 18),
         )
         self.graph_canvas.bind(
             "<Configure>",
@@ -149,56 +203,94 @@ class AnalyticsPage(ctk.CTkFrame):
         frame.grid_columnconfigure(0, weight=1)
         frame.grid_columnconfigure(1, weight=1)
 
-        high_frame = ctk.CTkFrame(frame)
+        high_frame = ctk.CTkFrame(
+            frame,
+            corner_radius=18,
+            fg_color=("#FFFFFF", "#111827"),
+            border_width=1,
+            border_color=("#E6EAF2", "#243047"),
+        )
         high_frame.grid(
             row=0,
             column=0,
             sticky="nsew",
-            padx=(0, 5),
+            padx=(0, 7),
         )
 
         ctk.CTkLabel(
             high_frame,
-            text="🏆 高得点ランキング",
+            text="高得点ランキング",
             font=("Yu Gothic UI", 18, "bold"),
-        ).pack(anchor="w", padx=15, pady=(12, 6))
+            text_color=("#172033", "#F8FAFC"),
+        ).pack(anchor="w", padx=18, pady=(16, 8))
+
+        ctk.CTkLabel(
+            high_frame,
+            text="成果が出ている分析結果",
+            font=("Yu Gothic UI", 11),
+            text_color=("#64748B", "#94A3B8"),
+        ).pack(anchor="w", padx=18, pady=(0, 10))
 
         self.high_text = ctk.CTkTextbox(
             high_frame,
             height=260,
             wrap="word",
+            corner_radius=12,
+            fg_color=("#F8FAFC", "#0F172A"),
+            border_width=1,
+            border_color=("#E6EAF2", "#243047"),
+            text_color=("#334155", "#E2E8F0"),
         )
         self.high_text.pack(
             fill="both",
             expand=True,
-            padx=15,
-            pady=(0, 15),
+            padx=18,
+            pady=(0, 18),
         )
 
-        low_frame = ctk.CTkFrame(frame)
+        low_frame = ctk.CTkFrame(
+            frame,
+            corner_radius=18,
+            fg_color=("#FFFFFF", "#111827"),
+            border_width=1,
+            border_color=("#E6EAF2", "#243047"),
+        )
         low_frame.grid(
             row=0,
             column=1,
             sticky="nsew",
-            padx=(5, 0),
+            padx=(7, 0),
         )
 
         ctk.CTkLabel(
             low_frame,
-            text="💡 改善優先ランキング",
+            text="改善優先ランキング",
             font=("Yu Gothic UI", 18, "bold"),
-        ).pack(anchor="w", padx=15, pady=(12, 6))
+            text_color=("#172033", "#F8FAFC"),
+        ).pack(anchor="w", padx=18, pady=(16, 8))
+
+        ctk.CTkLabel(
+            low_frame,
+            text="優先して見直したい分析結果",
+            font=("Yu Gothic UI", 11),
+            text_color=("#64748B", "#94A3B8"),
+        ).pack(anchor="w", padx=18, pady=(0, 10))
 
         self.low_text = ctk.CTkTextbox(
             low_frame,
             height=260,
             wrap="word",
+            corner_radius=12,
+            fg_color=("#F8FAFC", "#0F172A"),
+            border_width=1,
+            border_color=("#E6EAF2", "#243047"),
+            text_color=("#334155", "#E2E8F0"),
         )
         self.low_text.pack(
             fill="both",
             expand=True,
-            padx=15,
-            pady=(0, 15),
+            padx=18,
+            pady=(0, 18),
         )
 
     # ==================================================
@@ -356,13 +448,13 @@ class AnalyticsPage(ctk.CTkFrame):
                 y,
                 width - right,
                 y,
-                fill="#4A4A4A",
+                fill="#334155",
             )
             canvas.create_text(
                 left - 8,
                 y,
                 text=str(value),
-                fill="#CCCCCC",
+                fill="#94A3B8",
                 anchor="e",
                 font=("Yu Gothic UI", 9),
             )
@@ -372,7 +464,7 @@ class AnalyticsPage(ctk.CTkFrame):
                 width / 2,
                 height / 2,
                 text="分析履歴がありません",
-                fill="#BBBBBB",
+                fill="#94A3B8",
                 font=("Yu Gothic UI", 15),
             )
             return
@@ -394,7 +486,7 @@ class AnalyticsPage(ctk.CTkFrame):
         if len(scores) >= 2:
             canvas.create_line(
                 *coordinates,
-                fill="#3B8ED0",
+                fill="#4F6FEA",
                 width=3,
                 smooth=True,
             )
@@ -411,7 +503,7 @@ class AnalyticsPage(ctk.CTkFrame):
                 x + 4,
                 y + 4,
                 fill="#FFFFFF",
-                outline="#3B8ED0",
+                outline="#4F6FEA",
                 width=2,
             )
 
@@ -420,7 +512,7 @@ class AnalyticsPage(ctk.CTkFrame):
                     x,
                     height - 13,
                     text=str(index),
-                    fill="#BBBBBB",
+                    fill="#94A3B8",
                     font=("Yu Gothic UI", 9),
                 )
 

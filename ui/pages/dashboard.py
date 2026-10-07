@@ -111,9 +111,9 @@ class DashboardPage(ctk.CTkFrame):
             self,
             height=160,
             corner_radius=18,
-            fg_color="#FFFFFF",
+            fg_color=("#FFFFFF", "#111827"),
             border_width=1,
-            border_color="#E7ECF4",
+            border_color=("#E7ECF4", "#243047"),
         )
         header.grid(
             row=0,
@@ -290,9 +290,9 @@ class DashboardPage(ctk.CTkFrame):
         controls = ctk.CTkFrame(
             self,
             corner_radius=18,
-            fg_color="#FFFFFF",
+            fg_color=("#FFFFFF", "#111827"),
             border_width=1,
-            border_color="#E7ECF4",
+            border_color=("#E7ECF4", "#243047"),
         )
         controls.grid(
             row=1,
@@ -313,9 +313,9 @@ class DashboardPage(ctk.CTkFrame):
         status_chip = ctk.CTkFrame(
             controls,
             corner_radius=18,
-            fg_color="#FFFFFF",
+            fg_color=("#FFFFFF", "#111827"),
             border_width=1,
-            border_color="#DDE6F5",
+            border_color=("#DDE6F5", "#334155"),
         )
         status_chip.grid(
             row=0,
@@ -406,7 +406,7 @@ class DashboardPage(ctk.CTkFrame):
             lower,
             text="\u5f85\u6a5f\u4e2d",
             font=("Yu Gothic UI", 10, "bold"),
-            text_color="#44516A",
+            text_color=("#44516A", "#CBD5E1"),
         )
         self.status.grid(
             row=0,
@@ -418,7 +418,7 @@ class DashboardPage(ctk.CTkFrame):
             lower,
             text="\u6b21\u306e\u5206\u6790\u307e\u3067 -- \u79d2",
             font=("Yu Gothic UI", 9),
-            text_color="#8A97AD",
+            text_color=("#71809C", "#94A3B8"),
         )
         self.countdown_label.grid(
             row=0,
@@ -431,7 +431,7 @@ class DashboardPage(ctk.CTkFrame):
             height=5,
             corner_radius=3,
             progress_color="#7C5CFC",
-            fg_color="#E8EDF5",
+            fg_color=("#E8EDF5", "#263244"),
         )
         self.score_progress.grid(
             row=1,
@@ -446,7 +446,7 @@ class DashboardPage(ctk.CTkFrame):
             lower,
             text="\u6700\u65b0\u30b9\u30b3\u30a2  -- / 100",
             font=("Yu Gothic UI", 9),
-            text_color="#8A97AD",
+            text_color=("#71809C", "#94A3B8"),
         )
         self.score_gauge_label.grid(
             row=2,
@@ -656,9 +656,9 @@ class DashboardPage(ctk.CTkFrame):
             parent,
             height=112,
             corner_radius=18,
-            fg_color="#FFFFFF",
+            fg_color=("#FFFFFF", "#111827"),
             border_width=1,
-            border_color="#E7ECF4",
+            border_color=("#E7ECF4", "#243047"),
         )
         card.grid(
             row=0,
@@ -709,7 +709,7 @@ class DashboardPage(ctk.CTkFrame):
             top,
             text=title,
             font=("Yu Gothic UI", 10, "bold"),
-            text_color="#71809C",
+            text_color=("#71809C", "#94A3B8"),
         ).pack(
             side="left",
             pady=(1, 0),
@@ -740,7 +740,7 @@ class DashboardPage(ctk.CTkFrame):
             left,
             text=value,
             font=("Yu Gothic UI", 24, "bold"),
-            text_color="#132347",
+            text_color=("#132347", "#F8FAFC"),
         )
         value_label.pack(
             anchor="w",
@@ -785,7 +785,7 @@ class DashboardPage(ctk.CTkFrame):
             height=42,
             highlightthickness=0,
             bd=0,
-            bg="#FFFFFF",
+            bg="#FFFFFF" if ctk.get_appearance_mode() == "Light" else "#111827",
         )
         spark.pack(
             fill="both",
@@ -896,9 +896,9 @@ class DashboardPage(ctk.CTkFrame):
         frame = ctk.CTkFrame(
             parent,
             corner_radius=18,
-            fg_color="#FFFFFF",
+            fg_color=("#FFFFFF", "#111827"),
             border_width=1,
-            border_color="#E7ECF4",
+            border_color=("#E7ECF4", "#243047"),
         )
         frame.grid(
             row=0,
@@ -940,7 +940,7 @@ class DashboardPage(ctk.CTkFrame):
             title_row,
             text="\u76f4\u8fd130\u56de\u306e\u30b9\u30b3\u30a2\u63a8\u79fb",
             font=("Yu Gothic UI", 15, "bold"),
-            text_color="#132347",
+            text_color=("#132347", "#F8FAFC"),
         ).pack(
             side="left",
         )
@@ -968,7 +968,7 @@ class DashboardPage(ctk.CTkFrame):
             frame,
             height=255,
             highlightthickness=0,
-            bg="#F8FAFC",
+            bg="#F8FAFC" if ctk.get_appearance_mode() == "Light" else "#0F172A",
         )
         self.graph_canvas.pack(
             fill="both",
@@ -988,9 +988,9 @@ class DashboardPage(ctk.CTkFrame):
         frame = ctk.CTkFrame(
             parent,
             corner_radius=18,
-            fg_color="#FFFFFF",
+            fg_color=("#FFFFFF", "#111827"),
             border_width=1,
-            border_color="#E7ECF4",
+            border_color=("#E7ECF4", "#243047"),
         )
         frame.grid(
             row=0,
@@ -1032,7 +1032,7 @@ class DashboardPage(ctk.CTkFrame):
             title_group,
             text="\u6700\u65b0\u306e\u5206\u6790\u7d50\u679c",
             font=("Yu Gothic UI", 15, "bold"),
-            text_color="#132347",
+            text_color=("#132347", "#F8FAFC"),
         ).pack(
             side="left",
         )
@@ -1072,7 +1072,7 @@ class DashboardPage(ctk.CTkFrame):
             width=245,
             height=205,
             corner_radius=14,
-            fg_color="#F1F5F9",
+            fg_color=("#F8FAFC", "#0F172A"),
         )
         preview.pack(
             side="left",
@@ -1086,7 +1086,7 @@ class DashboardPage(ctk.CTkFrame):
             preview,
             text="\u30d7\u30ec\u30d3\u30e5\u30fc\u5f85\u6a5f\u4e2d",
             font=("Yu Gothic UI", 11),
-            text_color="#71809C",
+            text_color=("#71809C", "#94A3B8"),
         )
         self.screenshot_label.pack(
             fill="both",
@@ -1139,7 +1139,7 @@ class DashboardPage(ctk.CTkFrame):
             score_row,
             text="\u70b9",
             font=("Yu Gothic UI", 14, "bold"),
-            text_color="#71809C",
+            text_color=("#71809C", "#94A3B8"),
         ).pack(
             side="left",
             padx=(3, 0),
@@ -1149,7 +1149,7 @@ class DashboardPage(ctk.CTkFrame):
         separator = ctk.CTkFrame(
             summary,
             height=1,
-            fg_color="#E7ECF4",
+            fg_color=("#E7ECF4", "#334155"),
         )
         separator.pack(
             fill="x",
@@ -1160,7 +1160,7 @@ class DashboardPage(ctk.CTkFrame):
             summary,
             text="\u5206\u6790\u65e5\u6642",
             font=("Yu Gothic UI", 9, "bold"),
-            text_color="#8A97AD",
+            text_color=("#71809C", "#94A3B8"),
         ).pack(
             anchor="w",
         )
@@ -1169,7 +1169,7 @@ class DashboardPage(ctk.CTkFrame):
             summary,
             text="--",
             font=("Yu Gothic UI", 10, "bold"),
-            text_color="#44516A",
+            text_color=("#44516A", "#CBD5E1"),
             justify="left",
             anchor="w",
             wraplength=155,
@@ -1199,9 +1199,9 @@ class DashboardPage(ctk.CTkFrame):
         breakdown = ctk.CTkFrame(
             frame,
             corner_radius=12,
-            fg_color="#F8FAFC",
+            fg_color=("#F8FAFC", "#0F172A"),
             border_width=1,
-            border_color="#E7ECF4",
+            border_color=("#E7ECF4", "#243047"),
         )
         breakdown.pack(
             fill="x",
@@ -1267,14 +1267,14 @@ class DashboardPage(ctk.CTkFrame):
                 item,
                 text=label_text,
                 font=("Yu Gothic UI", 9, "bold"),
-                text_color="#8A97AD",
+                text_color=("#71809C", "#94A3B8"),
             ).pack()
 
             value_label = ctk.CTkLabel(
                 item,
                 text=f"-- / {maximum}",
                 font=("Yu Gothic UI", 11, "bold"),
-                text_color="#44516A",
+                text_color=("#44516A", "#CBD5E1"),
             )
             value_label.pack(
                 pady=(2, 0),
@@ -1357,7 +1357,7 @@ class DashboardPage(ctk.CTkFrame):
                 high_card,
                 height=34,
                 corner_radius=9,
-                fg_color="#FFFDF8",
+                fg_color=("#FBFAFF", "#151B28"),
             )
             high_row.pack(
                 fill="x",
@@ -1383,7 +1383,7 @@ class DashboardPage(ctk.CTkFrame):
                 text="--",
                 anchor="w",
                 font=("Yu Gothic UI", 9, "bold"),
-                text_color="#44516A",
+                text_color=("#44516A", "#CBD5E1"),
             )
             high_label.pack(
                 side="left",
@@ -1399,7 +1399,7 @@ class DashboardPage(ctk.CTkFrame):
                 low_card,
                 height=34,
                 corner_radius=9,
-                fg_color="#FBFAFF",
+                fg_color=("#FBFAFF", "#151B28"),
             )
             low_row.pack(
                 fill="x",
@@ -1425,7 +1425,7 @@ class DashboardPage(ctk.CTkFrame):
                 text="--",
                 anchor="w",
                 font=("Yu Gothic UI", 9, "bold"),
-                text_color="#44516A",
+                text_color=("#44516A", "#CBD5E1"),
             )
             low_label.pack(
                 side="left",
@@ -1440,9 +1440,9 @@ class DashboardPage(ctk.CTkFrame):
         actions = ctk.CTkFrame(
             bottom,
             corner_radius=18,
-            fg_color="#FFFFFF",
+            fg_color=("#FFFFFF", "#111827"),
             border_width=1,
-            border_color="#E7ECF4",
+            border_color=("#E7ECF4", "#243047"),
         )
         actions.grid(
             row=0,
@@ -1465,7 +1465,7 @@ class DashboardPage(ctk.CTkFrame):
             action_header,
             text="\u26a1  \u30af\u30a4\u30c3\u30af\u30a2\u30af\u30b7\u30e7\u30f3",
             font=("Yu Gothic UI", 14, "bold"),
-            text_color="#132347",
+            text_color=("#132347", "#F8FAFC"),
         ).pack(
             anchor="w",
         )
@@ -1521,7 +1521,7 @@ class DashboardPage(ctk.CTkFrame):
             fg_color="transparent",
             border_width=1,
             border_color="#D8E0EC",
-            text_color="#44516A",
+            text_color=("#44516A", "#CBD5E1"),
             hover_color="#F4F7FC",
             font=("Yu Gothic UI", 10, "bold"),
             command=self.save_highlight_frame,
@@ -1545,7 +1545,7 @@ class DashboardPage(ctk.CTkFrame):
         ctk.CTkFrame(
             footer,
             height=1,
-            fg_color="#E7ECF4",
+            fg_color=("#E7ECF4", "#334155"),
         ).pack(
             fill="x",
             pady=(0, 8),
@@ -1555,7 +1555,7 @@ class DashboardPage(ctk.CTkFrame):
             footer,
             text="\u30c7\u30fc\u30bf\u3067\u3001\u3082\u3063\u3068\u826f\u3044\u914d\u4fe1\u3092\u3002",
             font=("Yu Gothic UI", 9),
-            text_color="#8A97AD",
+            text_color=("#71809C", "#94A3B8"),
         ).pack()
 
 
@@ -1570,9 +1570,9 @@ class DashboardPage(ctk.CTkFrame):
         card = ctk.CTkFrame(
             parent,
             corner_radius=18,
-            fg_color="#FFFFFF",
+            fg_color=("#FFFFFF", "#111827"),
             border_width=1,
-            border_color="#E7ECF4",
+            border_color=("#E7ECF4", "#243047"),
         )
         card.grid(
             row=0,
@@ -1624,7 +1624,7 @@ class DashboardPage(ctk.CTkFrame):
             header,
             text=clean_title,
             font=("Yu Gothic UI", 13, "bold"),
-            text_color="#132347",
+            text_color=("#132347", "#F8FAFC"),
         ).pack(
             side="left",
         )
@@ -2039,7 +2039,7 @@ class DashboardPage(ctk.CTkFrame):
         ):
             label.configure(
                 text="\u524d\u65e5\u6bd4  \u2014",
-                text_color="#9AA7BD",
+                text_color=("#9AA7BD", "#64748B"),
             )
             return
 
@@ -2054,7 +2054,7 @@ class DashboardPage(ctk.CTkFrame):
                     "\u524d\u65e5\u6bd4  "
                     f"0{unit}"
                 ),
-                text_color="#9AA7BD",
+                text_color=("#9AA7BD", "#64748B"),
             )
             return
 

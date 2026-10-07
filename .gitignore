@@ -77,3 +77,6 @@ database/gift_history_images/
 battle_score_test*.py
 
 *panoramas.png
+
+*_backup.py
+*_redesign.py

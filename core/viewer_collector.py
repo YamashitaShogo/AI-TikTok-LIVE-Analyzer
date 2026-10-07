@@ -17,6 +17,26 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 
+mode = "dark"
+
+try:
+    settings_path = (
+        Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")))
+        / "AI-TikTok-LIVE-Analyzer"
+        / "settings.json"
+    )
+
+    if settings_path.exists():
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        mode = str(data.get("appearance_mode", "dark")).lower()
+except Exception:
+    mode = "dark"
+
+if mode == "dark":
+    os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = "--force-dark-mode"
+else:
+    os.environ.pop("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", None)
+
 import webview
 
 try:
@@ -36,6 +56,39 @@ for _stream in (sys.stdout, sys.stderr):
 WINDOW_TITLE = "Livemetry Pulse - Canvas Collector"
 POLL_SECONDS = 5
 COMMENT_BUFFER_SECONDS = 30
+
+SETTINGS_PATH = (
+    Path(
+        os.environ.get(
+            "LOCALAPPDATA",
+            os.path.expanduser("~"),
+        )
+    )
+    / "AI-TikTok-LIVE-Analyzer"
+    / "settings.json"
+)
+
+
+def get_app_appearance_mode():
+    try:
+        if SETTINGS_PATH.exists():
+            data = json.loads(
+                SETTINGS_PATH.read_text(encoding="utf-8")
+            )
+            mode = str(
+                data.get("appearance_mode", "dark")
+            ).lower()
+
+            if mode in ("light", "dark"):
+                return mode
+    except Exception as exc:
+        print(
+            "[Theme Read Error]",
+            repr(exc),
+            flush=True,
+        )
+
+    return "dark"
 
 CAPTURE_DIR = (
     Path(
@@ -296,6 +349,33 @@ def save_analysis_payload(frame_ok):
     os.replace(temp_path, ANALYSIS_PAYLOAD_PATH)
 
 
+def theme_sync_loop():
+    last_mode = None
+
+    while True:
+        try:
+            mode = get_app_appearance_mode()
+
+            # TikTok側の再描画でCSSが消されることがあるため
+            # 定期的に再適用する
+            apply_viewer_theme()
+
+            if mode != last_mode:
+                print(
+                    f"[Theme Sync] {last_mode} -> {mode}",
+                    flush=True
+                )
+                last_mode = mode
+
+        except Exception as exc:
+            print(
+                "[Theme Sync Error]",
+                repr(exc),
+                flush=True
+            )
+
+        time.sleep(1)
+
 def collector_loop():
     time.sleep(3)
     last_url = None
@@ -345,6 +425,54 @@ def collector_loop():
         time.sleep(POLL_SECONDS)
 
 
+def apply_viewer_theme():
+    mode = get_app_appearance_mode()
+
+    js = f"""
+    (() => {{
+        const id = 'livemetry-theme-style';
+
+        let style = document.getElementById(id);
+
+        if (!style) {{
+            style = document.createElement('style');
+            style.id = id;
+            document.head.appendChild(style);
+        }}
+
+        if ('{mode}' === 'dark') {{
+            style.textContent = `
+                html, body {{
+                    background: #0B1120 !important;
+                    color: #F8FAFC !important;
+                }}
+
+                div {{
+                    border-color: #243047 !important;
+                }}
+            `;
+        }} else {{
+            style.textContent = '';
+        }}
+
+        return '{mode}';
+    }})();
+    """
+
+    try:
+        result = window.evaluate_js(js)
+        print(
+            f"[Viewer Theme] {result}",
+            flush=True
+        )
+    except Exception as exc:
+        print(
+            "[Viewer Theme Error]",
+            repr(exc),
+            flush=True
+        )
+
+
 def on_loaded():
     global started
 
@@ -357,6 +485,13 @@ def on_loaded():
     print("video要素から直接映像フレームを取得します。")
     print(f"{POLL_SECONDS}秒ごとに映像＋コメントを自動取得します。")
     print(f"保存先: {CAPTURE_DIR}")
+    apply_viewer_theme()
+
+    theme_thread = threading.Thread(
+        target=theme_sync_loop,
+        daemon=True
+    )
+    theme_thread.start()
 
     thread = threading.Thread(
         target=collector_loop,
