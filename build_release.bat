@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 > nul
 cd /d "%~dp0"
-title Livemetry Pulse v1.5.0 Build
+title Livemetry Pulse v1.6.0 Build
 
 echo ==========================================
-echo Livemetry Pulse v1.5.0
+echo Livemetry Pulse v1.6.0
 echo 配布用 One Folder EXE 作成
 echo ==========================================
 echo.
