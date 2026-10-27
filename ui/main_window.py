@@ -13,6 +13,9 @@ from core.settings import Settings
 from core.viewer_collector_manager import ViewerCollectorManager
 from ui.pages.ai import AIPage
 from ui.pages.analytics import AnalyticsPage
+from ui.pages.battle import BattlePage
+from ui.pages.collection_history import CollectionHistoryPage
+from ui.pages.collection_analysis import CollectionAnalysisPage
 from ui.pages.dashboard import DashboardPage
 from ui.pages.history import HistoryPage
 from ui.pages.gifts import GiftPage
@@ -281,6 +284,28 @@ class MainWindow(ctk.CTk):
             "analytics",
             "\u25a5    Analytics",
             self.show_analytics,
+        )
+
+        self.battle_button = create_nav_button(
+            "battle",
+            "\u2694    Battle",
+            self.show_battle,
+        )
+
+        self.collection_history_button = create_nav_button(
+            "collection_history",
+            "▤    収集履歴",
+            self.show_collection_history,
+        )
+
+        self.collection_analysis_button = create_nav_button(
+            "collection_analysis", "▥    収集分析", self.show_collection_analysis,
+        )
+
+        from ui.collection_health_window import open_collection_health
+        self.collection_health_button = create_nav_button(
+            'collection_health', '◉    収集状況',
+            lambda: open_collection_health(self),
         )
 
         self.gifts_button = None
@@ -755,6 +780,36 @@ class MainWindow(ctk.CTk):
             expand=True,
         )
         self._set_active_nav("analytics")
+
+    def show_battle(self):
+        if not self.require_license():
+            return
+
+        self.clear_page()
+        self.current_page = BattlePage(
+            self.content,
+        )
+        self.current_page.pack(
+            fill="both",
+            expand=True,
+        )
+        self._set_active_nav("battle")
+
+    def show_collection_history(self):
+        if not self.require_license():
+            return
+        self.clear_page()
+        self.current_page = CollectionHistoryPage(self.content)
+        self.current_page.pack(fill="both", expand=True)
+        self._set_active_nav("collection_history")
+
+    def show_collection_analysis(self):
+        if not self.require_license():
+            return
+        self.clear_page()
+        self.current_page = CollectionAnalysisPage(self.content)
+        self.current_page.pack(fill="both", expand=True)
+        self._set_active_nav("collection_analysis")
 
     def show_settings(self):
         self.clear_page()

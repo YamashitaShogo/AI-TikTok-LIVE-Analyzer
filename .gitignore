@@ -80,3 +80,44 @@ battle_score_test*.py
 
 *_backup.py
 *_redesign.py
+
+# Livemetry local secrets
+.env
+.env.*
+!.env.example
+settings.json
+license_server/licenses.json
+*cookie*.json
+*session*.json
+
+# Battle collection databases
+capture/
+capture_fixed/
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+battle_collection.jsonl
+battle_viewers.csv
+
+# Debug output
+challenge_debug_*.json
+challenge_analysis_*.json
+first_challenge_debug_*.json
+first_challenge_raw_*.zip
+navigation_since_*.txt
+*.log
+
+# Private watchlists
+data/battle_watchlist.json
+data/top_watchlist.json
+
+# Python and build
+__pycache__/
+*.pyc
+.venv/
+venv/
+build/
+dist/
+installer/*.exe
+

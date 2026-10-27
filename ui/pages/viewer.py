@@ -387,7 +387,12 @@ class ViewerPage(ctk.CTkFrame):
 
             for index, team in enumerate(teams, start=1):
                 score = int(team.get("score", 0))
-                parts.append(f"{index}: {score:,}")
+                if index == 1:
+                    name = data.get("host_nickname") or "\u914d\u4fe1\u8005"
+                else:
+                    name = "\u30d0\u30c8\u30eb\u76f8\u624b" if index == 2 else f"\u76f8\u624b{index - 1}"
+
+                parts.append(f"{name}: {score:,}")
 
             if parts:
                 return title + "\n" + "  /  ".join(parts)
@@ -403,7 +408,12 @@ class ViewerPage(ctk.CTkFrame):
                 score = int(
                     participant.get("score", 0)
                 )
-                parts.append(f"{index}: {score:,}")
+                if index == 1:
+                    name = data.get("host_nickname") or "\u914d\u4fe1\u8005"
+                else:
+                    name = "\u30d0\u30c8\u30eb\u76f8\u624b" if index == 2 else f"\u76f8\u624b{index - 1}"
+
+                parts.append(f"{name}: {score:,}")
 
             if parts:
                 return title + "\n" + "  /  ".join(parts)

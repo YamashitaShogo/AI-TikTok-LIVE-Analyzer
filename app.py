@@ -250,8 +250,47 @@ def show_license_window() -> bool:
     )
 
 
+def prepare_viewer_environment() -> None:
+    """Allow the existing manager's direct core script to import core.*."""
+    if getattr(sys, "frozen", False):
+        return
+    root = str(Path(__file__).resolve().parent)
+    paths = [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p]
+    if root not in paths:
+        paths.insert(0, root)
+    os.environ["PYTHONPATH"] = os.pathsep.join(paths)
+
+
+def ensure_viewer_started(app) -> None:
+    """Reuse the main window's manager so its buttons and shutdown still work."""
+    if getattr(app, "_closing", False):
+        return
+    try:
+        manager = getattr(app, "viewer_collector", None)
+        if manager is None:
+            from core.viewer_collector_manager import ViewerCollectorManager
+            manager = ViewerCollectorManager()
+            app.viewer_collector = manager
+        if manager.is_running():
+            logging.info("TikTok Viewer Collectorは起動済みです")
+            return
+        manager.start()
+        logging.info("TikTok Viewer Collectorの起動を要求しました")
+        def check():
+            if getattr(app, "_closing", False):
+                return
+            if manager.is_running():
+                logging.info("TikTok Viewer Collectorのプロセス起動を確認しました")
+            else:
+                logging.error("TikTok Viewer Collectorが終了しました。AppDataのlogs/viewer_collector.logを確認してください")
+        app.after(3000, check)
+    except Exception:
+        logging.exception("TikTok Viewer Collectorの自動起動に失敗しました")
+
+
 def start_main_window() -> None:
     """メイン画面を起動する。"""
+    prepare_viewer_environment()
     app = MainWindow()
 
     app.report_callback_exception = (
@@ -262,6 +301,7 @@ def start_main_window() -> None:
         "メイン画面を表示します"
     )
 
+    app.after(1200, lambda: ensure_viewer_started(app))
     app.mainloop()
 
     logging.info(
