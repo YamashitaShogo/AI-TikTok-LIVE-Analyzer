@@ -7,6 +7,11 @@ from tkinter import ttk
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from core.score_known import known_score
+except ModuleNotFoundError:
+    from score_known import known_score
+
 def number(value):
     if isinstance(value, bool): return None
     try: value = float(value)
@@ -20,15 +25,15 @@ def scores(payload):
         for team in payload.get('teams') or []:
             key = str(team.get('team_id') or '')
             if not key: continue
-            result['チーム '+key] = None if team.get('score_known') is False else number(team.get('score'))
+            result['チーム '+key] = known_score(team)
             for user in team.get('users') or []:
                 if host and str(user.get('user_id')) == host:
-                    result['自枠（個人）'] = None if user.get('score_known') is False else number(user.get('score'))
+                    result['自枠（個人）'] = known_score(user)
     else:
         for user in payload.get('participants') or []:
             key = str(user.get('anchor_id') or user.get('key') or '')
             if key:
-                result['自枠' if key == host else '相手 '+key] = None if user.get('score_known') is False else number(user.get('score'))
+                result['自枠' if key == host else '相手 '+key] = known_score(user)
     return result
 
 def load_history(path, selected=None):

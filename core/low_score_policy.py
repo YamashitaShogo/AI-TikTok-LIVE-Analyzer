@@ -1,6 +1,11 @@
 """Low-score rules: unknown scores never count as zero."""
 import time
 
+try:
+    from core.score_known import is_known
+except ModuleNotFoundError:
+    from score_known import is_known
+
 def known_scores(payload):
     mode = payload.get('mode')
     entries = payload.get('teams' if mode == 'team' else 'participants') or []
@@ -8,7 +13,7 @@ def known_scores(payload):
         return None
     scores = []
     for entry in entries:
-        if entry.get('score_known') is not True:
+        if not is_known(entry):
             return None
         value = entry.get('score')
         if isinstance(value, bool):

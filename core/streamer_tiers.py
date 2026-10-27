@@ -5,6 +5,7 @@ import time
 from collections import defaultdict
 from statistics import median
 from core.collection_store import CollectionStore, safe_payload
+from core.score_known import known_score
 
 
 def numeric(value):
@@ -30,9 +31,10 @@ def individual_score(payload):
                       and str(u.get('anchor_id') or u.get('key') or '') == host]
     else:
         return None
-    if len(candidates) != 1 or candidates[0].get('score_known') is False:
+    if len(candidates) != 1:
         return None
-    return numeric(candidates[0].get('score'))
+    value = known_score(candidates[0])
+    return numeric(value) if value is not None else None
 
 
 def rank_top(value, population):
