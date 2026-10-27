@@ -8,6 +8,11 @@ from pathlib import Path
 import customtkinter as ctk
 from PIL import Image
 
+try:
+    from core.score_known import score_text
+except ModuleNotFoundError:
+    from score_known import score_text
+
 
 class ViewerPage(ctk.CTkFrame):
     """TikTok Viewer / Collector status page."""
@@ -381,42 +386,75 @@ class ViewerPage(ctk.CTkFrame):
             else "\u30d0\u30c8\u30eb\u7d42\u4e86"
         )
 
+        if not active and data.get("reason") == "timeout_fallback":
+            title += "\uff08\u63a8\u5b9a\u30b9\u30b3\u30a2\uff09"
+
+        host_id = str(data.get("host_user_id") or "").strip()
+        host_name = data.get("host_nickname") or "\u914d\u4fe1\u8005"
+
+        def short_id(value):
+            text = str(value or "").strip()
+            return f"\uff08ID\u2026{text[-4:]}\uff09" if text else ""
+
         if mode == "team":
             teams = data.get("teams", [])
+            host_index = None
+
+            for i, team in enumerate(teams):
+                ids = {
+                    str(u.get("user_id") or "").strip()
+                    for u in team.get("users") or []
+                }
+                if host_id and host_id in ids:
+                    host_index = i
+                    break
+
             parts = []
 
-            for index, team in enumerate(teams, start=1):
-                score = int(team.get("score", 0))
-                if index == 1:
-                    name = data.get("host_nickname") or "\u914d\u4fe1\u8005"
+            for i, team in enumerate(teams):
+                if i == host_index:
+                    name = host_name
+                elif host_index is not None:
+                    name = f"\u76f8\u624b\u30c1\u30fc\u30e0{short_id(team.get('team_id'))}"
                 else:
-                    name = "\u30d0\u30c8\u30eb\u76f8\u624b" if index == 2 else f"\u76f8\u624b{index - 1}"
+                    name = f"\u53c2\u52a0\u30c1\u30fc\u30e0{short_id(team.get('team_id'))}"
 
-                parts.append(f"{name}: {score:,}")
+                parts.append(f"{name}: {score_text(team)}")
 
             if parts:
-                return title + "\n" + "  /  ".join(parts)
+                note = "" if host_index is not None else "\n\u672c\u4eba\u4e0d\u660e"
+                return title + note + "\n" + "  /  ".join(parts)
 
         if mode == "individual":
             participants = data.get("participants", [])
+            host_index = None
+
+            for i, participant in enumerate(participants):
+                pid = str(
+                    participant.get("anchor_id")
+                    or participant.get("key")
+                    or ""
+                ).strip()
+                if host_id and pid == host_id:
+                    host_index = i
+                    break
+
             parts = []
 
-            for index, participant in enumerate(
-                participants,
-                start=1,
-            ):
-                score = int(
-                    participant.get("score", 0)
-                )
-                if index == 1:
-                    name = data.get("host_nickname") or "\u914d\u4fe1\u8005"
+            for participant in participants:
+                pid = participant.get("anchor_id") or participant.get("key") or ""
+                if host_index is not None and str(pid).strip() == host_id:
+                    name = host_name
+                elif host_index is not None:
+                    name = f"\u76f8\u624b{short_id(pid)}"
                 else:
-                    name = "\u30d0\u30c8\u30eb\u76f8\u624b" if index == 2 else f"\u76f8\u624b{index - 1}"
+                    name = f"\u53c2\u52a0\u8005{short_id(pid)}"
 
-                parts.append(f"{name}: {score:,}")
+                parts.append(f"{name}: {score_text(participant)}")
 
             if parts:
-                return title + "\n" + "  /  ".join(parts)
+                note = "" if host_index is not None else "\n\u672c\u4eba\u4e0d\u660e"
+                return title + note + "\n" + "  /  ".join(parts)
 
         return "\u30d0\u30c8\u30eb: \u5f85\u6a5f\u4e2d"
 

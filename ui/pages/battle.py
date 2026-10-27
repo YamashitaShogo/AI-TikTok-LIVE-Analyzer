@@ -7,6 +7,11 @@ import customtkinter as ctk
 from ui import theme
 import time
 
+try:
+    from core.score_known import score_text
+except ModuleNotFoundError:
+    from score_known import score_text
+
 
 APP_NAME = "AI-TikTok-LIVE-Analyzer"
 CAPTURE_DIR = (
@@ -219,15 +224,15 @@ class BattlePage(ctk.CTkFrame):
             participants = self._host_first_entries(data.get("participants") or [], "individual")
 
             if len(participants) >= 2:
-                scores = [
-                    int(item.get("score") or 0)
+                text = "  VS  ".join(
+                    score_text(item)
                     for item in participants
-                ]
-
-                return "  VS  ".join(
-                    f"{score:,}"
-                    for score in scores
                 )
+
+                if data.get("reason") == "timeout_fallback":
+                    text += "（推定スコア）"
+
+                return text
 
         if mode == "team":
             teams = self._host_first_entries(data.get("teams") or [], "team")
@@ -239,17 +244,18 @@ class BattlePage(ctk.CTkFrame):
                 )
                 score_texts = []
                 for team in teams:
-                    text = f"{int(team.get('score') or 0):,}"
+                    text = score_text(team)
                     host_users = [
                         user for user in team.get("users") or []
                         if host_id and str(user.get("user_id") or "").strip() == host_id
                     ]
                     if grouped_battle and len(host_users) == 1:
-                        host_score = host_users[0].get("score")
-                        own_text = "—" if host_score is None else f"{int(host_score):,}"
-                        text += f"（{own_text}）"
+                        text += f"（{score_text(host_users[0])}）"
                     score_texts.append(text)
-                return "  VS  ".join(score_texts)
+                result = "  VS  ".join(score_texts)
+                if data.get("reason") == "timeout_fallback":
+                    result += "（推定スコア）"
+                return result
 
         return "\u30d0\u30c8\u30eb\u30c7\u30fc\u30bf\u3092\u5f85\u6a5f\u4e2d..."
 
