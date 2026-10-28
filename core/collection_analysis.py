@@ -3,6 +3,7 @@ import csv
 from collections import Counter, defaultdict
 from statistics import median
 from core.collection_store import CollectionStore, safe_payload, format_time
+from core.score_known import known_score
 
 
 def host_score(payload):
@@ -16,13 +17,9 @@ def host_score(payload):
                if mode == 'team' else [str(entry.get('anchor_id') or entry.get('key') or '')])
         if host in ids:
             matches.append(entry)
-    if len(matches) != 1 or matches[0].get('score_known') is False:
+    if len(matches) != 1:
         return None
-    try:
-        value = int(matches[0]['score'])
-        return value if value >= 0 else None
-    except (ValueError, TypeError, KeyError):
-        return None
+    return known_score(matches[0])
 
 
 def summary(database=None):

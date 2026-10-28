@@ -1,5 +1,10 @@
 """Read-only access to the battle collection database."""
 from .battle_timeline import load as load_timeline
+
+try:
+    from . import score_known as _score_known
+except ImportError:
+    import score_known as _score_known
 import csv
 import json
 import os
@@ -49,18 +54,12 @@ def score_text(payload):
     )
     scores = []
     for index, entry in enumerate(entries):
-        try:
-            text = '不明' if entry.get('score_known') is False else f"{int(entry.get('score')):,}"
-        except (ValueError, TypeError):
-            text = '不明'
+        text = _score_known.score_text(entry)
         if grouped_battle and identified and index == 0:
             users = [u for u in entry.get('users') or [] if str(u.get('user_id') or '') == host_id]
             own_text = '不明'
-            if len(users) == 1 and users[0].get('score_known') is not False:
-                try:
-                    own_text = f"{int(users[0].get('score')):,}"
-                except (ValueError, TypeError):
-                    pass
+            if len(users) == 1:
+                own_text = _score_known.score_text(users[0])
             text += f'（{own_text}）'
         scores.append(text)
     return ('  VS  '.join(scores) or 'スコア未取得', identified)

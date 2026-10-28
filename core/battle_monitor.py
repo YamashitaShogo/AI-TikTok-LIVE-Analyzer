@@ -821,25 +821,55 @@ class BattleMonitor:
             }
 
             if event.team_armies:
+                raw_teams_for_users = debug_event.get("teamArmies") or []
+                raw_user_known = {}
+
+                for raw_team in raw_teams_for_users:
+                    if not isinstance(raw_team, dict):
+                        continue
+
+                    for raw_user in raw_team.get("teamUser") or []:
+                        if not isinstance(raw_user, dict):
+                            continue
+
+                        raw_uid = str(
+                            raw_user.get("userId")
+                            or raw_user.get("user_id")
+                            or ""
+                        )
+
+                        if raw_uid:
+                            raw_user_known[raw_uid] = "score" in raw_user
+
                 teams = []
 
-                for team in event.team_armies:
+                for team_index, team in enumerate(event.team_armies):
                     users = []
 
                     for user in team.team_user:
-                        users.append(
-                            {
-                                "user_id": (
-                                    user.user_id_str
-                                    or str(user.user_id)
-                                ),
-                                "score": int(user.score or 0),
-                            }
-                        )
+                        user_entry = {
+                            "user_id": (
+                                user.user_id_str
+                                or str(user.user_id)
+                            ),
+                            "score": int(user.score or 0),
+                        }
+
+                        if raw_user_known:
+                            user_entry["score_known"] = (
+                                raw_user_known.get(
+                                    user_entry["user_id"],
+                                    False,
+                                )
+                            )
+
+                        users.append(user_entry)
 
                     teams.append(
                         {
                             "team_id": str(team.team_id),
+                            "team_index": team_index,
+                            "seat": None,
                             "score": int(
                                 team.team_total_score or 0
                             ),
@@ -849,24 +879,32 @@ class BattleMonitor:
 
                 payload["mode"] = "team"
                 payload["teams"] = teams
+                payload["order_source"] = "team_armies_list"
 
             else:
                 participants = []
 
-                for key, army in event.armies.items():
+                for index, (key, army) in enumerate(
+                    event.armies.items()
+                ):
                     participants.append(
                         {
                             "key": str(key),
                             "anchor_id": army.anchor_id_str,
+                            # Processing order only: the armies map
+                            # carries no seat order, so seat is
+                            # always unknown (None). Scores are
+                            # keyed by anchor_id, never by position.
+                            "participant_index": index,
+                            "seat": None,
                             "score": int(army.hostscore or 0),
                             "score_known": "hostscore" in (debug_event.get("armies", {}).get(str(key)) or {}),
                         }
                     )
 
-                participants.sort(key=lambda item: str(item.get("anchor_id") or item.get("key") or ""))
-
                 payload["mode"] = "individual"
                 payload["participants"] = participants
+                payload["order_source"] = "armies_map"
 
             if payload.get("mode") == "team":
                 raw_teams = debug_event.get("teamArmies") or []
