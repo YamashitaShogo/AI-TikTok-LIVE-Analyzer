@@ -5,7 +5,7 @@ from bisect import bisect_left
 from copy import deepcopy
 import tkinter as tk
 import customtkinter as ctk
-from core.score_history import scores
+from core.score_history import resolve_labels, scores
 from core.collection_store import format_time
 from core.battle_timeline import hatch_segments
 from core.timeline_display import describe_event
@@ -22,6 +22,7 @@ class ScoreZoom(ctk.CTkToplevel):
         self.minsize(720, 520)
         self.points = sorted((float(p['received_at']), scores(p['result']))
                              for p in detail.get('score_snapshots', []) if p.get('received_at') is not None)
+        self.labels = resolve_labels([p['result'] for p in detail.get('score_snapshots', [])])
         self.events = detail.get('timeline') or []
         times = [p[0] for p in self.points] + [e['at'] for e in self.events]
         times += [e['end'] for e in self.events if e.get('end')]
@@ -142,7 +143,7 @@ class ScoreZoom(ctk.CTkToplevel):
                 if prev and ts-prev[0]<=30:c.create_line(prev[1],prev[2],xx,yy,fill=color,width=2)
                 c.create_oval(xx-2,yy-2,xx+2,yy+2,fill=color,outline='')
                 prev=ts,xx,yy
-            c.create_text(l+(j%2)*(r-l)/2,b+40+(j//2)*22,text=k,anchor='w',fill=color)
+            c.create_text(l+(j%2)*(r-l)/2,b+40+(j//2)*22,text=self.labels.get(k, k),anchor='w',fill=color)
         if not vals:c.create_text((l+r)/2,(t+b)/2,text='この範囲にスコア記録はありません',fill=fg)
 
     def hover(self,e):

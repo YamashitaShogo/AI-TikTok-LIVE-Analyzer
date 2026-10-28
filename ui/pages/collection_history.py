@@ -8,7 +8,7 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from core.collection_store import CollectionStore, STATUS_LABELS, format_time
 from ui import theme
-from core.score_history import scores
+from core.score_history import resolve_labels, scores
 from core.battle_timeline import hatch_segments
 from core.timeline_display import describe_event
 from ui.score_zoom import ScoreZoom
@@ -413,6 +413,7 @@ class CollectionHistoryPage(ctk.CTkFrame):
         width, height = max(300, canvas.winfo_width()), max(240, canvas.winfo_height())
         raw = (self._detail or {}).get('score_snapshots') or []
         points = [(p['received_at'], scores(p['result'])) for p in raw]
+        labels = resolve_labels([p['result'] for p in raw])
         events = (self._detail or {}).get('timeline') or []
         descriptions = self._timeline_descriptions
         values = [v for _, series in points for v in series.values() if v is not None]
@@ -460,7 +461,7 @@ class CollectionHistoryPage(ctk.CTkFrame):
                     canvas.create_line(previous[0],previous[1],x,y,fill=color,width=2)
                 canvas.create_oval(x-2,y-2,x+2,y+2,fill=color,outline='')
                 previous = (x,y,timestamp)
-            canvas.create_text(left+(i%2)*(right-left)/2,bottom+48+(i//2)*20,text=key,anchor='w',fill=color,font=(theme.FONT_FAMILY,10))
+            canvas.create_text(left+(i%2)*(right-left)/2,bottom+48+(i//2)*20,text=labels.get(key, key),anchor='w',fill=color,font=(theme.FONT_FAMILY,10))
         for ts in clock.ticks(start, end):
             x = left+(right-left)*(ts-start)/span
             canvas.create_text(x,bottom+16,text=clock.label(ts, lambda t: format_time(t).split(' ')[-1]),fill=fg)
