@@ -12,6 +12,11 @@ try:
 except ModuleNotFoundError:
     from score_known import known_score
 
+try:
+    from core.participant_label import member_labels, participant_label
+except ModuleNotFoundError:
+    from participant_label import member_labels, participant_label
+
 def number(value):
     if isinstance(value, bool): return None
     try: value = float(value)
@@ -54,8 +59,10 @@ def scores(payload):
 def series_labels(payload):
     """Display labels for the stable series keys, from one payload.
 
-    Only labels backed by a recorded nickname are returned; series
-    without a name keep their stable key as the legend text.
+    Labels use the unified participant format (nickname（@unique_id）,
+    nickname only, or @unique_id only). Only labels backed by a
+    recorded nickname or handle are returned; series without either
+    keep their stable key as the legend text.
     """
     labels = {}
     host = str(payload.get('host_user_id') or '')
@@ -66,20 +73,19 @@ def series_labels(payload):
             users = team.get('users') or []
             if len(users) == 1:
                 uid = str(users[0].get('user_id') or '')
-                nickname = str(users[0].get('nickname') or '').strip()
-                if uid and uid != host and nickname:
-                    labels['相手 '+uid] = nickname
+                label = participant_label(users[0])
+                if uid and uid != host and label:
+                    labels['相手 '+uid] = label
                 continue
-            names = [str(u.get('nickname') or '').strip() for u in users]
-            names = [name for name in names if name]
+            names = member_labels(users)
             if names:
                 labels['チーム '+key] = '・'.join(names)
     else:
         for user in payload.get('participants') or []:
             key = str(user.get('anchor_id') or user.get('key') or '')
-            nickname = str(user.get('nickname') or '').strip()
-            if key and key != host and nickname:
-                labels['相手 '+key] = nickname
+            label = participant_label(user)
+            if key and key != host and label:
+                labels['相手 '+key] = label
     return labels
 
 def resolve_labels(payloads):
