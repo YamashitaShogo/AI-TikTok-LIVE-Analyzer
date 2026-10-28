@@ -12,6 +12,11 @@ try:
 except ModuleNotFoundError:
     from score_known import score_text
 
+try:
+    from core.participant_label import member_labels, participant_label
+except ModuleNotFoundError:
+    from participant_label import member_labels, participant_label
+
 
 APP_NAME = "AI-TikTok-LIVE-Analyzer"
 CAPTURE_DIR = (
@@ -215,6 +220,11 @@ class BattlePage(ctk.CTkFrame):
             ordered.insert(0, ordered.pop(matches[0]))
         return ordered
 
+    def _named_score_text(self, entry):
+        label = participant_label(entry)
+        text = score_text(entry)
+        return f"{label}: {text}" if label else text
+
     def _format_score_text(self):
         data = self.battle_data or {}
 
@@ -225,7 +235,7 @@ class BattlePage(ctk.CTkFrame):
 
             if len(participants) >= 2:
                 text = "  VS  ".join(
-                    score_text(item)
+                    self._named_score_text(item)
                     for item in participants
                 )
 
@@ -245,6 +255,9 @@ class BattlePage(ctk.CTkFrame):
                 score_texts = []
                 for team in teams:
                     text = score_text(team)
+                    member_names = member_labels(team.get("users"))
+                    if member_names:
+                        text = f"{'・'.join(member_names)}: {text}"
                     host_users = [
                         user for user in team.get("users") or []
                         if host_id and str(user.get("user_id") or "").strip() == host_id

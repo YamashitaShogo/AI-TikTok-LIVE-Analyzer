@@ -77,6 +77,8 @@ class BattleMonitor:
         self._timeout_battle_ids: set[int] = set()
         self._battle_timing = (0, 0)
         self._battle_gameplay_option = ""
+        self._anchor_names: dict[str, dict[str, str]] = {}
+        self._anchor_names_scope: tuple[int, int] | None = None
 
         # Viewer authentication cookies are kept only in memory.
         self._session_id: Optional[str] = None
@@ -621,6 +623,109 @@ class BattleMonitor:
             )
 
 
+    def _remember_anchor_names(
+        self,
+        event: LinkMicBattleEvent,
+        battle_id: int,
+        generation: int,
+    ) -> None:
+        """Cache participant display names from a battle state event.
+
+        Names come from anchors_info, keyed by user id: BattleUserInfo
+        carries nick_name and display_id (the @handle). The cache is
+        scoped to (battle_id, generation) so names never leak into a
+        different battle or a different monitoring connection. This is
+        a display aid only: any failure is ignored and must never stop
+        battle monitoring. Note that BattleUserArmies.user_armies is
+        NOT a name source -- those are the anchor's top supporters.
+        """
+        try:
+            scope = (int(battle_id or 0), int(generation))
+
+            if self._anchor_names_scope != scope:
+                self._anchor_names = {}
+                self._anchor_names_scope = scope
+
+            for wrapper in getattr(event, "anchors_info", None) or []:
+                value = getattr(wrapper, "value", None)
+                user = getattr(value, "user", None)
+
+                if user is None:
+                    continue
+
+                user_id = str(
+                    getattr(wrapper, "key", "")
+                    or getattr(user, "user_id", "")
+                    or ""
+                ).strip()
+
+                if not user_id:
+                    continue
+
+                nickname = str(
+                    getattr(user, "nick_name", "") or ""
+                ).strip()
+                unique_id = str(
+                    getattr(user, "display_id", "") or ""
+                ).strip()
+
+                if nickname or unique_id:
+                    self._anchor_names[user_id] = {
+                        "nickname": nickname,
+                        "unique_id": unique_id,
+                    }
+        except Exception:
+            pass
+
+    def _apply_anchor_names(
+        self,
+        payload: dict,
+        battle_id: int,
+        generation: int,
+    ) -> None:
+        """Attach cached names to a payload's participants / team users.
+
+        Matching is strictly by anchor_id / user_id, never by position.
+        Entries without a cached name are left untouched, so displays
+        fall back to the ID-based labels used before this feature.
+        """
+        try:
+            if self._anchor_names_scope != (
+                int(battle_id or 0),
+                int(generation),
+            ):
+                return
+
+            if not self._anchor_names:
+                return
+
+            for participant in payload.get("participants") or []:
+                info = self._anchor_names.get(
+                    str(
+                        participant.get("anchor_id")
+                        or participant.get("key")
+                        or ""
+                    ).strip()
+                )
+
+                if info:
+                    participant["nickname"] = info["nickname"]
+                    participant["unique_id"] = info["unique_id"]
+                    participant["name_source"] = "anchors_info"
+
+            for team in payload.get("teams") or []:
+                for user in team.get("users") or []:
+                    info = self._anchor_names.get(
+                        str(user.get("user_id") or "").strip()
+                    )
+
+                    if info:
+                        user["nickname"] = info["nickname"]
+                        user["unique_id"] = info["unique_id"]
+                        user["name_source"] = "anchors_info"
+        except Exception:
+            pass
+
     def _handle_battle_state(
         self,
         event: LinkMicBattleEvent,
@@ -630,6 +735,9 @@ class BattleMonitor:
         with self._lock:
             if generation != self._generation:
                 return
+            self._remember_anchor_names(
+                event, int(event.battle_id or 0), generation
+            )
             # Keep START/update payloads too: introductory bonuses may be here.
             self._record_timeline(event, unique_id, generation, 'battle_state')
             if event.action not in (
@@ -691,6 +799,8 @@ class BattleMonitor:
                                 result_payload[key] = previous[key]
             except Exception:
                 pass
+
+            self._apply_anchor_names(result_payload, battle_id, generation)
 
             self._write_payload(result_payload)
 
@@ -913,6 +1023,8 @@ class BattleMonitor:
                         str(raw.get("teamId")) == team["team_id"] and "teamTotalScore" in raw
                         for raw in raw_teams if isinstance(raw, dict)
                     )
+
+            self._apply_anchor_names(payload, battle_id, generation)
 
             self._write_payload(payload)
 

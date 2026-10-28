@@ -13,6 +13,11 @@ try:
 except ModuleNotFoundError:
     from score_known import score_text
 
+try:
+    from core.participant_label import member_labels, participant_label
+except ModuleNotFoundError:
+    from participant_label import member_labels, participant_label
+
 
 class ViewerPage(ctk.CTkFrame):
     """TikTok Viewer / Collector status page."""
@@ -396,6 +401,12 @@ class ViewerPage(ctk.CTkFrame):
             text = str(value or "").strip()
             return f"\uff08ID\u2026{text[-4:]}\uff09" if text else ""
 
+        def display_name(entry, fallback):
+            return participant_label(entry, fallback)
+
+        def team_member_names(team):
+            return "\u30fb".join(member_labels(team.get("users")))
+
         if mode == "team":
             teams = data.get("teams", [])
             host_index = None
@@ -415,9 +426,9 @@ class ViewerPage(ctk.CTkFrame):
                 if i == host_index:
                     name = host_name
                 elif host_index is not None:
-                    name = f"\u76f8\u624b\u30c1\u30fc\u30e0{short_id(team.get('team_id'))}"
+                    name = team_member_names(team) or f"\u76f8\u624b\u30c1\u30fc\u30e0{short_id(team.get('team_id'))}"
                 else:
-                    name = f"\u53c2\u52a0\u30c1\u30fc\u30e0{short_id(team.get('team_id'))}"
+                    name = team_member_names(team) or f"\u53c2\u52a0\u30c1\u30fc\u30e0{short_id(team.get('team_id'))}"
 
                 parts.append(f"{name}: {score_text(team)}")
 
@@ -446,9 +457,9 @@ class ViewerPage(ctk.CTkFrame):
                 if host_index is not None and str(pid).strip() == host_id:
                     name = host_name
                 elif host_index is not None:
-                    name = f"\u76f8\u624b{short_id(pid)}"
+                    name = display_name(participant, f"\u76f8\u624b{short_id(pid)}")
                 else:
-                    name = f"\u53c2\u52a0\u8005{short_id(pid)}"
+                    name = display_name(participant, f"\u53c2\u52a0\u8005{short_id(pid)}")
 
                 parts.append(f"{name}: {score_text(participant)}")
 

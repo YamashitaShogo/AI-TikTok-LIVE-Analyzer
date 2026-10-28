@@ -5,6 +5,11 @@ try:
     from . import score_known as _score_known
 except ImportError:
     import score_known as _score_known
+
+try:
+    from .participant_label import member_labels, participant_label
+except ImportError:
+    from participant_label import member_labels, participant_label
 import csv
 import json
 import os
@@ -61,8 +66,22 @@ def score_text(payload):
             if len(users) == 1:
                 own_text = _score_known.score_text(users[0])
             text += f'（{own_text}）'
+        name = entry_name(entry, mode)
+        if name:
+            text = f'{name}: {text}'
         scores.append(text)
     return ('  VS  '.join(scores) or 'スコア未取得', identified)
+
+
+def entry_name(entry, mode):
+    """Display name for a payload entry, or '' when none was recorded.
+
+    Uses the unified participant format: nickname（@unique_id） when
+    both were recorded, nickname or @unique_id alone otherwise.
+    """
+    if mode == 'team':
+        return '・'.join(member_labels(entry.get('users')))
+    return participant_label(entry)
 
 
 class CollectionStore:
