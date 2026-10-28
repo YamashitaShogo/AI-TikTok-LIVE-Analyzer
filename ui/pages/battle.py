@@ -215,6 +215,11 @@ class BattlePage(ctk.CTkFrame):
             ordered.insert(0, ordered.pop(matches[0]))
         return ordered
 
+    def _named_score_text(self, entry):
+        nickname = str(entry.get("nickname") or "").strip()
+        text = score_text(entry)
+        return f"{nickname}: {text}" if nickname else text
+
     def _format_score_text(self):
         data = self.battle_data or {}
 
@@ -225,7 +230,7 @@ class BattlePage(ctk.CTkFrame):
 
             if len(participants) >= 2:
                 text = "  VS  ".join(
-                    score_text(item)
+                    self._named_score_text(item)
                     for item in participants
                 )
 
@@ -245,6 +250,13 @@ class BattlePage(ctk.CTkFrame):
                 score_texts = []
                 for team in teams:
                     text = score_text(team)
+                    member_names = [
+                        str(user.get("nickname") or "").strip()
+                        for user in team.get("users") or []
+                    ]
+                    member_names = [name for name in member_names if name]
+                    if member_names:
+                        text = f"{'・'.join(member_names)}: {text}"
                     host_users = [
                         user for user in team.get("users") or []
                         if host_id and str(user.get("user_id") or "").strip() == host_id
