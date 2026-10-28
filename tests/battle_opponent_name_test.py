@@ -432,8 +432,11 @@ try:
         ],
     }
     text = page._format_score_text()
+    # Unified format: a participant with nickname + unique_id is now
+    # shown as nickname（@unique_id） on the battle page too (before
+    # this change the battle page showed the nickname only).
     check("battle page shows names with scores",
-          "ホスト表示名" not in text and "相手の表示名: 200" in text and "100" in text, text)
+          "ホスト表示名" not in text and "相手の表示名（@opp_handle）: 200" in text and "100" in text, text)
 
     page.battle_data = {
         "mode": "individual", "host_user_id": HOST,
@@ -461,8 +464,10 @@ try:
         ],
     }
     text, identified = store_score_text(named_payload)
+    # Unified format: entries with nickname + unique_id now show
+    # nickname（@unique_id） in history text (nickname only before).
     check("history text shows names",
-          "ホスト表示名: 100" in text and "相手の表示名: 200" in text, text)
+          "ホスト表示名（@host_handle）: 100" in text and "相手の表示名（@opp_handle）: 200" in text, text)
     check("history host identification unchanged", identified is True)
 
     unnamed_payload = {
@@ -494,8 +499,10 @@ try:
     named_scores = history_scores(named_payload)
     check("graph series keys are stable ids",
           named_scores == {"自枠": 100, f"相手 {OPP}": 200}, str(named_scores))
+    # Unified format: the graph label now includes the handle when the
+    # payload recorded one (nickname only before this change).
     check("graph labels resolve nicknames",
-          resolve_labels([named_payload]).get(f"相手 {OPP}") == "相手の表示名")
+          resolve_labels([named_payload]).get(f"相手 {OPP}") == "相手の表示名（@opp_handle）")
     unnamed_scores = history_scores(unnamed_payload)
     check("graph keys without names are unchanged",
           unnamed_scores == {"自枠": 100, f"相手 {OPP}": 200}, str(unnamed_scores))
@@ -577,6 +584,202 @@ try:
           fixed_union == {"自枠", "相手 201", "相手 301"}, str(fixed_union))
 except Exception as exc:
     print(f"  skip: fixed_score_graph import in this environment ({type(exc).__name__}: {exc})")
+
+print("== unified label format: nickname（@unique_id） everywhere ==")
+try:
+    from core.participant_label import member_labels, participant_label
+
+    check("label: nickname + unique_id",
+          participant_label({"nickname": "名前", "unique_id": "handle"}) == "名前（@handle）")
+    check("label: nickname only",
+          participant_label({"nickname": "名前"}) == "名前")
+    check("label: unique_id only",
+          participant_label({"unique_id": "handle"}) == "@handle")
+    check("label: neither field",
+          participant_label({}) == "" and participant_label({}, "FB") == "FB")
+    check("label: '@'-prefixed handle never doubles",
+          participant_label({"nickname": "名前", "unique_id": "@handle"}) == "名前（@handle）"
+          and participant_label({"unique_id": "@handle"}) == "@handle")
+    check("label: empty strings count as absent",
+          participant_label({"nickname": "", "unique_id": ""}) == "")
+    check("label: None counts as absent",
+          participant_label({"nickname": None, "unique_id": None}) == "")
+    check("label: whitespace counts as absent",
+          participant_label({"nickname": "   ", "unique_id": "  "}) == "")
+    check("label: malformed entries never raise",
+          participant_label(None, "FB") == "FB"
+          and participant_label("not-a-dict", "FB") == "FB")
+    check("member_labels: per-member tiers, unnamed omitted",
+          member_labels([{"nickname": "A", "unique_id": "a"}, {},
+                         {"unique_id": "b"}, {"nickname": "C"}])
+          == ["A（@a）", "@b", "C"])
+
+    from core.score_history import resolve_labels as hist_resolve
+    from core.score_history import scores as hist_scores
+    from core.fixed_score_graph import resolve_labels as fixed_resolve2
+    from core.collection_store import score_text as store_text2
+
+    handle_only = {
+        "mode": "individual", "host_user_id": HOST,
+        "participants": [
+            {"anchor_id": OPP, "score": 200, "score_known": True,
+             "unique_id": "opp_handle"},
+            {"anchor_id": HOST, "score": 100, "score_known": True},
+        ],
+    }
+    check("graph label: unique_id only becomes @handle",
+          hist_resolve([handle_only]).get(f"相手 {OPP}") == "@opp_handle"
+          and fixed_resolve2([handle_only]).get(f"相手 {OPP}") == "@opp_handle")
+    check("graph keys unchanged for handle-only payload",
+          hist_scores(handle_only) == {"自枠": 100, f"相手 {OPP}": 200})
+
+    text, _ = store_text2(handle_only)
+    check("history text: unique_id only becomes @handle",
+          "@opp_handle: 200" in text, text)
+
+    team_handles = {
+        "mode": "team", "host_user_id": "101",
+        "teams": [
+            {"team_id": "7001", "score": 500, "score_known": True,
+             "users": [{"user_id": "101", "score": 300, "score_known": True, "nickname": "味方A", "unique_id": "a_handle"},
+                        {"user_id": "102", "score": 200, "score_known": True, "nickname": "味方B", "unique_id": "b_handle"}]},
+            {"team_id": "7002", "score": 400, "score_known": True,
+             "users": [{"user_id": "201", "score": 400, "score_known": True, "nickname": "敵C", "unique_id": "c_handle"},
+                        {"user_id": "202", "score": 0, "score_known": True, "nickname": "敵D", "unique_id": "d_handle"}]},
+        ],
+    }
+    text, _ = store_text2(team_handles)
+    check("history team text: members formatted with handles",
+          "敵C（@c_handle）・敵D（@d_handle）: 400" in text, text)
+    check("graph team labels: members formatted with handles",
+          hist_resolve([team_handles]).get("チーム 7002") == "敵C（@c_handle）・敵D（@d_handle）")
+
+    legacy = {
+        "mode": "individual", "host_user_id": HOST,
+        "participants": [
+            {"anchor_id": OPP, "score": 200, "score_known": True,
+             "nickname": "相手の表示名"},
+            {"anchor_id": HOST, "score": 100, "score_known": True},
+        ],
+    }
+    check("legacy payload without unique_id keeps nickname-only label",
+          hist_resolve([legacy]).get(f"相手 {OPP}") == "相手の表示名")
+    text, _ = store_text2(legacy)
+    check("legacy history text keeps nickname-only prefix",
+          "相手の表示名: 200" in text and "（@" not in text, text)
+
+    twins = {
+        "mode": "individual", "host_user_id": HOST,
+        "participants": [
+            {"anchor_id": OPP, "score": 200, "score_known": True,
+             "nickname": "同名", "unique_id": "twin_a"},
+            {"anchor_id": P3, "score": 300, "score_known": True,
+             "nickname": "同名", "unique_id": "twin_b"},
+            {"anchor_id": HOST, "score": 100, "score_known": True},
+        ],
+    }
+    twin_scores = hist_scores(twins)
+    twin_labels = hist_resolve([twins])
+    check("same nickname: two distinct opponent series",
+          twin_scores == {"自枠": 100, f"相手 {OPP}": 200, f"相手 {P3}": 300},
+          str(twin_scores))
+    check("same nickname: labels stay distinct via handles",
+          twin_labels.get(f"相手 {OPP}") == "同名（@twin_a）"
+          and twin_labels.get(f"相手 {P3}") == "同名（@twin_b）", str(twin_labels))
+    twins_bare = {
+        "mode": "individual", "host_user_id": HOST,
+        "participants": [
+            {"anchor_id": OPP, "score": 200, "score_known": True, "nickname": "同名"},
+            {"anchor_id": P3, "score": 300, "score_known": True, "nickname": "同名"},
+            {"anchor_id": HOST, "score": 100, "score_known": True},
+        ],
+    }
+    check("same nickname without handles: still two series",
+          hist_scores(twins_bare) == {"自枠": 100, f"相手 {OPP}": 200, f"相手 {P3}": 300})
+except Exception as exc:
+    check(f"unified labels in this environment ({type(exc).__name__}: {exc})", False)
+
+print("== viewer / battle page: handle-only and '@'-prefixed cases ==")
+try:
+    from ui.pages.viewer import ViewerPage
+
+    fmt = ViewerPage._format_battle_state
+    handle_only_view = {
+        "active": True, "mode": "individual",
+        "host_user_id": HOST, "host_nickname": "ホスト表示名",
+        "participants": [
+            {"anchor_id": OPP, "score": 200, "score_known": True,
+             "unique_id": "opp_handle"},
+            {"anchor_id": HOST, "score": 100, "score_known": True},
+        ],
+    }
+    text = fmt(object(), handle_only_view)
+    check("viewer shows @handle when nickname is missing",
+          "@opp_handle: 200" in text, text)
+
+    prefixed = {
+        "active": True, "mode": "individual",
+        "host_user_id": HOST, "host_nickname": "ホスト表示名",
+        "participants": [
+            {"anchor_id": OPP, "score": 200, "score_known": True,
+             "nickname": "相手の表示名", "unique_id": "@opp_handle"},
+            {"anchor_id": HOST, "score": 100, "score_known": True},
+        ],
+    }
+    text = fmt(object(), prefixed)
+    check("viewer never renders @@ for stored '@' handles",
+          "相手の表示名（@opp_handle）: 200" in text and "@@" not in text, text)
+
+    team_handles_view = {
+        "active": True, "mode": "team", "host_user_id": "101",
+        "host_nickname": "ホスト表示名",
+        "teams": [
+            {"team_id": "7001", "score": 500, "score_known": True,
+             "users": [{"user_id": "101", "score": 300, "nickname": "味方A", "unique_id": "a_handle"},
+                        {"user_id": "102", "score": 200, "nickname": "味方B", "unique_id": "b_handle"}]},
+            {"team_id": "7002", "score": 400, "score_known": True,
+             "users": [{"user_id": "201", "score": 400, "nickname": "敵C", "unique_id": "c_handle"},
+                        {"user_id": "202", "score": 0, "nickname": "敵D", "unique_id": "d_handle"}]},
+        ],
+    }
+    text = fmt(object(), team_handles_view)
+    check("viewer team members formatted with handles",
+          "敵C（@c_handle）・敵D（@d_handle）: 400" in text, text)
+except Exception as exc:
+    check(f"viewer unified labels in this environment ({type(exc).__name__}: {exc})", False)
+
+try:
+    from ui.pages.battle import BattlePage
+
+    page = BattlePage.__new__(BattlePage)
+    page.battle_data = {
+        "mode": "individual", "host_user_id": HOST,
+        "participants": [
+            {"anchor_id": OPP, "score": 200, "score_known": True,
+             "unique_id": "opp_handle"},
+            {"anchor_id": HOST, "score": 100, "score_known": True},
+        ],
+    }
+    text = page._format_score_text()
+    check("battle page shows @handle when nickname is missing",
+          "@opp_handle: 200" in text, text)
+
+    page.battle_data = {
+        "mode": "team", "host_user_id": "101",
+        "teams": [
+            {"team_id": "7001", "score": 500, "score_known": True,
+             "users": [{"user_id": "101", "score": 300, "score_known": True, "nickname": "味方A", "unique_id": "a_handle"},
+                        {"user_id": "102", "score": 200, "score_known": True, "nickname": "味方B", "unique_id": "b_handle"}]},
+            {"team_id": "7002", "score": 400, "score_known": True,
+             "users": [{"user_id": "201", "score": 400, "score_known": True, "nickname": "敵C", "unique_id": "c_handle"},
+                        {"user_id": "202", "score": 0, "score_known": True, "nickname": "敵D", "unique_id": "d_handle"}]},
+        ],
+    }
+    text = page._format_score_text()
+    check("battle page team members formatted with handles",
+          "敵C（@c_handle）・敵D（@d_handle）: 400" in text, text)
+except Exception as exc:
+    check(f"battle page unified labels in this environment ({type(exc).__name__}: {exc})", False)
 
 print()
 if FAILURES:
