@@ -13,6 +13,11 @@ try:
 except ModuleNotFoundError:
     from score_known import score_text
 
+try:
+    from core.participant_label import member_labels, participant_label
+except ModuleNotFoundError:
+    from participant_label import member_labels, participant_label
+
 
 class ViewerPage(ctk.CTkFrame):
     """TikTok Viewer / Collector status page."""
@@ -397,19 +402,10 @@ class ViewerPage(ctk.CTkFrame):
             return f"\uff08ID\u2026{text[-4:]}\uff09" if text else ""
 
         def display_name(entry, fallback):
-            nickname = str(entry.get("nickname") or "").strip()
-            if not nickname:
-                return fallback
-            handle = str(entry.get("unique_id") or "").strip()
-            return f"{nickname}\uff08@{handle}\uff09" if handle else nickname
+            return participant_label(entry, fallback)
 
         def team_member_names(team):
-            names = []
-            for user in team.get("users") or []:
-                nickname = str(user.get("nickname") or "").strip()
-                if nickname:
-                    names.append(nickname)
-            return "\u30fb".join(names)
+            return "\u30fb".join(member_labels(team.get("users")))
 
         if mode == "team":
             teams = data.get("teams", [])
