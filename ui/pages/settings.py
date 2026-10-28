@@ -35,6 +35,7 @@ class SettingsPage(ctk.CTkFrame):
         "license_status": "未認証",
         "appearance_mode": "dark",
         "analysis_interval": 30,
+        "evidence_capture_enabled": False,
         "ai_prompt": (
             "あなたはTikTok LIVE分析AIです。\n\n"
             "・配信画面を100点満点で評価してください。\n"
@@ -98,6 +99,7 @@ class SettingsPage(ctk.CTkFrame):
         self._build_license_section()
         self._build_analysis_section()
         self._build_appearance_section()
+        self._build_evidence_section()
         self._build_action_section()
 
     def _build_quick_setup_section(self):
@@ -353,6 +355,34 @@ class SettingsPage(ctk.CTkFrame):
             sticky="w",
             pady=(4, 8),
         )
+    def _build_evidence_section(self):
+        body = self._section("画面証拠の自動収集（フェーズD）")
+
+        self._field_label(body, "画面証拠の収集", 0)
+
+        self.evidence_capture_var = ctk.BooleanVar(value=False)
+        ctk.CTkSwitch(
+            body,
+            text="有効にする",
+            variable=self.evidence_capture_var,
+            font=("Yu Gothic UI", 13),
+        ).grid(row=0, column=1, sticky="w", pady=7)
+
+        ctk.CTkLabel(
+            body,
+            text=(
+                "ファーストチャレンジ検証用に、バトル中の画面（静止画）と"
+                "イベント受信時刻をローカル保存します。初期状態はOFFです。"
+                "画像はこのPC内だけに保存され、外部送信はしません。"
+                "間隔や上限は settings.json の evidence_* キーで変更できます。"
+            ),
+            anchor="w",
+            justify="left",
+            wraplength=520,
+            font=("Yu Gothic UI", 11),
+            text_color=("#94A3B8", "#64748B"),
+        ).grid(row=1, column=1, sticky="w", pady=(0, 5))
+
     def _build_action_section(self):
         actions = ctk.CTkFrame(
             self.scroll,
@@ -497,6 +527,11 @@ class SettingsPage(ctk.CTkFrame):
             settings.get("analysis_interval", 30),
         )
 
+        if hasattr(self, "evidence_capture_var"):
+            self.evidence_capture_var.set(
+                bool(settings.get("evidence_capture_enabled", False))
+            )
+
         self.prompt_text.delete("1.0", "end")
         self.prompt_text.insert(
             "1.0",
@@ -528,12 +563,17 @@ class SettingsPage(ctk.CTkFrame):
                 self.appearance_mode_var.get()
             )
 
+        evidence_enabled = False
+        if hasattr(self, "evidence_capture_var"):
+            evidence_enabled = bool(self.evidence_capture_var.get())
+
         return {
             "license_key": license_key,
             "license_status": self.license_status_label.cget("text"),
             "appearance_mode": appearance_mode,
             "analysis_interval": interval,
             "ai_prompt": prompt,
+            "evidence_capture_enabled": evidence_enabled,
         }
 
     

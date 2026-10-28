@@ -80,6 +80,12 @@ class BattleMonitor:
         self._anchor_names: dict[str, dict[str, str]] = {}
         self._anchor_names_scope: tuple[int, int] | None = None
 
+        # Phase D screen-evidence capture (opt-in; built lazily, inert
+        # unless evidence_capture_enabled is set in settings.json).
+        self._evidence_recorder = None
+        self._evidence_unavailable = False
+        self._evidence_envelope = None
+
         # Viewer authentication cookies are kept only in memory.
         self._session_id: Optional[str] = None
         self._tt_target_idc: Optional[str] = None
@@ -205,6 +211,8 @@ class BattleMonitor:
             self._battle_gameplay_option = ""
             self._write_payload({"active": False, "unique_id": "", "battle_id": 0, "reason": "stopped", "update_time": 0})
             (CAPTURE_DIR / "latest_room_info.json").unlink(missing_ok=True)
+
+        self._evidence_stop()
 
         if client is not None and loop is not None and loop.is_running():
             try:
@@ -409,6 +417,10 @@ class BattleMonitor:
                             challenge_tracker.capture(event)
                         except Exception as exc:
                             print(f'[Challenge Tracker Error] {type(exc).__name__}: {exc}', flush=True)
+                    try:
+                        self._evidence_raw_notification(event, bid)
+                    except Exception as exc:
+                        print(f'[Evidence Capture Error] {type(exc).__name__}: {exc}', flush=True)
                 client.add_listener(response_event, on_raw_notification)
                 print('[Challenge Probe] raw notification capture enabled', flush=True)
             else:
@@ -467,6 +479,72 @@ class BattleMonitor:
                         self._client = None
                         self._loop = None
 
+
+    # ---- Phase D screen-evidence capture (opt-in, inert by default) ----
+    def _get_evidence_recorder(self):
+        if self._evidence_recorder is None and not self._evidence_unavailable:
+            try:
+                try:
+                    from core.evidence_capture import EvidenceRecorder
+                except ModuleNotFoundError:
+                    from evidence_capture import EvidenceRecorder
+                self._evidence_recorder = EvidenceRecorder.from_app_settings(
+                    CAPTURE_DIR)
+            except Exception:
+                self._evidence_unavailable = True
+        return self._evidence_recorder
+
+    def _evidence_battle_payload(self, payload) -> None:
+        """Feed a battle lifecycle payload to the evidence recorder.
+
+        Active payloads start a session (idempotent per battle); inactive
+        ones finish it. The recorder keeps only format/count context.
+        Never raises and does nothing while the feature is disabled.
+        """
+        try:
+            recorder = self._get_evidence_recorder()
+            if recorder is None or not recorder.enabled:
+                return
+            if not isinstance(payload, dict):
+                return
+            if payload.get("active"):
+                battle_id = payload.get("battle_id")
+                if battle_id:
+                    recorder.start_battle(battle_id, payload)
+            else:
+                recorder.finish_battle(
+                    str(payload.get("reason") or "finished"))
+        except Exception as exc:
+            print(f"[Evidence Capture Error] {type(exc).__name__}: {exc}",
+                  flush=True)
+
+    def _evidence_stop(self) -> None:
+        try:
+            recorder = self._get_evidence_recorder()
+            if recorder is not None:
+                recorder.stop()
+        except Exception:
+            pass
+
+    def _evidence_raw_notification(self, event, battle_id) -> None:
+        """Mirror the probe's envelope dedupe and forward the receive
+        times of the five reconciled methods to the evidence recorder."""
+        recorder = self._get_evidence_recorder()
+        if recorder is None or not recorder.enabled:
+            return
+        try:
+            from core.evidence_capture import EVIDENCE_METHODS
+        except ModuleNotFoundError:
+            from evidence_capture import EVIDENCE_METHODS
+        raw = getattr(event, "raw", event)
+        if raw is self._evidence_envelope:
+            return
+        self._evidence_envelope = raw
+        now = time.time()
+        for message in getattr(raw, "messages", ()):
+            method = str(getattr(message, "method", ""))
+            if method in EVIDENCE_METHODS:
+                recorder.accept_event(method, now, battle_id)
 
     def _record_timeline(self, event, unique_id, generation, kind):
         with self._lock:
@@ -615,6 +693,7 @@ class BattleMonitor:
                 )
 
             self._write_payload(result_payload)
+            self._evidence_battle_payload(result_payload)
 
             print(
                 f"[Battle Monitor] battle timeout finished "
@@ -803,6 +882,7 @@ class BattleMonitor:
             self._apply_anchor_names(result_payload, battle_id, generation)
 
             self._write_payload(result_payload)
+            self._evidence_battle_payload(result_payload)
 
     def _handle_battle(
         self,
@@ -1027,6 +1107,7 @@ class BattleMonitor:
             self._apply_anchor_names(payload, battle_id, generation)
 
             self._write_payload(payload)
+            self._evidence_battle_payload(payload)
 
             if schedule_timeout:
                 threading.Thread(
