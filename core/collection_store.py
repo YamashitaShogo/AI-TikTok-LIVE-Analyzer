@@ -61,8 +61,20 @@ def score_text(payload):
             if len(users) == 1:
                 own_text = _score_known.score_text(users[0])
             text += f'（{own_text}）'
+        name = entry_name(entry, mode)
+        if name:
+            text = f'{name}: {text}'
         scores.append(text)
     return ('  VS  '.join(scores) or 'スコア未取得', identified)
+
+
+def entry_name(entry, mode):
+    """Display name for a payload entry, or '' when none was recorded."""
+    if mode == 'team':
+        names = [str(u.get('nickname') or '').strip()
+                 for u in entry.get('users') or []]
+        return '・'.join(name for name in names if name)
+    return str(entry.get('nickname') or '').strip()
 
 
 class CollectionStore:
