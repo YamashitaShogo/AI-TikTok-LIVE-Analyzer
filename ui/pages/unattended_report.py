@@ -16,7 +16,7 @@ from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
-from core.observation_sessions import JST, SessionSampler, SessionStore, format_jst
+from core.observation_sessions import JST, format_jst, get_runtime
 from core.report_ai import analyze as ai_analyze, evidence_preview
 from core.report_export import export_csv, export_json, export_pdf
 from core.unattended_report import available_sources, build_report, compare_reports
@@ -48,8 +48,9 @@ class UnattendedReportPage(ctk.CTkFrame):
         self._busy = False
         self._sources = available_sources()
         self._source = self._sources[0] if self._sources else None
-        self._store = None
-        self._sampler = None
+        # Session lifetime belongs to the process-wide runtime, not to
+        # this page: leaving the page never stops session recording.
+        self._runtime = get_runtime(self._source['capture_dir']) if self._source else None
         self._active_session_id = None
         self._sessions = []
         self._report = None
@@ -214,15 +215,12 @@ class UnattendedReportPage(ctk.CTkFrame):
         self._poll = self.after(120, self._pump)
 
     def destroy(self):
+        # Deliberately does NOT stop any sampler or session: recording
+        # is owned by the SessionRuntime and continues across pages.
         self._alive = False
         if self._poll is not None:
             try:
                 self.after_cancel(self._poll)
-            except Exception:
-                pass
-        if self._sampler is not None:
-            try:
-                self._sampler.stop()
             except Exception:
                 pass
         super().destroy()
@@ -234,11 +232,6 @@ class UnattendedReportPage(ctk.CTkFrame):
         box.configure(state='disabled')
 
     # ------------------------------------------------------------ sessions
-    def _store_for_source(self):
-        if self._source is None:
-            return None
-        return SessionStore(self._source['capture_dir'])
-
     def _is_topwatch(self):
         return bool(self._source and str(self._source['key']).startswith('topwatch:'))
 
@@ -248,9 +241,7 @@ class UnattendedReportPage(ctk.CTkFrame):
             if source['label'] == label:
                 self._source = source
                 break
-        if self._sampler is not None:
-            self._sampler.stop()
-            self._sampler = None
+        self._runtime = get_runtime(self._source['capture_dir']) if self._source else None
         self._active_session_id = None
         self.refresh()
 
@@ -258,15 +249,17 @@ class UnattendedReportPage(ctk.CTkFrame):
         if self._busy:
             return
         self._busy = True
-        source = self._source
+        runtime = self._runtime
 
         def worker():
             try:
                 sessions, recovered = [], []
-                if source is not None:
-                    store = SessionStore(source['capture_dir'])
-                    recovered = store.recover_interrupted()
-                    sessions = store.list_sessions(limit=50)
+                if runtime is not None:
+                    # Guarded recovery: sessions owned by this process,
+                    # or with a fresh heartbeat, are never interrupted.
+                    recovered = runtime.store.recover_interrupted()
+                    runtime.ensure_all_sampling()
+                    sessions = runtime.store.list_sessions(limit=50)
                 self._queue.put(('sessions', sessions, recovered))
             except Exception as exc:  # never break the page on store errors
                 logging.exception('session load failed')
@@ -292,7 +285,8 @@ class UnattendedReportPage(ctk.CTkFrame):
             self.stop_button.configure(state='normal')
         note = f'前回の未完了セッション{len(recovered)}件を「中断」として記録しました。' if recovered else ''
         self.status.configure(text=note + ('TopWatchのデータは参照のみです（セッション開始は対象プロセス側）。'
-                                           if self._is_topwatch() else ''))
+                                           if self._is_topwatch() else
+                                           'セッション終了時にレポートJSONを自動生成します（画面での集計・PDF・AI分析は手動操作です）。'))
         self.start_button.configure(state='disabled' if self._is_topwatch() else 'normal')
 
     def _targets(self):
@@ -301,30 +295,22 @@ class UnattendedReportPage(ctk.CTkFrame):
                 if part.strip()]
 
     def start_session(self):
-        if self._source is None or self._is_topwatch():
+        if self._source is None or self._is_topwatch() or self._runtime is None:
             return
-        store = self._store_for_source()
-        session = store.start_session(self.mode_menu.get(), self._targets(),
-                                      profile=self._source['profile'])
+        session = self._runtime.start_session(self.mode_menu.get(), self._targets(),
+                                              profile=self._source['profile'])
         self._active_session_id = session['session_id']
-        if self._sampler is not None:
-            self._sampler.stop()
-        self._sampler = SessionSampler(store, session['session_id'],
-                                       self._source['capture_dir'])
-        self._sampler.start()
-        self.session_label.configure(text=f"観測中: {session['started_jst']} 開始")
+        self.session_label.configure(text=f"観測中: {session['started_jst']} 開始"
+                                          '（画面を切り替えても記録は継続します）')
         self.stop_button.configure(state='normal')
         self.refresh()
 
     def stop_session(self):
-        if self._active_session_id is None or self._source is None:
+        if self._active_session_id is None or self._runtime is None:
             return
-        if self._sampler is not None:
-            self._sampler.stop()
-            self._sampler = None
-        store = self._store_for_source()
-        store.stop_session(self._active_session_id, end_kind='normal')
-        self.session_label.configure(text='セッション終了。レポートを生成できます。')
+        self._runtime.stop_session(self._active_session_id, end_kind='normal')
+        self.session_label.configure(
+            text='セッション終了。レポートJSONは自動生成されます（画面集計・PDF・AIは手動）。')
         self.stop_button.configure(state='disabled')
         self._active_session_id = None
         self.refresh()
@@ -396,7 +382,7 @@ class UnattendedReportPage(ctk.CTkFrame):
                 stamp = datetime.now(JST).strftime('%Y%m%d_%H%M%S')
                 export_json(report, folder / f'report_{stamp}.json')
                 if session is not None:
-                    SessionStore(source['capture_dir']).mark_report(
+                    get_runtime(source['capture_dir']).store.mark_report(
                         session['session_id'], 'generated')
                 self._queue.put(('report', report, previous_path))
             except Exception as exc:
@@ -418,7 +404,9 @@ class UnattendedReportPage(ctk.CTkFrame):
             f"（ユニーク {summary['unique_battle_count']} 件）",
             f"正常終了が確認できたバトル: {summary['finished_confirmed']} / "
             f"中断・終了未確認: {summary['unfinished']}",
-            f"スコア取得済み: {summary['score_known_battles']} / 未取得: {summary['score_unknown_battles']}",
+            f"最終スコア確定（終了確認済み）: {summary['score_known_battles']} / それ以外: {summary['score_unknown_battles']}",
+            f"終了未確認で参考スコアがあるバトル: {summary.get('last_known_score_battles', 0)}（最終スコアには含めていません）",
+            f"期間をまたいだバトル: {summary.get('window_clipped_battles', 0)}（集計は期間内サンプルのみ）",
             f"スコア中央値: {number(summary['final_score_median'])} / 最大確認スコア: {number(summary['final_score_max'])}",
             f"視聴者数の中央値: {number(summary['viewer_median'])} / 最大確認視聴者数: {number(summary['viewer_peak_max'])}",
             f"スコアの記録回数: {summary['score_sample_total']} / 視聴者数の記録回数: {summary['viewer_sample_total']}",
@@ -440,9 +428,17 @@ class UnattendedReportPage(ctk.CTkFrame):
         for battle in report['battles']:
             partial = {'full': '開始から観測', 'partial': '途中から観測',
                        'unknown': '判定不可'}[battle['partial_state']]
+            if battle['window_clipped']:
+                partial += '・期間をまたぐ'
+            if battle['score_known']:
+                score_cell = number(battle['final_score'])
+            elif battle.get('last_known_score') is not None:
+                score_cell = f"{battle['last_known_score']:,}（参考・終了未確認）"
+            else:
+                score_cell = '未取得'
             battle_lines.append(
                 f"{battle['nickname']} / {battle['first_seen_jst']} / {battle['status_label']} / "
-                f"{number(battle['final_score']) if battle['score_known'] else '未取得'} / "
+                f"{score_cell} / "
                 f"{number(battle['viewer_median'])} / {number(battle['viewer_peak'])} / {partial}")
         if not report['battles']:
             battle_lines.append('データなし')
