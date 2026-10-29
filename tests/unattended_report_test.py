@@ -15,8 +15,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.observation_sessions import SessionStore  # noqa: E402
-from core.unattended_report import build_report  # noqa: E402
+from core.observation_sessions import SessionStore, get_runtime  # noqa: E402
+from core.unattended_report import available_sources, build_report  # noqa: E402
 from core.report_export import export_csv, export_json, export_pdf  # noqa: E402
 from core import report_ai  # noqa: E402
 
@@ -108,9 +108,13 @@ def main():
     check("1c stop records end", stopped["end_kind"] == "normal" and stopped["ended_at"] == T0 + 3600)
 
     # ---- crash recovery ---------------------------------------------
-    store2 = SessionStore(capture)
-    crashed = store2.start_session("Battle Hunter", ["bob"], profile="capture", now=T0)
-    store2.heartbeat(crashed["session_id"], True, now=T0 + 10)
+    # A crash means the owning process is gone: simulate the next
+    # process (different token) finding the session with a stale
+    # heartbeat. Same-process recovery is covered by F1a and must
+    # never fire.
+    crashed = store.start_session("Battle Hunter", ["bob"], profile="capture", now=T0)
+    store.heartbeat(crashed["session_id"], True, now=T0 + 10)
+    store2 = SessionStore(capture, process_token="next-process")
     recovered = store2.recover_interrupted(now=T0 + 9999)
     after = store2.get_session(crashed["session_id"])
     check("R1 crashed session recovered as interrupted",
@@ -280,6 +284,143 @@ def main():
           and len(battle["score_series"]) <= 501)
     check("14c aggregation stays fast", elapsed < 30, f"{elapsed:.1f}s")
     print(f"     (14: elapsed {elapsed:.2f}s, tracemalloc peak {peak / 1e6:.1f} MB)")
+
+    # ---- F1. recovery never kills a live session (PR #8 review #1) -----
+    f1_dir = tmp / "f1"
+    f1_dir.mkdir()
+    store_a = SessionStore(f1_dir, process_token="proc-A")
+    live = store_a.start_session("Battle Hunter", ["x"], profile="capture", now=T0)
+    live_id = live["session_id"]
+    check("F1a own-process live session is never recovered",
+          store_a.recover_interrupted(now=T0 + 5) == []
+          and store_a.get_session(live_id)["end_kind"] == "running")
+    store_b = SessionStore(f1_dir, process_token="proc-B")
+    check("F1b foreign session with fresh heartbeat is not recovered",
+          store_b.recover_interrupted(now=T0 + 30) == []
+          and store_b.get_session(live_id)["end_kind"] == "running")
+    check("F1c stale foreign session is recovered, end time unguessed",
+          store_b.recover_interrupted(now=T0 + 10000) == [live_id]
+          and store_b.get_session(live_id)["end_kind"] == "interrupted"
+          and store_b.get_session(live_id)["ended_at"] is None)
+
+    # ---- F2. session lifetime is independent of the page (review #2) ---
+    f2_dir = tmp / "f2"
+    f2_dir.mkdir()
+    runtime = get_runtime(f2_dir)
+    sess = runtime.start_session("Battle Hunter", ["y"], profile="capture")
+    sampler = runtime._samplers[sess["session_id"]]
+    check("F2a runtime starts the sampler", sampler._thread.is_alive())
+    # A page being destroyed never touches the runtime: the sampler and
+    # the session must still be alive afterwards.
+    check("F2b sampler survives page teardown",
+          sampler._thread.is_alive()
+          and runtime.store.get_session(sess["session_id"])["end_kind"] == "running")
+    runtime.stop_session(sess["session_id"], auto_report=False)
+    check("F2c runtime stop ends sampler and session",
+          not sampler._thread.is_alive()
+          and runtime.store.get_session(sess["session_id"])["end_kind"] == "normal")
+    sess2 = runtime.start_session("Battle Hunter", ["y"], profile="capture")
+    lost = runtime._samplers.pop(sess2["session_id"])
+    lost.stop()
+    runtime.ensure_all_sampling()
+    check("F2d sampling reattaches for a running session",
+          runtime._samplers[sess2["session_id"]]._thread.is_alive())
+    runtime.stop_session(sess2["session_id"], auto_report=False)
+
+    # ---- F3. TopWatch real layout (review #3) ---------------------------
+    f3_base = tmp / "f3base"
+    tw_dir = f3_base / "top_watch" / "alice" / "AI-TikTok-LIVE-Analyzer" / "capture_fixed"
+    make_db(tw_dir)
+    tw_sources = [s for s in available_sources(base=f3_base)
+                  if s["key"].startswith("topwatch:")]
+    check("F3a nested TopWatch layout is found",
+          len(tw_sources) == 1 and tw_sources[0]["streamer_hint"] == "alice")
+    check("F3b TopWatch database path is the real one",
+          Path(tw_sources[0]["database"]) == tw_dir / "battle_dataset" / "battles.sqlite3")
+
+    # ---- F4. window clipping (review #4) --------------------------------
+    f4_dir = tmp / "f4"
+    f4_dir.mkdir()
+    f4_path, f4_db = make_db(f4_dir)
+    add_battle(f4_db, "frank", 9501, T0 - 600, T0 + 1200, "finished",
+               payload(score=800, start_ms=int((T0 - 600) * 1000)))
+    for at, value in ((T0 - 300, 100), (T0 + 100, 200), (T0 + 500, 400), (T0 + 1100, 800)):
+        add_snapshot(f4_db, "frank", 9501, at, payload(score=value, start_ms=int((T0 - 600) * 1000)))
+    for at, count in ((T0 - 300, 10), (T0 + 100, 20), (T0 + 1100, 99)):
+        add_viewer(f4_db, "frank", 9501, at, count)
+    rep_f4 = build_report(f4_path, {"kind": "period", "start": T0, "end": T0 + 600,
+                                    "streamers": ["frank"]}, profile="capture")
+    b_f4 = rep_f4["battles"][0]
+    check("F4a only in-window score samples are aggregated",
+          b_f4["score_sample_count"] == 2
+          and [p["v"] for p in b_f4["score_series"]] == [200, 400])
+    check("F4b only in-window viewer samples are aggregated",
+          b_f4["viewer_sample_count"] == 1 and b_f4["viewer_peak"] == 20)
+    check("F4c spanning battle is flagged as window-clipped",
+          b_f4["starts_before_window"] and b_f4["ends_after_window"] and b_f4["window_clipped"])
+    check("F4d clipped final score kept per-battle but out of the summary",
+          b_f4["final_score"] == 800
+          and rep_f4["summary"]["final_score_median"] is None
+          and rep_f4["summary"]["clipped_final_score_battles"] == 1
+          and rep_f4["summary"]["window_clipped_battles"] == 1)
+    check("F4e in-window end score is available", b_f4["score_at_window_end"] == 400)
+
+    # ---- F5. unfinished battles have no final score (review #5) ---------
+    f5_dir = tmp / "f5"
+    f5_dir.mkdir()
+    f5_path, f5_db = make_db(f5_dir)
+    add_battle(f5_db, "gina", 9601, T0, T0 + 300, "timeout_fallback",
+               payload(score=1234, start_ms=int(T0 * 1000)))
+    add_battle(f5_db, "gina", 9602, T0, T0 + 300, "active",
+               payload(score=55, start_ms=int(T0 * 1000)))
+    rep_f5 = build_report(f5_path, {"kind": "period", "start": T0 - 10, "end": T0 + 400,
+                                    "streamers": ["gina"]}, profile="capture")
+    by5 = {b["battle_id"]: b for b in rep_f5["battles"]}
+    check("F5a unfinished battles expose no final score",
+          by5[9601]["final_score"] is None and by5[9602]["final_score"] is None)
+    check("F5b latest known score is kept separate",
+          by5[9601]["last_known_score"] == 1234 and by5[9602]["last_known_score"] == 55)
+    check("F5c summary excludes them from final-score stats",
+          rep_f5["summary"]["score_known_battles"] == 0
+          and rep_f5["summary"]["final_score_median"] is None
+          and rep_f5["summary"]["last_known_score_battles"] == 2)
+    export_csv(rep_f5, out / "f5.csv")
+    f5_lines = (out / "f5.csv").read_text(encoding="utf-8-sig").strip().splitlines()
+    row_9601 = next(line for line in f5_lines if ",9601," in line).split(",")
+    check("F5d CSV final cell blank, reference score in its own column",
+          row_9601[7] == "" and row_9601[8] == "1234")
+
+    # ---- F6. automatic report on session stop (review #6) ---------------
+    f6_dir = tmp / "f6"
+    f6_dir.mkdir()
+    runtime6 = get_runtime(f6_dir)
+    sess6 = runtime6.start_session("Battle Hunter", ["henry"], profile="capture")
+    runtime6.stop_session(sess6["session_id"])
+    reports_dir = f6_dir / "observation_report" / "reports"
+    generated = None
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        if reports_dir.exists():
+            files = sorted(reports_dir.glob("report_*.json"))
+            if files and runtime6.store.get_session(sess6["session_id"])["report_state"] == "generated":
+                generated = files[-1]
+                break
+        time.sleep(0.2)
+    check("F6a session stop auto-generates the JSON report", generated is not None)
+    if generated is not None:
+        auto = json.loads(generated.read_text(encoding="utf-8"))
+        check("F6b auto trigger is recorded in the report",
+              auto["generation"]["trigger"] == "auto_session_stop")
+    f6b_dir = tmp / "f6b"
+    (f6b_dir / "observation_report").mkdir(parents=True)
+    (f6b_dir / "observation_report" / "reports").write_text("blocked", encoding="utf-8")
+    runtime6b = get_runtime(f6b_dir)
+    sess6b = runtime6b.start_session("Battle Hunter", ["henry"], profile="capture")
+    stopped6b = runtime6b.stop_session(sess6b["session_id"])
+    time.sleep(1.0)
+    check("F6c failed auto-report never breaks the stop",
+          stopped6b["end_kind"] == "normal"
+          and runtime6b.store.get_session(sess6b["session_id"])["report_state"] == "none")
 
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
     if FAILED:
