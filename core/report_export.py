@@ -46,6 +46,7 @@ CSV_COLUMNS = [
     ("first_seen_jst", "最初の記録（JST）"),
     ("partial_state", "観測の完全性"),
     ("final_score", "最終スコア"),
+    ("last_known_score", "最新の確認スコア（参考・終了未確認時のみ）"),
     ("score_state", "スコア取得"),
     ("score_sample_count", "スコア記録回数"),
     ("viewer_median", "視聴者数中央値"),
@@ -68,9 +69,18 @@ def export_csv(report, destination):
                 if key == "partial_state":
                     row.append(_PARTIAL_LABELS.get(battle.get(key), "判定不可"))
                 elif key == "score_state":
-                    row.append("取得済み" if battle.get("score_known") else "未取得")
+                    if battle.get("score_known"):
+                        row.append("取得済み")
+                    elif battle.get("last_known_score") is not None:
+                        row.append("参考値あり（終了未確認）")
+                    else:
+                        row.append("未取得")
                 elif key == "final_score":
                     row.append(battle.get("final_score") if battle.get("score_known") else "")
+                elif key == "last_known_score":
+                    row.append("" if battle.get("finished_confirmed")
+                               else (battle.get("last_known_score")
+                                     if battle.get("last_known_score") is not None else ""))
                 else:
                     value = battle.get(key)
                     row.append("" if value is None else value)
@@ -221,11 +231,18 @@ def export_pdf(report, destination, ai_text=None):
         header = ["配信者", "開始（JST）", "状態", "最終スコア", "視聴者中央値", "視聴者最大"]
         rows = [[Paragraph(h, small) for h in header]]
         for battle in battles[:100]:
+            if battle.get("score_known"):
+                score_cell = _fmt(battle.get("final_score"))
+            elif battle.get("last_known_score") is not None:
+                # Not a final score: the battle's end was never confirmed.
+                score_cell = f"{battle['last_known_score']:,}（参考・終了未確認）"
+            else:
+                score_cell = "未取得"
             rows.append([
                 Paragraph(str(battle.get("nickname") or battle.get("unique_id")), small),
                 Paragraph(str(battle.get("first_seen_jst") or ""), small),
                 Paragraph(str(battle.get("status_label") or ""), small),
-                Paragraph(_fmt(battle.get("final_score") if battle.get("score_known") else None), small),
+                Paragraph(score_cell, small),
                 Paragraph(_fmt(battle.get("viewer_median")), small),
                 Paragraph(_fmt(battle.get("viewer_peak")), small),
             ])

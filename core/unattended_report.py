@@ -65,7 +65,13 @@ def available_sources(base=None):
         for child in sorted(top_watch.iterdir()):
             if not child.is_dir():
                 continue
-            for candidate in (child / "capture_fixed", child / "capture"):
+            # Actual layout written by TopWatch children:
+            # top_watch/<streamer_id>/AI-TikTok-LIVE-Analyzer/capture_fixed
+            # (the child app's own LOCALAPPDATA-style tree). The flatter
+            # layouts are kept as fallbacks for older installs.
+            for candidate in (child / "AI-TikTok-LIVE-Analyzer" / "capture_fixed",
+                              child / "AI-TikTok-LIVE-Analyzer" / "capture",
+                              child / "capture_fixed", child / "capture"):
                 if battle_db(candidate).exists():
                     profile = "capture_fixed" if candidate.name == "capture_fixed" else "capture"
                     sources.append({
@@ -100,7 +106,16 @@ def _gaps(points, kind):
     return gaps
 
 
-def _battle_record(db, tables, row, window_start):
+def _battle_record(db, tables, row, window_start, window_end=None):
+    """One battle's record, aggregated from IN-WINDOW samples only.
+
+    Samples outside [window_start, window_end] never enter the series,
+    counts, gaps or increases. Battles that span the window are flagged
+    (``window_clipped``) so the observed interval is never presented as
+    the complete battle. The payload score of a battle whose end was
+    not confirmed is NOT a final score: it is exposed separately as
+    ``last_known_score`` (reference only).
+    """
     payload = safe_payload(row["payload"])
     key = (row["unique_id"], row["battle_id"])
     mode = payload.get("mode") or "unknown"
@@ -119,22 +134,52 @@ def _battle_record(db, tables, row, window_start):
     else:
         partial_state = "full"
 
+    def _window_clause(column):
+        clause, args = "", []
+        if window_start is not None:
+            clause += f" AND {column}>=?"
+            args.append(float(window_start))
+        if window_end is not None:
+            clause += f" AND {column}<=?"
+            args.append(float(window_end))
+        return clause, args
+
     score_points = []
     if "snapshots" in tables:
+        clause, args = _window_clause("received_at")
         for snap in db.execute(
                 "SELECT received_at, payload FROM snapshots"
-                " WHERE unique_id=? AND battle_id=? ORDER BY received_at", key):
+                " WHERE unique_id=? AND battle_id=?" + clause +
+                " ORDER BY received_at", (*key, *args)):
             value = host_score(safe_payload(snap["payload"]))
             score_points.append({"t": snap["received_at"], "v": value})
     known_points = [p for p in score_points if p["v"] is not None]
-    final_score = host_score(payload)
+
+    status = row["status"]
+    finished_confirmed = status == "finished"
+    payload_score = host_score(payload)
+    # Only a battle with a confirmed end has a final score. Anything
+    # else is the latest known value, kept visibly separate.
+    final_score = payload_score if finished_confirmed else None
+    last_known_score = payload_score
+    if last_known_score is None and known_points:
+        last_known_score = known_points[-1]["v"]
+
+    starts_before_window = bool(
+        window_start is not None and (
+            (battle_start is not None and battle_start < window_start)
+            or row["first_seen"] < window_start))
+    ends_after_window = bool(
+        window_end is not None and row["last_seen"] > window_end)
 
     viewer_points = []
     if "viewer_samples" in tables:
+        clause, args = _window_clause("received_at")
         viewer_points = [{"t": r["received_at"], "v": r["viewer_count"]}
                          for r in db.execute(
                              "SELECT received_at, viewer_count FROM viewer_samples"
-                             " WHERE unique_id=? AND battle_id=? ORDER BY received_at", key)]
+                             " WHERE unique_id=? AND battle_id=?" + clause +
+                             " ORDER BY received_at", (*key, *args))]
     viewer_values = [p["v"] for p in viewer_points]
 
     largest = None
@@ -145,7 +190,6 @@ def _battle_record(db, tables, row, window_start):
 
     score_series, score_ds = _downsample(score_points)
     viewer_series, viewer_ds = _downsample(viewer_points)
-    status = row["status"]
     return {
         "unique_id": row["unique_id"],
         "battle_id": row["battle_id"],
@@ -153,13 +197,18 @@ def _battle_record(db, tables, row, window_start):
         "mode": mode,
         "status": status,
         "status_label": STATUS_LABELS.get(status, status),
-        "finished_confirmed": status == "finished",
+        "finished_confirmed": finished_confirmed,
         "first_seen": row["first_seen"],
         "last_seen": row["last_seen"],
         "first_seen_jst": format_jst(row["first_seen"]),
         "battle_start": battle_start,
         "partial_state": partial_state,
+        "starts_before_window": starts_before_window,
+        "ends_after_window": ends_after_window,
+        "window_clipped": bool(starts_before_window or ends_after_window),
+        "score_at_window_end": known_points[-1]["v"] if known_points else None,
         "final_score": final_score,
+        "last_known_score": last_known_score,
         "score_known": final_score is not None,
         "score_sample_count": len(known_points),
         "snapshot_count": len(score_points),
@@ -174,7 +223,8 @@ def _battle_record(db, tables, row, window_start):
     }
 
 
-def build_report(database, scope, session=None, profile="capture", now=None):
+def build_report(database, scope, session=None, profile="capture", now=None,
+                 generation_trigger="manual"):
     """Build one report dict.
 
     scope: {"kind": "session"|"period"|"streamer"|"all",
@@ -193,6 +243,9 @@ def build_report(database, scope, session=None, profile="capture", now=None):
         "profile": profile,
         "database": str(store.database),
         "scope": dict(scope),
+        "generation": {"trigger": generation_trigger,
+                       "note": "セッション終了時はJSONレポートを自動生成します。"
+                               "画面での集計・PDF出力・AI分析は手動操作です。"},
         "session": None,
         "summary": None,
         "per_streamer": [],
@@ -205,7 +258,8 @@ def build_report(database, scope, session=None, profile="capture", now=None):
             "記録バトル数": "観測レコード件数（配信者×バトルの行数）。同一バトルを複数配信者から観測すると複数件になる。",
             "ユニークバトル数": "battle_id の distinct 件数。記録バトル数とは別に数える。",
             "正常終了が確認できたバトル数": "記録側ステータスが finished（終了通知あり）のレコード件数。",
-            "スコア中央値・最大確認スコア": "本人（観測対象）スコアが score_known=True で確定したレコードの最終スコアのみが対象。未取得は0として数えない。",
+            "スコア中央値・最大確認スコア": "終了が確認でき（終了通知あり）、本人スコアが score_known=True で確定したレコードの最終スコアのみが対象。未取得は0として数えない。終了未確認バトルのスコアは最終スコアではなく「最新の確認スコア（参考）」として別に数える。",
+            "期間をまたぐバトル": "対象期間の開始前から続いていた／終了が期間の終了後になったバトルは window_clipped として区別する。集計には期間内のサンプルだけを使う。期間をまたいで終了したバトルの最終スコアは、そのバトルの行に参考として保持し、期間の集計（中央値・最大・取得済み件数）には含めない。",
             "視聴者数の中央値": "バトルごとの視聴者数中央値を求め、その中央値。サンプルのないバトルは対象外。",
             "最大確認視聴者数": "記録された視聴者サンプルの最大値。",
             "スコアの記録回数": "本人スコアが確定できたスナップショットの総数。",
@@ -274,7 +328,7 @@ def build_report(database, scope, session=None, profile="capture", now=None):
                         " ORDER BY first_seen, battle_id LIMIT ? OFFSET ?",
                         (*args, BATTLE_PAGE_SIZE, offset)).fetchall()
                     for row in rows:
-                        battles.append(_battle_record(db, tables, row, start))
+                        battles.append(_battle_record(db, tables, row, start, end))
                     offset += BATTLE_PAGE_SIZE
                 if "excluded_battles" in tables:
                     if start is not None and end is not None:
@@ -287,7 +341,14 @@ def build_report(database, scope, session=None, profile="capture", now=None):
                             "SELECT count(*) FROM excluded_battles").fetchone()[0]
 
     finished = [b for b in battles if b["finished_confirmed"]]
-    known_finals = [b["final_score"] for b in battles if b["score_known"]]
+    # Final scores that belong to this window: confirmed end, known
+    # score, and the battle did not end after the window closed.
+    known_finals = [b["final_score"] for b in battles
+                    if b["score_known"] and not b["ends_after_window"]]
+    clipped_finals = [b for b in battles
+                      if b["score_known"] and b["ends_after_window"]]
+    last_known_only = [b for b in battles
+                       if not b["finished_confirmed"] and b["last_known_score"] is not None]
     viewer_medians = [b["viewer_median"] for b in battles if b["viewer_median"] is not None]
     viewer_peaks = [b["viewer_peak"] for b in battles if b["viewer_peak"] is not None]
     if session is not None:
@@ -310,7 +371,8 @@ def build_report(database, scope, session=None, profile="capture", now=None):
     per_streamer = []
     for unique_id in sorted(grouped):
         rows = grouped[unique_id]
-        scores = [b["final_score"] for b in rows if b["score_known"]]
+        scores = [b["final_score"] for b in rows
+                  if b["score_known"] and not b["ends_after_window"]]
         vmed = [b["viewer_median"] for b in rows if b["viewer_median"] is not None]
         per_streamer.append({
             "unique_id": unique_id,
@@ -318,6 +380,9 @@ def build_report(database, scope, session=None, profile="capture", now=None):
             "records": len(rows),
             "finished": sum(1 for b in rows if b["finished_confirmed"]),
             "score_known": len(scores),
+            "last_known_records": sum(
+                1 for b in rows if not b["finished_confirmed"]
+                and b["last_known_score"] is not None),
             "score_median": median(scores) if scores else None,
             "score_max": max(scores) if scores else None,
             "viewer_median": median(vmed) if vmed else None,
@@ -339,6 +404,9 @@ def build_report(database, scope, session=None, profile="capture", now=None):
         "unfinished": len(battles) - len(finished),
         "score_known_battles": len(known_finals),
         "score_unknown_battles": len(battles) - len(known_finals),
+        "clipped_final_score_battles": len(clipped_finals),
+        "last_known_score_battles": len(last_known_only),
+        "window_clipped_battles": sum(1 for b in battles if b["window_clipped"]),
         "final_score_median": median(known_finals) if known_finals else None,
         "final_score_max": max(known_finals) if known_finals else None,
         "viewer_median": median(viewer_medians) if viewer_medians else None,

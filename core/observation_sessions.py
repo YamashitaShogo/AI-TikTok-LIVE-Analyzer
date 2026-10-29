@@ -17,6 +17,7 @@ Design rules (from the unattended-report spec):
 - Nothing in this module touches the battle database.
 """
 import json
+import os
 import sqlite3
 import threading
 import time
@@ -28,6 +29,12 @@ from pathlib import Path
 JST = timezone(timedelta(hours=9))
 MAX_SAMPLE_GAP = 60.0
 END_KINDS = ("running", "normal", "abnormal", "interrupted")
+# Identifies the process that owns live sessions. A session owned by
+# this process is alive by definition and must never be "recovered";
+# a session owned by another process is only recovered once its
+# heartbeat is stale, so a second live instance is never cut off.
+PROCESS_TOKEN = uuid.uuid4().hex
+DEFAULT_STALE_AFTER = 180.0
 
 
 def format_jst(timestamp):
@@ -47,11 +54,12 @@ def session_db_path(capture_dir):
 class SessionStore:
     """SQLite-backed store for observation sessions (separate database)."""
 
-    def __init__(self, capture_dir):
+    def __init__(self, capture_dir, process_token=None):
         self.capture_dir = Path(capture_dir)
         self.db_path = session_db_path(self.capture_dir)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self.process_token = process_token or PROCESS_TOKEN
         with self._connect() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS sessions (
@@ -81,6 +89,13 @@ class SessionStore:
                 CREATE INDEX IF NOT EXISTS session_events_session
                     ON session_events(session_id, at);
             """)
+            # Non-destructive migration for stores created before
+            # ownership tracking existed.
+            columns = {row[1] for row in db.execute("PRAGMA table_info(sessions)")}
+            if "owner_token" not in columns:
+                db.execute("ALTER TABLE sessions ADD COLUMN owner_token TEXT")
+            if "owner_pid" not in columns:
+                db.execute("ALTER TABLE sessions ADD COLUMN owner_pid INTEGER")
 
     @contextmanager
     def _connect(self):
@@ -102,9 +117,11 @@ class SessionStore:
         with self._lock, self._connect() as db:
             db.execute(
                 "INSERT INTO sessions (session_id, mode, profile, targets_json,"
-                " started_at, last_heartbeat_at) VALUES (?, ?, ?, ?, ?, ?)",
+                " started_at, last_heartbeat_at, owner_token, owner_pid)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (session_id, str(mode or "unattended"), str(profile or "capture"),
-                 json.dumps(targets, ensure_ascii=False), now, now))
+                 json.dumps(targets, ensure_ascii=False), now, now,
+                 self.process_token, os.getpid()))
             db.execute(
                 "INSERT INTO session_events (session_id, at, kind, detail_json)"
                 " VALUES (?, ?, 'start', ?)",
@@ -135,9 +152,19 @@ class SessionStore:
                                     float(new_last_data) if new_last_data else 0.0)
             db.execute(
                 f"UPDATE sessions SET last_heartbeat_at=?, last_data_at=?,"
+                f" owner_token=?, owner_pid=?,"
                 f" {column}={column}+? WHERE session_id=?",
-                (now, new_last_data, delta, session_id))
+                (now, new_last_data, self.process_token, os.getpid(),
+                 delta, session_id))
         return True
+
+    def adopt_session(self, session_id):
+        """Claim a running session for this process (e.g. page reopened)."""
+        with self._lock, self._connect() as db:
+            db.execute(
+                "UPDATE sessions SET owner_token=?, owner_pid=?"
+                " WHERE session_id=? AND end_kind='running'",
+                (self.process_token, os.getpid(), session_id))
 
     def record_event(self, session_id, kind, detail=None, now=None):
         now = time.time() if now is None else float(now)
@@ -168,19 +195,30 @@ class SessionStore:
                 (session_id, now, json.dumps({"end_kind": end_kind})))
         return self.get_session(session_id)
 
-    def recover_interrupted(self, now=None):
+    def recover_interrupted(self, now=None, stale_after=DEFAULT_STALE_AFTER):
         """Mark sessions left 'running' by a crash as interrupted.
 
-        ``ended_at`` is deliberately left NULL: the true end time is
-        unknown, and the last heartbeat is the only confirmed evidence.
+        Safety guards (a live session must never be recovered):
+        - sessions owned by THIS process are skipped unconditionally;
+        - sessions whose heartbeat is fresh (within ``stale_after``
+          seconds) are skipped: another live instance may own them.
+
+        ``ended_at`` is deliberately left NULL for recovered sessions:
+        the true end time is unknown, and the last heartbeat is the
+        only confirmed evidence.
         """
         now = time.time() if now is None else float(now)
         recovered = []
         with self._lock, self._connect() as db:
             rows = db.execute(
-                "SELECT session_id, last_heartbeat_at FROM sessions"
+                "SELECT session_id, last_heartbeat_at, owner_token FROM sessions"
                 " WHERE end_kind='running'").fetchall()
             for row in rows:
+                if row["owner_token"] is not None and row["owner_token"] == self.process_token:
+                    continue  # owned by this live process
+                last = row["last_heartbeat_at"]
+                if last is not None and now - float(last) <= stale_after:
+                    continue  # heartbeat still fresh: owner may be alive
                 db.execute(
                     "UPDATE sessions SET end_kind='interrupted', recovered_at=?"
                     " WHERE session_id=?", (now, row["session_id"]))
@@ -298,3 +336,106 @@ class SessionSampler:
             except Exception:
                 pass  # Sampling must never disturb collection.
             self._stop.wait(self.interval)
+
+
+class SessionRuntime:
+    """Owns live samplers independently of any UI page.
+
+    The observation session's lifetime is the app process's lifetime,
+    not a page's: navigating away from the report page must not stop
+    session recording. Pages delegate start/stop here and never touch
+    samplers directly. One runtime exists per capture directory.
+    """
+
+    def __init__(self, capture_dir, sampler_interval=10.0):
+        self.capture_dir = Path(capture_dir)
+        self.store = SessionStore(self.capture_dir)
+        self.sampler_interval = sampler_interval
+        self._samplers = {}
+        self._lock = threading.RLock()
+
+    def start_session(self, mode, targets=None, profile="capture"):
+        session = self.store.start_session(mode, targets, profile=profile)
+        self.ensure_sampling(session["session_id"])
+        return self.store.get_session(session["session_id"])
+
+    def ensure_sampling(self, session_id):
+        """Attach a sampler to a running session if none is alive."""
+        with self._lock:
+            sampler = self._samplers.get(session_id)
+            if sampler is not None and sampler._thread is not None \
+                    and sampler._thread.is_alive():
+                return sampler
+            session = self.store.get_session(session_id)
+            if session is None or session["end_kind"] != "running":
+                return None
+            self.store.adopt_session(session_id)
+            sampler = SessionSampler(self.store, session_id, self.capture_dir,
+                                     interval=self.sampler_interval)
+            sampler.start()
+            self._samplers[session_id] = sampler
+            return sampler
+
+    def ensure_all_sampling(self):
+        for session in self.store.list_sessions(limit=50):
+            if session["end_kind"] == "running":
+                self.ensure_sampling(session["session_id"])
+
+    def active_sessions(self):
+        self.ensure_all_sampling()
+        return [s for s in self.store.list_sessions(limit=50)
+                if s["end_kind"] == "running"]
+
+    def stop_session(self, session_id, end_kind="normal", auto_report=True):
+        with self._lock:
+            sampler = self._samplers.pop(session_id, None)
+        if sampler is not None:
+            sampler.stop()
+        session = self.store.stop_session(session_id, end_kind=end_kind)
+        if auto_report and session is not None:
+            thread = threading.Thread(target=self._auto_report,
+                                      args=(session_id,), daemon=True,
+                                      name="SessionAutoReport")
+            thread.start()
+        return session
+
+    def _auto_report(self, session_id):
+        """Best-effort automatic report (JSON) after a session stops.
+
+        Runs in a background thread and swallows every failure: report
+        generation must never affect collection or the stop action.
+        What stays manual: on-screen aggregation, PDF and AI analysis.
+        """
+        try:
+            from core.unattended_report import build_report
+            from core.report_export import export_json
+            session = self.store.get_session(session_id)
+            if session is None:
+                return
+            database = self.capture_dir / "battle_dataset" / "battles.sqlite3"
+            report = build_report(database, {"kind": "session"}, session=session,
+                                  profile=session["profile"],
+                                  generation_trigger="auto_session_stop")
+            folder = self.capture_dir / "observation_report" / "reports"
+            folder.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.fromtimestamp(session["ended_at"] or time.time(), JST)
+            export_json(report, folder / f"report_{stamp.strftime('%Y%m%d_%H%M%S')}.json")
+            self.store.mark_report(session_id, "generated",
+                                   {"trigger": "auto_session_stop"})
+        except Exception:
+            pass  # Automatic reporting is best-effort by design.
+
+
+_RUNTIMES = {}
+_RUNTIMES_LOCK = threading.Lock()
+
+
+def get_runtime(capture_dir):
+    """The process-wide SessionRuntime for one capture directory."""
+    key = str(Path(capture_dir).resolve())
+    with _RUNTIMES_LOCK:
+        runtime = _RUNTIMES.get(key)
+        if runtime is None:
+            runtime = SessionRuntime(capture_dir)
+            _RUNTIMES[key] = runtime
+        return runtime
