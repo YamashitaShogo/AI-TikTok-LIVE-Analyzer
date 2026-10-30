@@ -555,6 +555,30 @@ class UnattendedReportPage(ctk.CTkFrame):
             text=f'自分のTikTok IDを保存しました: @{tiktok_id}'
                  '（観測対象の設定です。本人確認済みという意味ではありません）')
 
+    def _fixed_collection_alert(self, session):
+        """Warning when a session is 'running' but nothing is actually
+        collecting for it on the fixed source; '' when collection is
+        genuinely underway (our collector running healthily, or an
+        external collector observing the SAME target). Unknown state
+        yields '' — never fabricate either way."""
+        if session is None or not self._is_fixed_source():
+            return ''
+        try:
+            state = get_fixed_controller(self._source['capture_dir']).status()
+        except Exception:
+            return ''
+        if state.get('running'):
+            if state.get('state') in ('stalled', 'blocked'):
+                return (f"固定観測コレクタが正常に収集できていません（{state.get('label', '')}）。"
+                        'セッションだけが「観測中」の状態になっています。')
+            return ''
+        targets = [str(t) for t in (session.get('targets') or [])]
+        if (state.get('state') == 'conflict'
+                and str(state.get('external_target') or '') in targets):
+            return ''  # an external collector observes the same target
+        return ('固定観測コレクタが停止しています。セッションは「観測中」のままですが、'
+                '現在データは収集されていません。')
+
     def _update_collector_status(self):
         if not self._is_fixed_source():
             self.collector_label.configure(text='固定観測ではありません')
@@ -592,6 +616,8 @@ class UnattendedReportPage(ctk.CTkFrame):
             registered = get_pro_tiktok_id()
             if registered and registered != observing:
                 note += '（登録IDと異なります。変更は次回の分析開始から反映されます）'
+            if active is not None and self._fixed_collection_alert(active):
+                note += '（コレクタ停止中：現在は収集していません）'
             self.observing_label.configure(text=note)
         else:
             self.observing_label.configure(text='—')
@@ -642,10 +668,13 @@ class UnattendedReportPage(ctk.CTkFrame):
         running = next((s for s in self._sessions if s['end_kind'] == 'running'), None)
         latest = self._sessions[0] if self._sessions else None
         current = running or latest
+        alert = self._fixed_collection_alert(running)
         if running is not None:
             self._active_session_id = running['session_id']
             self._running_started_at = running['started_at']
-            self.badge.set_status('running')
+            # A running session whose collector is gone must not look
+            # like healthy observation.
+            self.badge.set_status('collector_stopped' if alert else 'running')
             self.stop_button.configure(state='normal')
             self.start_button.configure(state='disabled')
             self.elapsed_label.configure(
@@ -673,6 +702,8 @@ class UnattendedReportPage(ctk.CTkFrame):
             self.started_label.configure(text='—')
             self.session_id_label.configure(text='セッションID: —')
         note = f'前回の未完了セッション{len(recovered)}件を「中断」として記録しました。' if recovered else ''
+        if alert:
+            note = f'⚠ {alert} ' + note
         self.status.configure(text=note + ('TopWatchのデータは参照のみです（セッション開始は対象プロセス側）。'
                                            if self._is_topwatch() else
                                            'セッション終了時にレポートJSONを自動生成します（画面での集計・PDF・AI分析は手動操作です）。'))
