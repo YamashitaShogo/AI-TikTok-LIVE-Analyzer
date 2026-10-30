@@ -778,31 +778,44 @@ class UnattendedReportPage(ctk.CTkFrame):
         self._transition = True
         self.start_button.configure(state='disabled')
         self.stop_button.configure(state='disabled')
+        need_refresh = True
         try:
-            self._runtime.stop_session(self._active_session_id, end_kind='normal')
-            collector_stopped = True
             if self._is_fixed_source():
+                # Ordering (Phase 4 review): the collector must be
+                # CONFIRMED stopped before the session is closed as a
+                # normal end and its final JSON is generated, so the
+                # JSON is built from complete data and no collector
+                # writes can land after the session's end.
                 try:
                     collector_stopped = get_fixed_controller(
                         self._source['capture_dir']).stop()
                 except Exception:
                     logging.exception('fixed collector stop failed')
                     collector_stopped = False
+                if not collector_stopped:
+                    # Never record a normal end the data does not
+                    # support: the session stays running (collection
+                    # state unchanged) and the user can retry. No
+                    # refresh here — re-rendering would overwrite this
+                    # message; the buttons are restored directly.
+                    need_refresh = False
+                    self.stop_button.configure(state='normal')
+                    self.status.configure(
+                        text='固定観測の停止を確認できなかったため、セッションを終了しませんでした。'
+                             '観測は継続しています。もう一度「配信分析を終了」を押してください。')
+                    self._update_collector_status()
+                    return
+            self._runtime.stop_session(self._active_session_id, end_kind='normal')
             self.badge.set_status('normal')
-            if collector_stopped:
-                self.status.configure(
-                    text='配信分析を終了しました。レポートJSONは自動生成されます（画面集計・PDF・AIは手動）。')
-            else:
-                # Never claim 停止中 while our collector may still write.
-                self.status.configure(
-                    text='セッションは終了しましたが、固定観測の停止を確認できませんでした。'
-                         '「収集の状態」を確認してください。')
+            self.status.configure(
+                text='配信分析を終了しました。レポートJSONは自動生成されます（画面集計・PDF・AIは手動）。')
             self._active_session_id = None
             self._running_started_at = None
             self._update_collector_status()
         finally:
             self._transition = False
-            self.refresh()
+            if need_refresh:
+                self.refresh()
 
     # ------------------------------------------------------------ report
     def _selected_session(self):
