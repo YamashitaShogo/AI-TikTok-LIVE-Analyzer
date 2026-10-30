@@ -35,7 +35,7 @@ else:
     from observation_profile import CAPTURE, PROFILE, FIXED
 
 # ------------------------------------------------------------------
-# Fixed-observation profile exclusion (Phase 4).
+# Fixed-observation profile exclusion (Phase 4, fail-closed).
 #
 # In FIXED mode this collector is the one writer of its profile, so
 # THIS process acquires the cross-process profile lock (see
@@ -43,39 +43,37 @@ else:
 # started it (Pulse Pro, top_viewer.py, TopWatch children with their
 # own app-data base, another Pulse instance), a second fixed
 # collector for the same profile exits here instead of writing.
-# The OS releases the lock automatically if this process dies.
+#
+# FAIL-CLOSED: if the lock cannot be initialized, acquired, or
+# verified, this process exits WITHOUT collecting. There is no
+# fall-through path that collects unguarded. The OS releases the
+# lock automatically if this process dies.
 # ------------------------------------------------------------------
 _FIXED_PROFILE_LOCK = None
 if FIXED:
     try:
         try:
-            from core import fixed_lock as _fixed_lock
+            from core.fixed_lock import (acquire_profile_lock_or_exit,
+                                         target_id_from_url, write_status)
         except ImportError:
-            import fixed_lock as _fixed_lock
-        _lock_target = _fixed_lock.target_id_from_url(
-            os.environ.get("LIVEMETRY_FIXED_URL", ""))
-        _FIXED_PROFILE_LOCK = _fixed_lock.ProfileLock()
-        if not _FIXED_PROFILE_LOCK.acquire():
-            _fixed_lock.write_status("conflict", target_id=_lock_target)
-            print("固定観測コレクタ: 同じプロファイルの固定観測が既に動作中のため終了します"
-                  f" (target=@{_lock_target})", flush=True)
-            sys.exit(3)
-        _fixed_lock.write_status("held", target_id=_lock_target)
-
-        def _release_fixed_lock():
-            try:
-                _fixed_lock.write_status("released", target_id=_lock_target)
-            finally:
-                if _FIXED_PROFILE_LOCK is not None:
-                    _FIXED_PROFILE_LOCK.release()
-
-        import atexit as _atexit
-        _atexit.register(_release_fixed_lock)
-    except SystemExit:
-        raise
-    except Exception as _lock_error:  # never brick collection on lock infra errors
-        print(f"固定観測コレクタ: 排他ロックを初期化できませんでした: {_lock_error!r}",
+            from fixed_lock import (acquire_profile_lock_or_exit,
+                                    target_id_from_url, write_status)
+    except Exception as _import_error:
+        print(f"固定観測コレクタ: 排他ロックモジュールを読み込めなかったため終了します: {_import_error!r}",
               flush=True)
+        sys.exit(4)
+    _lock_target = target_id_from_url(os.environ.get("LIVEMETRY_FIXED_URL", ""))
+    _FIXED_PROFILE_LOCK = acquire_profile_lock_or_exit(_lock_target)
+
+    def _release_fixed_lock():
+        try:
+            write_status("released", target_id=_lock_target)
+        finally:
+            if _FIXED_PROFILE_LOCK is not None:
+                _FIXED_PROFILE_LOCK.release()
+
+    import atexit as _atexit
+    _atexit.register(_release_fixed_lock)
 
 mode = "dark"
 
