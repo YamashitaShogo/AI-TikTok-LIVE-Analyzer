@@ -35,6 +35,7 @@ import customtkinter as ctk
 
 from core.fixed_observation import (get_fixed_controller, get_pro_tiktok_id,
                                     set_pro_tiktok_id)
+from core.settings import SettingsLoadError, SettingsSaveError
 from core.observation_sessions import JST, format_jst, get_runtime
 from core.report_ai import analyze as ai_analyze, evidence_preview
 from core.report_export import export_csv, export_json, export_pdf
@@ -549,6 +550,15 @@ class UnattendedReportPage(ctk.CTkFrame):
         except ValueError as exc:
             messagebox.showerror('自分のTikTok ID', str(exc))
             return
+        except (SettingsSaveError, SettingsLoadError) as exc:
+            # The ID was NOT saved; say so plainly (existing settings
+            # are untouched) instead of leaking an unhandled error.
+            messagebox.showerror(
+                '設定保存エラー',
+                'TikTok IDを保存できませんでした。既存の設定は変更されていません。'
+                '時間をおいて再度お試しください。\n\n'
+                f'{exc}')
+            return
         self.account_entry.delete(0, 'end')
         self.account_entry.insert(0, tiktok_id)
         self.status.configure(
@@ -742,6 +752,15 @@ class UnattendedReportPage(ctk.CTkFrame):
                     self.account_entry.get() or get_pro_tiktok_id())
             except ValueError as exc:
                 messagebox.showerror('自分のTikTok ID', str(exc))
+                return
+            except (SettingsSaveError, SettingsLoadError) as exc:
+                # Without a saved target ID, neither the collector
+                # nor a session may start.
+                messagebox.showerror(
+                    '設定保存エラー',
+                    'TikTok IDを保存できなかったため、配信分析を開始しませんでした。'
+                    '既存の設定は変更されていません。時間をおいて再度お試しください。\n\n'
+                    f'{exc}')
                 return
             self.account_entry.delete(0, 'end')
             self.account_entry.insert(0, tiktok_id)
