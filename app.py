@@ -266,6 +266,13 @@ def ensure_viewer_started(app) -> None:
     if getattr(app, "_closing", False):
         return
     try:
+        from core.settings import Settings
+        if Settings.load().get("normal_viewer_autostart", True) is False:
+            logging.info("通常Viewerの自動起動は設定でOFFのため起動しません")
+            return
+    except Exception:
+        pass
+    try:
         manager = getattr(app, "viewer_collector", None)
         if manager is None:
             from core.viewer_collector_manager import ViewerCollectorManager
