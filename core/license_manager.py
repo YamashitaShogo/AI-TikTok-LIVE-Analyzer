@@ -97,18 +97,22 @@ class LicenseManager:
             current["license_plan"] = ""
             current["license_expires_at"] = ""
 
-        Settings.save(current)
+        # Persist ONLY the license keys via a strict, locked merge:
+        # the snapshot in `current` may be stale (or empty after a
+        # failed lenient load), and saving it wholesale could lose
+        # unrelated settings written meanwhile.
+        Settings.update({
+            "license_key": current["license_key"],
+            "license_status": current["license_status"],
+            "license_plan": current["license_plan"],
+            "license_expires_at": current["license_expires_at"],
+        })
 
     @classmethod
     def clear_license(cls):
-        current = Settings.load()
-
-        if not isinstance(current, dict):
-            current = {}
-
-        current["license_key"] = ""
-        current["license_status"] = "未認証"
-        current["license_plan"] = ""
-        current["license_expires_at"] = ""
-
-        Settings.save(current)
+        Settings.update({
+            "license_key": "",
+            "license_status": "未認証",
+            "license_plan": "",
+            "license_expires_at": "",
+        })
