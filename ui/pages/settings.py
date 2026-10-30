@@ -45,9 +45,14 @@ class SettingsPage(ctk.CTkFrame):
         ),
     }
 
-    def __init__(self, parent):
+    def __init__(self, parent, on_developer_toggle=None):
         super().__init__(parent)
 
+        # Optional callback(enabled) invoked the moment the developer
+        # display switch flips, so the owner (MainWindow) can refresh
+        # the sidebar immediately. This replaces any polling: the
+        # settings page notifies, the window reacts.
+        self._on_developer_toggle_callback = on_developer_toggle
         self._destroying = False
         self._event_queue = queue.Queue()
         self._poll_job = None
@@ -410,6 +415,15 @@ class SettingsPage(ctk.CTkFrame):
                   if enabled else
                   "開発機能を非表示にしました（ライバーモードに戻ります）")
         )
+        # Notify the owner LAST: the callback may rebuild navigation
+        # and, when developer mode was just disabled, navigate away
+        # from this page. Nothing in this handler may run after it.
+        callback = self._on_developer_toggle_callback
+        if callback is not None:
+            try:
+                callback(enabled)
+            except Exception as exc:  # the setting itself is saved
+                print(f"developer toggle callback error: {exc!r}")
 
     def _build_action_section(self):
         actions = ctk.CTkFrame(
