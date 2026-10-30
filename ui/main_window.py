@@ -304,7 +304,7 @@ class MainWindow(ctk.CTk):
         )
 
         self.unattended_report_button = create_nav_button(
-            "unattended_report", "▦    無人観測レポート", self.show_unattended_report,
+            "unattended_report", "▦    配信レポート", self.show_unattended_report,
         )
 
         from ui.collection_health_window import open_collection_health
