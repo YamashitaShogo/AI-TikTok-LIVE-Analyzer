@@ -164,9 +164,9 @@ class FixedObservationController:
         the session's targets are identical.
         """
         try:
-            from .fixed_lock import probe_locked, read_status
+            from .fixed_lock import probe_locked, read_conflict, read_status
         except ImportError:
-            from fixed_lock import probe_locked, read_status
+            from fixed_lock import probe_locked, read_conflict, read_status
         tiktok_id = normalize_tiktok_id(tiktok_id)
         if self.is_running():
             outcome = 'already_same' if self.target_id == tiktok_id else 'already_other'
@@ -192,13 +192,14 @@ class FixedObservationController:
             if held.get('state') == 'held' and held.get('pid') == child_pid:
                 return {'outcome': 'started', 'target_id': tiktok_id}
             time.sleep(0.05)
-        held = read_status() or {}
-        conflict = (held.get('state') == 'conflict'
-                    and held.get('pid') == child_pid)
+        # A child that lost the lock race records its conflict in the
+        # separate conflict file (it may not touch owner status).
+        conf = read_conflict() or {}
+        conflict = conf.get('pid') == child_pid
         self.stop()
         if conflict:
             return {'outcome': 'conflict',
-                    'target_id': str(held.get('target_id') or '')}
+                    'target_id': str(conf.get('target_id') or '')}
         return {'outcome': 'error', 'target_id': '',
                 'message': 'コレクタの起動（排他ロック取得）を確認できませんでした'}
 
