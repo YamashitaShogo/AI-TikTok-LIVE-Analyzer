@@ -446,6 +446,17 @@ class MainWindow(ctk.CTk):
         if self._closing:
             return
 
+        # Explicit user setting (Settings > Viewer). Default ON keeps
+        # the historical behaviour; OFF reduces idle load for Pulse
+        # Pro users who only need fixed observation. This never stops
+        # an already-running viewer.
+        try:
+            if Settings.load().get("normal_viewer_autostart", True) is False:
+                print("通常Viewerの自動起動は設定でOFFのため起動しません。")
+                return
+        except Exception:
+            pass
+
         try:
             self.viewer_collector.start()
             print("TikTok Viewer Collectorを起動しました。")
