@@ -105,6 +105,7 @@ class SettingsPage(ctk.CTkFrame):
         self._build_analysis_section()
         self._build_appearance_section()
         self._build_developer_section()
+        self._build_viewer_section()
         self._build_action_section()
 
     def _build_quick_setup_section(self):
@@ -405,6 +406,63 @@ class SettingsPage(ctk.CTkFrame):
             column=1,
             sticky="w",
             pady=(4, 8),
+        )
+
+    def _build_viewer_section(self):
+        body = self._section("Viewer")
+
+        self._field_label(
+            body,
+            "通常Viewerの自動起動",
+            0,
+        )
+
+        self.viewer_autostart_var = ctk.BooleanVar(
+            value=AppSettings.load().get("normal_viewer_autostart", True) is not False
+        )
+        self.viewer_autostart_switch = ctk.CTkSwitch(
+            body,
+            text="アプリ起動時に通常Viewerを自動起動する",
+            variable=self.viewer_autostart_var,
+            command=self._on_viewer_autostart_toggle,
+            font=("Yu Gothic UI", 13),
+            text_color=("#475569", "#CBD5E1"),
+        )
+        self.viewer_autostart_switch.grid(
+            row=0,
+            column=1,
+            sticky="w",
+            pady=8,
+        )
+
+        ctk.CTkLabel(
+            body,
+            text=("OFFにすると起動時の負荷を減らせますが、通常Viewerが動作している"
+                  "間だけ更新される機能（Battle Hunter巡回、Dashboardのライブ表示、"
+                  "自動分析）は止まります。固定観測（配信レポート）には影響しません。"
+                  "反映は次回起動時です。実行中のViewerをこのスイッチで停止することは"
+                  "ありません。"),
+            anchor="w",
+            justify="left",
+            wraplength=560,
+            font=("Yu Gothic UI", 11),
+            text_color=("#94A3B8", "#64748B"),
+        ).grid(
+            row=1,
+            column=1,
+            sticky="w",
+            pady=(4, 8),
+        )
+
+    def _on_viewer_autostart_toggle(self):
+        enabled = bool(self.viewer_autostart_var.get())
+        settings = AppSettings.load()
+        settings["normal_viewer_autostart"] = enabled
+        AppSettings.save(settings)
+        self.status_label.configure(
+            text=("通常Viewerの自動起動をONにしました（次回起動時から反映）"
+                  if enabled else
+                  "通常Viewerの自動起動をOFFにしました（次回起動時から反映）")
         )
 
     def _on_developer_toggle(self):
