@@ -28,6 +28,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 try:
@@ -132,10 +133,76 @@ class FixedObservationController:
         return self._process is not None and self._process.poll() is None
 
     def start(self, tiktok_id):
-        """Start the fixed collector for the ID. False if already running."""
+        """Low-level spawn. False if already running.
+
+        Kept for compatibility; product code should use start_ex(),
+        which verifies target identity and profile exclusion before
+        any session is bound to the collector.
+        """
         tiktok_id = normalize_tiktok_id(tiktok_id)
         if self.is_running():
             return False
+        return self._spawn(tiktok_id)
+
+    def start_ex(self, tiktok_id, verify_timeout=2.5):
+        """Safe start used by the product UI (Phase 4).
+
+        Returns {'outcome': ..., 'target_id': ...} where outcome is:
+        - 'started':      our collector started AND holds the profile
+                          lock for exactly this ID;
+        - 'already_same': our collector already observes this ID
+                          (reuse it; the target provably matches);
+        - 'already_other': our collector observes a DIFFERENT ID —
+                          the caller must not bind a session;
+        - 'conflict':     another process's fixed collector holds the
+                          profile (target_id says whose, when known);
+        - 'error':        spawn or lock verification failed (the
+                          child, if any, has been stopped again).
+
+        A session may only ever be bound on 'started'/'already_same',
+        which is what guarantees the collector's actual target and
+        the session's targets are identical.
+        """
+        try:
+            from .fixed_lock import probe_locked, read_status
+        except ImportError:
+            from fixed_lock import probe_locked, read_status
+        tiktok_id = normalize_tiktok_id(tiktok_id)
+        if self.is_running():
+            outcome = 'already_same' if self.target_id == tiktok_id else 'already_other'
+            return {'outcome': outcome, 'target_id': self.target_id}
+        if probe_locked():
+            held = read_status() or {}
+            return {'outcome': 'conflict',
+                    'target_id': str(held.get('target_id') or '')}
+        try:
+            spawned = self._spawn(tiktok_id)
+        except Exception as exc:
+            return {'outcome': 'error', 'target_id': '',
+                    'message': f'コレクタを起動できませんでした: {exc}'}
+        if not spawned:
+            return {'outcome': 'error', 'target_id': '',
+                    'message': 'コレクタを起動できませんでした'}
+        child_pid = self._process.pid
+        deadline = time.time() + verify_timeout
+        while time.time() < deadline:
+            if self._process.poll() is not None:
+                break
+            held = read_status() or {}
+            if held.get('state') == 'held' and held.get('pid') == child_pid:
+                return {'outcome': 'started', 'target_id': tiktok_id}
+            time.sleep(0.05)
+        held = read_status() or {}
+        conflict = (held.get('state') == 'conflict'
+                    and held.get('pid') == child_pid)
+        self.stop()
+        if conflict:
+            return {'outcome': 'conflict',
+                    'target_id': str(held.get('target_id') or '')}
+        return {'outcome': 'error', 'target_id': '',
+                'message': 'コレクタの起動（排他ロック取得）を確認できませんでした'}
+
+    def _spawn(self, tiktok_id):
         self.capture_dir.mkdir(parents=True, exist_ok=True)
         if getattr(sys, 'frozen', False):
             command = [sys.executable, '--viewer-collector']
@@ -162,8 +229,13 @@ class FixedObservationController:
         return True
 
     def stop(self):
+        """Stop OUR collector child only (never anyone else's process).
+
+        Returns True only when no child of ours remains running, so
+        the UI never claims 停止中 while a collector still writes.
+        """
         process = self._process
-        self._process = None
+        stopped = True
         if process is not None and process.poll() is None:
             try:
                 process.terminate()
@@ -171,14 +243,20 @@ class FixedObservationController:
             except Exception:
                 try:
                     process.kill()
+                    process.wait(timeout=3)
                 except Exception:
                     pass
+            stopped = process.poll() is not None
+        if stopped:
+            self._process = None
+            self.target_id = ''
         if self._log_handle is not None:
             try:
                 self._log_handle.close()
             except Exception:
                 pass
             self._log_handle = None
+        return stopped
 
     def status(self, now=None):
         health = {}
@@ -189,6 +267,24 @@ class FixedObservationController:
         result = status_from_health(self.is_running(), health)
         result['target_id'] = self.target_id
         result['running'] = self.is_running()
+        if not self.is_running():
+            # Another launcher's collector may hold this profile.
+            try:
+                from .fixed_lock import probe_locked, read_status
+            except ImportError:
+                from fixed_lock import probe_locked, read_status
+            try:
+                if probe_locked():
+                    held = read_status() or {}
+                    external = str(held.get('target_id')
+                                   or health.get('unique_id') or '')
+                    result['state'] = 'conflict'
+                    result['external_target'] = external
+                    result['label'] = ('別の固定観測が動作中です'
+                                       + (f'（対象 @{external}）' if external else '')
+                                       + '。この画面からは停止できません')
+            except Exception:
+                pass
         return result
 
 
