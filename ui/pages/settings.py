@@ -14,6 +14,7 @@ from PIL import Image
 from core.ai_client import AIClient
 from core.license_client import LicenseClient
 from core.settings import Settings as AppSettings
+from core.workspace_manager import WorkspaceManager
 
 class SettingsPage(ctk.CTkFrame):
     """Livemetry Pulse 設定画面。"""
@@ -98,6 +99,7 @@ class SettingsPage(ctk.CTkFrame):
         self._build_license_section()
         self._build_analysis_section()
         self._build_appearance_section()
+        self._build_developer_section()
         self._build_action_section()
 
     def _build_quick_setup_section(self):
@@ -353,6 +355,62 @@ class SettingsPage(ctk.CTkFrame):
             sticky="w",
             pady=(4, 8),
         )
+
+    def _build_developer_section(self):
+        body = self._section("開発者向け機能")
+
+        self._field_label(
+            body,
+            "開発機能を表示",
+            0,
+        )
+
+        self.developer_var = ctk.BooleanVar(
+            value=WorkspaceManager().developer_enabled()
+        )
+        self.developer_switch = ctk.CTkSwitch(
+            body,
+            text="サイドバーで開発者モードを選べるようにする",
+            variable=self.developer_var,
+            command=self._on_developer_toggle,
+            font=("Yu Gothic UI", 13),
+            text_color=("#475569", "#CBD5E1"),
+        )
+        self.developer_switch.grid(
+            row=0,
+            column=1,
+            sticky="w",
+            pady=8,
+        )
+
+        ctk.CTkLabel(
+            body,
+            text=("開発者モードでは収集状況・収集履歴・収集分析などの調査用画面が"
+                  "左メニューに表示されます。これは表示設定であり、ライセンス認証や"
+                  "権限を変更するものではありません。変更はすぐに反映されます。\n"
+                  "事務所（Agency）モードは、アカウント認証・権限・同意管理の"
+                  "実装後に提供します。"),
+            anchor="w",
+            justify="left",
+            wraplength=560,
+            font=("Yu Gothic UI", 11),
+            text_color=("#94A3B8", "#64748B"),
+        ).grid(
+            row=1,
+            column=1,
+            sticky="w",
+            pady=(4, 8),
+        )
+
+    def _on_developer_toggle(self):
+        enabled = bool(self.developer_var.get())
+        WorkspaceManager().set_developer_enabled(enabled)
+        self.status_label.configure(
+            text=("開発機能を表示しました（左メニューで開発者モードを選べます）"
+                  if enabled else
+                  "開発機能を非表示にしました（ライバーモードに戻ります）")
+        )
+
     def _build_action_section(self):
         actions = ctk.CTkFrame(
             self.scroll,
