@@ -1,6 +1,49 @@
 import json
 import os
 import tempfile
+import time
+
+
+class SettingsSaveError(OSError):
+    """Raised when settings.json could not be saved even after
+    retries. The previously saved settings file is left untouched."""
+
+
+# Windows transient replace failures worth retrying: the destination
+# is briefly held by another reader (another Pulse process, the
+# collector, antivirus, sync tools). WinError 5 (access denied) and
+# WinError 32 (sharing violation) usually clear within a second.
+_REPLACE_RETRY_WINERRORS = (5, 32)
+_REPLACE_DELAYS = (0.05, 0.1, 0.2, 0.4, 0.8, 1.2)
+
+
+def _is_transient_replace_error(exc):
+    if isinstance(exc, PermissionError):
+        return True
+    winerror = getattr(exc, 'winerror', None)
+    return winerror in _REPLACE_RETRY_WINERRORS
+
+
+def replace_with_retry(src, dst):
+    """os.replace with retries for transient Windows sharing errors.
+
+    Returns True on success. Raises the last OSError when the error
+    is not transient or the retries are exhausted; in that case dst
+    (the existing settings file) is guaranteed untouched, because a
+    failed replace never modifies the destination.
+    """
+    last_error = None
+    for attempt in range(len(_REPLACE_DELAYS) + 1):
+        try:
+            os.replace(src, dst)
+            return True
+        except OSError as exc:
+            last_error = exc
+            if not _is_transient_replace_error(exc):
+                raise
+            if attempt < len(_REPLACE_DELAYS):
+                time.sleep(_REPLACE_DELAYS[attempt])
+    raise last_error
 
 
 class Settings:
@@ -106,11 +149,16 @@ class Settings:
                 f.flush()
                 os.fsync(f.fileno())
 
-            # 完成したファイルと安全に置き換える
-            os.replace(
-                temp_path,
-                file_path
-            )
+            # 完成したファイルと安全に置き換える。一時的な占有
+            # (WinError 5 等) では再試行し、それでも置換できない
+            # 場合は既存の設定ファイルを一切変更せず
+            # SettingsSaveError を送出する。
+            try:
+                replace_with_retry(temp_path, file_path)
+            except OSError as exc:
+                raise SettingsSaveError(
+                    f"設定を保存できませんでした（既存の設定は変更されていません）: {exc}"
+                ) from exc
 
             return True
 
