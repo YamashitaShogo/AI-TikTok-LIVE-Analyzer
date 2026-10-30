@@ -13,8 +13,7 @@ from PIL import Image
 
 from core.ai_client import AIClient
 from core.license_client import LicenseClient
-from core.settings import (Settings as AppSettings, SettingsLoadError,
-                           replace_with_retry)
+from core.settings import Settings as AppSettings, SettingsLoadError
 from core.workspace_manager import WorkspaceManager
 
 class SettingsPage(ctk.CTkFrame):
@@ -710,45 +709,19 @@ class SettingsPage(ctk.CTkFrame):
     def save_settings(self):
         try:
             new_settings = self.collect_settings()
-            # Strict read: an existing-but-unreadable file aborts the
-            # save (see the SettingsLoadError handler below) instead
-            # of being overwritten with defaults-based content.
-            current = self._read_settings_file(for_save=True)
-    
-            # 旧バージョンでsettings.jsonに保存されていた
-            # OpenAI APIキーがあれば削除します。
-            current.pop(
-                "openai_api_key",
-                None,
+            # Save ONLY this form's keys through Settings.update():
+            # it re-reads the file strictly (an unreadable file
+            # aborts via SettingsLoadError below), merges under a
+            # lock, and writes through a unique temp file — so keys
+            # written meanwhile by other writers (registered ID,
+            # workspace mode, license) survive even though this page
+            # loaded its values earlier. The legacy cleanup of a
+            # plaintext OpenAI API key from old versions is kept as
+            # a `remove` in the same locked merge.
+            AppSettings.update(
+                new_settings,
+                remove=("openai_api_key",),
             )
-    
-            current.update(new_settings)
-    
-            self._get_settings_path().parent.mkdir(
-                parents=True,
-                exist_ok=True,
-            )
-    
-            temp_path = self._get_settings_path().with_suffix(".json.tmp")
-    
-            with temp_path.open(
-                "w",
-                encoding="utf-8",
-            ) as file:
-                json.dump(
-                    current,
-                    file,
-                    ensure_ascii=False,
-                    indent=4,
-                )
-    
-            # 一時的なファイル占有 (WinError 5 等) では再試行する。
-            # 置換に失敗した場合、既存の settings.json は無傷のまま。
-            replace_with_retry(
-                str(temp_path),
-                str(self._get_settings_path()),
-            )
-
 
             self.status_label.configure(
                 text="✅ 保存しました"
@@ -930,34 +903,14 @@ class SettingsPage(ctk.CTkFrame):
     def _save_license_result(self, key, status):
         """ライセンス認証結果をsettings.jsonへ保存します。"""
         try:
-            current = self._read_settings_file(for_save=True)
-            current["license_key"] = key
-            current["license_status"] = status
-
-            self._get_settings_path().parent.mkdir(
-                parents=True,
-                exist_ok=True,
-            )
-
-            temp_path = self._get_settings_path().with_suffix(
-                ".json.tmp"
-            )
-
-            with temp_path.open(
-                "w",
-                encoding="utf-8",
-            ) as file:
-                json.dump(
-                    current,
-                    file,
-                    ensure_ascii=False,
-                    indent=4,
-                )
-
-            replace_with_retry(
-                str(temp_path),
-                str(self._get_settings_path()),
-            )
+            # Save ONLY the two license keys through Settings.update()
+            # (strict re-read + locked merge + unique temp file), so
+            # nothing this page loaded earlier can overwrite keys
+            # written meanwhile by other writers.
+            AppSettings.update({
+                "license_key": key,
+                "license_status": status,
+            })
 
             # MainWindowの左メニューもすぐ更新します。
             root = self.winfo_toplevel()
