@@ -33,6 +33,8 @@ from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
+from core.fixed_observation import (get_fixed_controller, get_pro_tiktok_id,
+                                    set_pro_tiktok_id)
 from core.observation_sessions import JST, format_jst, get_runtime
 from core.report_ai import analyze as ai_analyze, evidence_preview
 from core.report_export import export_csv, export_json, export_pdf
@@ -158,7 +160,12 @@ class UnattendedReportPage(ctk.CTkFrame):
         self._busy = False
         self._tick = 0
         self._sources = available_sources()
-        self._source = self._sources[0] if self._sources else None
+        # Pulse Pro default: fixed observation (capture_fixed) of the
+        # streamer's own registered account. Other sources stay
+        # available on the 詳細設定 tab and never mix into this profile.
+        self._source = next(
+            (s for s in self._sources if s.get('key') == 'capture_fixed'),
+            self._sources[0] if self._sources else None)
         # Session lifetime belongs to the process-wide runtime, not to
         # this page: leaving the page never stops session recording.
         self._runtime = get_runtime(self._source['capture_dir']) if self._source else None
@@ -208,16 +215,36 @@ class UnattendedReportPage(ctk.CTkFrame):
         ctk.CTkLabel(row2, text='経過時間:', text_color=MUTED, width=76, anchor='w').pack(side='left', padx=(18, 0))
         self.elapsed_label = ctk.CTkLabel(row2, text='—', text_color=TEXT, anchor='w')
         self.elapsed_label.pack(side='left')
+        row3 = ctk.CTkFrame(info, fg_color='transparent')
+        row3.pack(fill='x', pady=(6, 0))
+        ctk.CTkLabel(row3, text='自分のTikTok ID:', text_color=MUTED, width=110, anchor='w').pack(side='left')
+        self.account_entry = ctk.CTkEntry(row3, width=200, placeholder_text='@IDまたはLIVEのURL')
+        self.account_entry.pack(side='left')
+        saved_id = get_pro_tiktok_id()
+        if saved_id:
+            self.account_entry.insert(0, saved_id)
+        ctk.CTkButton(row3, text='IDを保存', width=84,
+                      command=self.save_account_id).pack(side='left', padx=8)
+        ctk.CTkLabel(row3, text='収集の状態:', text_color=MUTED, width=76, anchor='w').pack(side='left', padx=(10, 0))
+        self.collector_label = ctk.CTkLabel(row3, text='停止中', text_color=TEXT, anchor='w')
+        self.collector_label.pack(side='left')
+        ctk.CTkLabel(
+            info, text_color=MUTED, anchor='w', justify='left', wraplength=760,
+            font=(theme.FONT_FAMILY, theme.FONT_SMALL),
+            text='本人確認は未実装です。登録IDは観測対象の設定であり、アカウント所有者として'
+                 '認証されたものではありません。IDの変更は次回の分析開始から反映されます。'
+                 '固定観測は自動スクロール（Battle Hunter）を使いません。').pack(
+                     fill='x', pady=(4, 0))
         actions = ctk.CTkFrame(bar.body, fg_color='transparent')
         actions.pack(side='right', padx=(16, 0))
-        self.start_button = ctk.CTkButton(actions, text='分析を開始', width=132, height=38,
+        self.start_button = ctk.CTkButton(actions, text='配信分析を開始', width=140, height=38,
                                           fg_color=theme.PRIMARY, hover_color=theme.PRIMARY_HOVER,
                                           command=self.start_session)
         self.start_button.pack(side='left', padx=4)
-        self.stop_button = ctk.CTkButton(actions, text='分析を終了', width=132, height=38,
+        self.stop_button = ctk.CTkButton(actions, text='配信分析を終了', width=140, height=38,
                                          command=self.stop_session, state='disabled')
         self.stop_button.pack(side='left', padx=4)
-        self.show_report_button = ctk.CTkButton(actions, text='レポートを表示', width=132, height=38,
+        self.show_report_button = ctk.CTkButton(actions, text='レポートを見る', width=140, height=38,
                                                 fg_color=theme.PURPLE, hover_color=theme.PURPLE_HOVER,
                                                 command=self.show_latest_report)
         self.show_report_button.pack(side='left', padx=4)
@@ -379,14 +406,15 @@ class UnattendedReportPage(ctk.CTkFrame):
         self.source_menu = ctk.CTkOptionMenu(
             row, values=[s['label'] for s in self._sources] or ['データなし'],
             command=lambda _: self.change_source())
-        if self._sources:
-            self.source_menu.set(self._sources[0]['label'])
+        if self._source:
+            self.source_menu.set(self._source['label'])
         self.source_menu.pack(side='left', padx=8)
         row = ctk.CTkFrame(source_card.body, fg_color='transparent')
         row.pack(fill='x', pady=3)
         ctk.CTkLabel(row, text='観測モード', text_color=MUTED).pack(side='left')
         self.mode_menu = ctk.CTkOptionMenu(
             row, values=['Battle Hunter', '固定観測', 'TopWatch', '手動観測'], width=160)
+        self.mode_menu.set('固定観測')
         self.mode_menu.pack(side='left', padx=8)
         ctk.CTkLabel(row, text='対象（@ID、カンマ区切り）', text_color=MUTED).pack(side='left', padx=(16, 0))
         self.target_entry = ctk.CTkEntry(row, width=230)
@@ -459,6 +487,8 @@ class UnattendedReportPage(ctk.CTkFrame):
         self._tick += 1
         if self._tick % 10 == 0:
             self._update_elapsed()
+        if self._tick % 25 == 0:
+            self._update_collector_status()
         self._poll = self.after(120, self._pump)
 
     def _update_elapsed(self):
@@ -497,6 +527,40 @@ class UnattendedReportPage(ctk.CTkFrame):
     # ------------------------------------------------------------ sessions
     def _is_topwatch(self):
         return bool(self._source and str(self._source['key']).startswith('topwatch:'))
+
+    def _is_fixed_source(self):
+        """The standard Pulse Pro source: the fixed profile's own DB.
+
+        TopWatch children also use the fixed profile internally, but
+        they are research-mode sources and are excluded here.
+        """
+        return bool(self._source and self._source.get('key') == 'capture_fixed')
+
+    def save_account_id(self):
+        try:
+            tiktok_id = set_pro_tiktok_id(self.account_entry.get())
+        except ValueError as exc:
+            messagebox.showerror('自分のTikTok ID', str(exc))
+            return
+        self.account_entry.delete(0, 'end')
+        self.account_entry.insert(0, tiktok_id)
+        self.status.configure(
+            text=f'自分のTikTok IDを保存しました: @{tiktok_id}'
+                 '（観測対象の設定です。本人確認済みという意味ではありません）')
+
+    def _update_collector_status(self):
+        if not self._is_fixed_source():
+            self.collector_label.configure(text='固定観測ではありません')
+            return
+        try:
+            state = get_fixed_controller(self._source['capture_dir']).status()
+        except Exception:
+            self.collector_label.configure(text='状態を取得できません')
+            return
+        text = state['label']
+        if state.get('last_data'):
+            text += f" ／ 最終データ {format_jst(state['last_data'])}"
+        self.collector_label.configure(text=text)
 
     def change_source(self):
         label = self.source_menu.get()
@@ -578,6 +642,7 @@ class UnattendedReportPage(ctk.CTkFrame):
         self.status.configure(text=note + ('TopWatchのデータは参照のみです（セッション開始は対象プロセス側）。'
                                            if self._is_topwatch() else
                                            'セッション終了時にレポートJSONを自動生成します（画面での集計・PDF・AI分析は手動操作です）。'))
+        self._update_collector_status()
 
     def _targets(self):
         raw = self.target_entry.get() or ''
@@ -586,6 +651,42 @@ class UnattendedReportPage(ctk.CTkFrame):
 
     def start_session(self):
         if self._source is None or self._is_topwatch() or self._runtime is None:
+            return
+        if self._is_fixed_source():
+            # Pulse Pro standard flow: the registered account is the
+            # observation target. Save the ID first (this only sets the
+            # target; it is NOT ownership verification), then start the
+            # fixed collector process for that account and bind the
+            # session to it, so no other streamer's records can be
+            # presented as this streamer's results.
+            try:
+                tiktok_id = set_pro_tiktok_id(
+                    self.account_entry.get() or get_pro_tiktok_id())
+            except ValueError as exc:
+                messagebox.showerror('自分のTikTok ID', str(exc))
+                return
+            self.account_entry.delete(0, 'end')
+            self.account_entry.insert(0, tiktok_id)
+            controller = get_fixed_controller(self._source['capture_dir'])
+            try:
+                controller.start(tiktok_id)
+            except Exception as exc:
+                logging.exception('fixed collector start failed')
+                messagebox.showerror('配信分析', f'固定観測を開始できませんでした: {exc}')
+                return
+            session = self._runtime.start_session('固定観測', [tiktok_id],
+                                                  profile='capture_fixed')
+            self._active_session_id = session['session_id']
+            self._running_started_at = session['started_at']
+            self.badge.set_status('running')
+            self.start_button.configure(state='disabled')
+            self.stop_button.configure(state='normal')
+            self.status.configure(
+                text=f'配信分析を開始しました（固定観測: @{tiktok_id}）。'
+                     '配信がオフラインの間は「待機中」と表示されます。'
+                     '画面を切り替えても記録は継続します。')
+            self._update_collector_status()
+            self.refresh()
             return
         session = self._runtime.start_session(self.mode_menu.get(), self._targets(),
                                               profile=self._source['profile'])
@@ -601,12 +702,18 @@ class UnattendedReportPage(ctk.CTkFrame):
         if self._active_session_id is None or self._runtime is None:
             return
         self._runtime.stop_session(self._active_session_id, end_kind='normal')
+        if self._is_fixed_source():
+            try:
+                get_fixed_controller(self._source['capture_dir']).stop()
+            except Exception:
+                logging.exception('fixed collector stop failed')
         self.badge.set_status('normal')
         self.status.configure(
-            text='分析を終了しました。レポートJSONは自動生成されます（画面集計・PDF・AIは手動）。')
+            text='配信分析を終了しました。レポートJSONは自動生成されます（画面集計・PDF・AIは手動）。')
         self.stop_button.configure(state='disabled')
         self._active_session_id = None
         self._running_started_at = None
+        self._update_collector_status()
         self.refresh()
 
     # ------------------------------------------------------------ report

@@ -123,3 +123,33 @@ PR #7 が未マージのため、本機能は独立実装とした。連携用�
   課金は今回実装していない（認証・権限基盤の整備後に行う）。
 - セッション管理（SessionRuntime）、58件の既存テスト、終了時JSON自動生成、
   スコア取得方法、SQLiteスキーマには変更なし。
+
+## Phase 2（Pulse Pro）: 固定観測の標準化（2026-10-30）
+
+個人ライバーが自分の @ID を一度登録すれば配信分析を始められるよう、
+既存の固定観測（top_viewer.py の方式）をアプリ本体へ標準搭載した。
+新規ブランチ `feature/pulse-pro-fixed-observation`（PR #8 のブランチを
+ベースにした積み重ね型）で実装し、PR #8 自体は変更していない。
+
+- アカウント設定: `core/fixed_observation.py` が settings.json の
+  `pro_tiktok_id` に登録IDを保存し、次回起動時に復元する。ID変更も可能。
+  本人確認は未実装であり、登録IDは「観測対象の設定」と明示する。
+  認証済み所有者とは一切表示しない。
+- 収集プロセス接続: 「配信分析を開始」は、登録IDの LIVE URL を
+  `LIVEMETRY_FIXED_URL`、`LIVEMETRY_OBSERVATION_MODE=fixed` を環境変数に
+  設定して既存コレクタ（core/viewer_collector.py）を子プロセスとして
+  起動する（top_viewer.py と同一方式、`fixed_target.json` も同形式で記録）。
+  固定モードではコレクタ自身が Battle Hunter の自動スクロールを無効化し、
+  保存先は `capture_fixed`（別プロファイル・別DB）で `capture` と混ざらない。
+- 配信レポート統合: 画面の初期データ種別を固定観測にし、セッションは
+  登録IDを対象（targets=[登録ID]）として開始するため、他ライバーの記録が
+  本人のセッション成績に混ざらない。終了時のJSON自動生成は従来どおり
+  SessionRuntime が行う。PDF・グラフ・AI改善提案は Phase 1 の画面を再利用。
+- 状態表示: コレクタの heartbeat（collector_health.json）から
+  観測中（接続中）／待機中（配信オフライン・未接続）／接続切れの可能性／
+  接続制限／停止中 を区別して表示する。オフラインは異常として扱わない。
+- プロセス寿命: FixedObservationController はプロセス全体のシングルトンで、
+  画面遷移では停止しない。アプリ終了時（MainWindow.on_close）に停止する。
+- 研究モードの保護: Battle Hunter・TopWatch・通常観測には変更を加えていない。
+  Agency へのデータ共有は未実装（本人確認・同意・権限が別途必要）。
+  ライバー単位の分離は、固定観測DB＋セッション対象IDで担保する設計。
