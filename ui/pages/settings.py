@@ -13,7 +13,7 @@ from PIL import Image
 
 from core.ai_client import AIClient
 from core.license_client import LicenseClient
-from core.settings import Settings as AppSettings
+from core.settings import Settings as AppSettings, replace_with_retry
 from core.workspace_manager import WorkspaceManager
 
 class SettingsPage(ctk.CTkFrame):
@@ -456,9 +456,21 @@ class SettingsPage(ctk.CTkFrame):
 
     def _on_viewer_autostart_toggle(self):
         enabled = bool(self.viewer_autostart_var.get())
-        settings = AppSettings.load()
-        settings["normal_viewer_autostart"] = enabled
-        AppSettings.save(settings)
+        try:
+            settings = AppSettings.load()
+            settings["normal_viewer_autostart"] = enabled
+            AppSettings.save(settings)
+        except OSError as exc:
+            # Never leave the switch showing a state that was not
+            # saved; the existing settings file is untouched.
+            self.viewer_autostart_var.set(not enabled)
+            self.status_label.configure(text="設定を保存できませんでした")
+            messagebox.showerror(
+                "設定保存エラー",
+                "設定を保存できませんでした。既存の設定は変更されていません。\n\n"
+                f"{exc}",
+            )
+            return
         self.status_label.configure(
             text=("通常Viewerの自動起動をONにしました（次回起動時から反映）"
                   if enabled else
@@ -467,7 +479,19 @@ class SettingsPage(ctk.CTkFrame):
 
     def _on_developer_toggle(self):
         enabled = bool(self.developer_var.get())
-        WorkspaceManager().set_developer_enabled(enabled)
+        try:
+            WorkspaceManager().set_developer_enabled(enabled)
+        except OSError as exc:
+            # Revert the switch and skip the sidebar callback: the
+            # setting was not saved, so nothing may act on it.
+            self.developer_var.set(not enabled)
+            self.status_label.configure(text="設定を保存できませんでした")
+            messagebox.showerror(
+                "設定保存エラー",
+                "設定を保存できませんでした。既存の設定は変更されていません。\n\n"
+                f"{exc}",
+            )
+            return
         self.status_label.configure(
             text=("開発機能を表示しました（左メニューで開発者モードを選べます）"
                   if enabled else
@@ -700,9 +724,14 @@ class SettingsPage(ctk.CTkFrame):
                     indent=4,
                 )
     
-            temp_path.replace(self._get_settings_path())
-    
-    
+            # 一時的なファイル占有 (WinError 5 等) では再試行する。
+            # 置換に失敗した場合、既存の settings.json は無傷のまま。
+            replace_with_retry(
+                str(temp_path),
+                str(self._get_settings_path()),
+            )
+
+
             self.status_label.configure(
                 text="✅ 保存しました"
             )
@@ -722,7 +751,8 @@ class SettingsPage(ctk.CTkFrame):
         except OSError as exc:
             messagebox.showerror(
                 "保存エラー",
-                f"設定を保存できませんでした。\n\n{exc}",
+                "設定を保存できませんでした。既存の設定ファイルは変更されていません。\n\n"
+                f"{exc}",
             )
     
     
@@ -899,7 +929,10 @@ class SettingsPage(ctk.CTkFrame):
                     indent=4,
                 )
 
-            temp_path.replace(self._get_settings_path())
+            replace_with_retry(
+                str(temp_path),
+                str(self._get_settings_path()),
+            )
 
             # MainWindowの左メニューもすぐ更新します。
             root = self.winfo_toplevel()
