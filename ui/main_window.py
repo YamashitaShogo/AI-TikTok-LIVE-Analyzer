@@ -11,6 +11,9 @@ from core.auto_analyzer import AutoAnalyzer
 from core.license_manager import LicenseManager
 from core.settings import Settings
 from core.viewer_collector_manager import ViewerCollectorManager
+from core.workspace_config import (AGENCY_UNAVAILABLE_NOTE, MODE_STREAMER,
+                                   SELECTOR_LABELS, nav_items)
+from core.workspace_manager import WorkspaceManager
 from ui.pages.ai import AIPage
 from ui.pages.analytics import AnalyticsPage
 from ui.pages.battle import BattlePage
@@ -226,92 +229,58 @@ class MainWindow(ctk.CTk):
             pady=(12, 13),
         )
 
-        # Navigation
-        nav = ctk.CTkFrame(
+        # -----------------------------------------------
+        # Workspace selector
+        # -----------------------------------------------
+
+        self.workspace = WorkspaceManager()
+        self.workspace_mode = self.workspace.get_mode()
+
+        ctk.CTkLabel(
+            self.sidebar,
+            text="ワークスペース",
+            anchor="w",
+            font=(theme.FONT_FAMILY, 11, "bold"),
+            text_color=theme.TEXT_MUTED,
+        ).pack(fill="x", padx=18, pady=(0, 4))
+
+        self.workspace_menu = ctk.CTkOptionMenu(
+            self.sidebar,
+            values=self._selector_values(),
+            command=self._on_workspace_selected,
+            height=36,
+            corner_radius=10,
+            font=(theme.FONT_FAMILY, 13, "bold"),
+        )
+        self.workspace_menu.set(SELECTOR_LABELS[self.workspace_mode])
+        self.workspace_menu.pack(fill="x", padx=14, pady=(0, 4))
+
+        ctk.CTkLabel(
+            self.sidebar,
+            text=AGENCY_UNAVAILABLE_NOTE,
+            anchor="w",
+            justify="left",
+            wraplength=200,
+            font=(theme.FONT_FAMILY, 10),
+            text_color=theme.TEXT_MUTED,
+        ).pack(fill="x", padx=18, pady=(0, 8))
+
+        # Navigation (per-workspace, rebuilt on mode switch).
+        # A scrollable frame keeps every item reachable at 720p and
+        # at 125%/150% display scaling.
+        self._nav_frame = ctk.CTkScrollableFrame(
             self.sidebar,
             fg_color="transparent",
         )
-        nav.pack(
-            fill="x",
-            padx=12,
+        self._nav_frame.pack(
+            fill="both",
+            expand=True,
+            padx=6,
         )
 
         self.nav_buttons = {}
-
-        def create_nav_button(
-            key,
-            text_value,
-            command,
-        ):
-            button = ctk.CTkButton(
-                nav,
-                text=text_value,
-                anchor="w",
-                height=44,
-                corner_radius=12,
-                fg_color="transparent",
-                hover_color=theme.NAV_HOVER,
-                text_color=theme.TEXT_SECONDARY,
-                font=(theme.FONT_FAMILY, 13, "bold"),
-                command=command,
-            )
-            button.pack(
-                fill="x",
-                pady=3,
-            )
-
-            self.nav_buttons[key] = button
-            return button
-
-        self.dashboard_button = create_nav_button(
-            "dashboard",
-            "\u2302    Dashboard",
-            self.show_dashboard,
-        )
-
-        self.viewer_button = create_nav_button(
-            "viewer",
-            "\u25a3    TikTok Viewer",
-            self.show_viewer,
-        )
-
-        self.history_button = create_nav_button(
-            "history",
-            "\u25a4    \u5c65\u6b74",
-            self.show_history,
-        )
-
-        self.analytics_button = create_nav_button(
-            "analytics",
-            "\u25a5    Analytics",
-            self.show_analytics,
-        )
-
-        self.battle_button = create_nav_button(
-            "battle",
-            "\u2694    Battle",
-            self.show_battle,
-        )
-
-        self.collection_history_button = create_nav_button(
-            "collection_history",
-            "▤    収集履歴",
-            self.show_collection_history,
-        )
-
-        self.collection_analysis_button = create_nav_button(
-            "collection_analysis", "▥    収集分析", self.show_collection_analysis,
-        )
-
-        self.unattended_report_button = create_nav_button(
-            "unattended_report", "▦    配信レポート", self.show_unattended_report,
-        )
-
-        from ui.collection_health_window import open_collection_health
-        self.collection_health_button = create_nav_button(
-            'collection_health', '◉    収集状況',
-            lambda: open_collection_health(self),
-        )
+        self._nav_signature = None
+        self._build_nav(force=True)
 
         self.gifts_button = None
 
@@ -698,6 +667,83 @@ class MainWindow(ctk.CTk):
                     text_color=theme.TEXT_SECONDARY,
                 )
 
+    # ==================================================
+    # Workspace (mode) navigation
+    # ==================================================
+
+    def _selector_values(self):
+        return [SELECTOR_LABELS[mode] for mode in self.workspace.available_modes()]
+
+    def _refresh_workspace_menu(self):
+        try:
+            self.workspace_menu.configure(values=self._selector_values())
+            self.workspace_menu.set(SELECTOR_LABELS[self.workspace_mode])
+        except Exception:
+            pass
+
+    def _on_workspace_selected(self, label):
+        mode = next((m for m, text in SELECTOR_LABELS.items() if text == label), None)
+        if mode is None or mode == self.workspace_mode:
+            self._refresh_workspace_menu()
+            return
+        self.set_workspace_mode(mode)
+
+    def _nav_command(self, target):
+        if target == "open_collection_health":
+            from ui.collection_health_window import open_collection_health
+            return lambda: open_collection_health(self)
+        return getattr(self, target)
+
+    def _build_nav(self, force=False):
+        signature = (self.workspace_mode, self.workspace.developer_enabled())
+        if not force and getattr(self, "_nav_signature", None) == signature:
+            return
+        settings_button = self.nav_buttons.get("settings")
+        for child in self._nav_frame.winfo_children():
+            child.destroy()
+        self.nav_buttons = {}
+        if settings_button is not None:
+            self.nav_buttons["settings"] = settings_button
+        for key, label, target in nav_items(self.workspace_mode):
+            button = ctk.CTkButton(
+                self._nav_frame,
+                text=label,
+                anchor="w",
+                height=44,
+                corner_radius=12,
+                fg_color="transparent",
+                hover_color=theme.NAV_HOVER,
+                text_color=theme.TEXT_SECONDARY,
+                font=(theme.FONT_FAMILY, 13, "bold"),
+                command=self._nav_command(target),
+            )
+            button.pack(fill="x", pady=3, padx=6)
+            self.nav_buttons[key] = button
+            setattr(self, f"{key}_button", button)
+        self._nav_signature = signature
+
+    def set_workspace_mode(self, mode):
+        """Switch workspace. Collectors and sessions are untouched:
+        mode switching only rebuilds navigation and lands on the
+        mode's home page, so a running fixed observation (separate
+        process + SessionRuntime singleton) keeps going."""
+        if not self.workspace.set_mode(mode):
+            self._refresh_workspace_menu()
+            return False
+        self.workspace_mode = mode
+        self._build_nav(force=True)
+        self._refresh_workspace_menu()
+        self.show_dashboard()
+        return True
+
+    def sync_workspace_from_settings(self):
+        """Reflect Settings-page changes (developer display toggle)."""
+        if self.workspace_mode not in self.workspace.available_modes():
+            self.set_workspace_mode(MODE_STREAMER)
+            return
+        self._refresh_workspace_menu()
+        self._build_nav()
+
     def show_dashboard(self):
         self.clear_page()
         self.current_page = DashboardPage(
@@ -828,6 +874,7 @@ class MainWindow(ctk.CTk):
         self.clear_page()
         self.current_page = SettingsPage(
             self.content,
+            on_developer_toggle=self._handle_developer_toggle_changed,
         )
         self.current_page.pack(
             fill="both",
@@ -842,10 +889,20 @@ class MainWindow(ctk.CTk):
             self._refresh_after_settings,
         )
 
+    def _handle_developer_toggle_changed(self, enabled):
+        """Called by SettingsPage the moment the developer display
+        switch flips (callback, not polling). Deferred to the end of
+        the current event handling so the settings page is never
+        destroyed mid-handler; the sidebar still updates in the same
+        turn, and disabling the switch while in developer mode
+        returns to the streamer workspace immediately."""
+        self.after(0, self.sync_workspace_from_settings)
+
     def _refresh_after_settings(self):
         if self._closing:
             return
 
+        self.sync_workspace_from_settings()
         self.refresh_license_status()
 
         # 認証済みキーが保存されていればオンライン再確認
