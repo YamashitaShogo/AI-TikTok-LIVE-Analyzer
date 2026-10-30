@@ -879,6 +879,15 @@ class MainWindow(ctk.CTk):
             )
 
         try:
+            from core.fixed_observation import stop_all_fixed_controllers
+            stop_all_fixed_controllers()
+        except Exception as error:
+            print(
+                "FixedObservation stop error:",
+                repr(error),
+            )
+
+        try:
             if self.current_page is not None:
                 self.current_page.destroy()
                 self.current_page = None
