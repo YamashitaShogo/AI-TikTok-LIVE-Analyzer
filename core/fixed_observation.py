@@ -62,13 +62,16 @@ def get_pro_tiktok_id():
 
 
 def set_pro_tiktok_id(raw):
-    """Validate and persist the registered @ID; returns the bare ID."""
+    """Validate and persist the registered @ID; returns the bare ID.
+
+    Uses Settings.update(): the stored settings are re-read strictly
+    (an existing-but-unreadable file raises SettingsLoadError instead
+    of being overwritten), merged under a lock, and — when the ID is
+    unchanged — the file is not rewritten at all. Save failures raise
+    SettingsSaveError; callers must handle both.
+    """
     tiktok_id = normalize_tiktok_id(raw)
-    data = Settings.load()
-    if not isinstance(data, dict):
-        data = {}
-    data[SETTINGS_KEY] = tiktok_id
-    Settings.save(data)
+    Settings.update({SETTINGS_KEY: tiktok_id})
     return tiktok_id
 
 
