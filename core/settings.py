@@ -1,12 +1,28 @@
 import json
 import os
 import tempfile
+import threading
 import time
 
 
 class SettingsSaveError(OSError):
     """Raised when settings.json could not be saved even after
     retries. The previously saved settings file is left untouched."""
+
+
+class SettingsLoadError(Exception):
+    """Raised when settings.json EXISTS but cannot be read or parsed.
+
+    Kept distinct from "file does not exist" (a normal first run):
+    an existing-but-unreadable file must never be treated as empty
+    settings, because saving on that basis would wipe the license
+    key, the registered ID, workspace settings and more.
+    """
+
+
+# Serializes read-modify-write cycles inside this process so two
+# writers cannot lose each other's keys (lost update).
+_UPDATE_LOCK = threading.Lock()
 
 
 # Windows transient replace failures worth retrying: the destination
@@ -92,36 +108,96 @@ class Settings:
         )
 
     @staticmethod
-    def load():
+    def file_state():
+        """'missing' (first run) | 'ok' | 'unreadable' (exists but
+        cannot be read or parsed right now)."""
         file_path = Settings.get_file_path()
+        if not os.path.exists(file_path):
+            return 'missing'
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return 'ok' if isinstance(data, dict) else 'unreadable'
+        except (OSError, ValueError):
+            return 'unreadable'
 
+    @staticmethod
+    def load_strict():
+        """Settings for read-modify-write use.
+
+        Returns {} ONLY when the file does not exist. Raises
+        SettingsLoadError when the file exists but cannot be read or
+        parsed, so callers abort instead of overwriting real settings
+        with defaults/empty values.
+        """
+        file_path = Settings.get_file_path()
         if not os.path.exists(file_path):
             return {}
-
         try:
-            with open(
-                file_path,
-                "r",
-                encoding="utf-8"
-            ) as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
+        except (OSError, ValueError) as exc:
+            raise SettingsLoadError(
+                f"既存のsettings.jsonを読み込めませんでした: {exc}") from exc
+        if not isinstance(data, dict):
+            raise SettingsLoadError(
+                "既存のsettings.jsonの形式が不正です（辞書ではありません）")
+        return data
 
-            if isinstance(data, dict):
-                return data
+    @staticmethod
+    def load():
+        """Lenient read for display/status purposes.
 
+        Returns {} whenever the file is missing OR unreadable. Never
+        use the result as the basis of a save: save() itself refuses
+        to overwrite an existing-but-unreadable file, and update()
+        reads strictly.
+        """
+        try:
+            return Settings.load_strict()
+        except SettingsLoadError:
             return {}
 
-        except (
-            json.JSONDecodeError,
-            OSError,
-            PermissionError
-        ):
-            return {}
+    @staticmethod
+    def update(changes):
+        """Merge `changes` into the stored settings, safely.
+
+        Reads the current file strictly (aborting with
+        SettingsLoadError when it exists but is unreadable), merges,
+        and saves — all under a process-wide lock so concurrent
+        in-process writers cannot lose each other's keys. When every
+        change already matches the stored value, the file is NOT
+        rewritten. Returns True when the file was written.
+        """
+        if not isinstance(changes, dict):
+            raise TypeError("changes must be a dict")
+        with _UPDATE_LOCK:
+            current = Settings.load_strict()
+            if all(current.get(key) == value
+                   for key, value in changes.items()):
+                return False
+            merged = dict(current)
+            merged.update(changes)
+            Settings.save(merged)
+            return True
 
     @staticmethod
     def save(data):
         settings_dir = Settings.get_settings_dir()
         file_path = Settings.get_file_path()
+
+        # Protection: never overwrite an existing settings file that
+        # cannot currently be read — its contents (license key,
+        # registered ID, workspace settings) would be lost. A missing
+        # file (first run) or a readable one is fine to replace.
+        if os.path.exists(file_path):
+            try:
+                Settings.load_strict()
+            except SettingsLoadError as exc:
+                raise SettingsSaveError(
+                    "既存の設定を読み込めなかったため、保護のため保存を中止しました"
+                    f"（既存の設定は変更されていません）: {exc}"
+                ) from exc
 
         temp_path = None
 
