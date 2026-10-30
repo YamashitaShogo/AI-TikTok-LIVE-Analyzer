@@ -16,6 +16,7 @@ from ui.pages.analytics import AnalyticsPage
 from ui.pages.battle import BattlePage
 from ui.pages.collection_history import CollectionHistoryPage
 from ui.pages.collection_analysis import CollectionAnalysisPage
+from ui.pages.unattended_report import UnattendedReportPage
 from ui.pages.dashboard import DashboardPage
 from ui.pages.history import HistoryPage
 from ui.pages.gifts import GiftPage
@@ -300,6 +301,10 @@ class MainWindow(ctk.CTk):
 
         self.collection_analysis_button = create_nav_button(
             "collection_analysis", "▥    収集分析", self.show_collection_analysis,
+        )
+
+        self.unattended_report_button = create_nav_button(
+            "unattended_report", "▦    配信レポート", self.show_unattended_report,
         )
 
         from ui.collection_health_window import open_collection_health
@@ -810,6 +815,14 @@ class MainWindow(ctk.CTk):
         self.current_page = CollectionAnalysisPage(self.content)
         self.current_page.pack(fill="both", expand=True)
         self._set_active_nav("collection_analysis")
+
+    def show_unattended_report(self):
+        if not self.require_license():
+            return
+        self.clear_page()
+        self.current_page = UnattendedReportPage(self.content)
+        self.current_page.pack(fill="both", expand=True)
+        self._set_active_nav("unattended_report")
 
     def show_settings(self):
         self.clear_page()
