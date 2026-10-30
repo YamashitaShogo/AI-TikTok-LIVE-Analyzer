@@ -41,14 +41,17 @@ class WorkspaceManager:
         return self._load().get(DEVELOPER_KEY) is True
 
     def set_developer_enabled(self, enabled):
-        data = self._load()
-        data[DEVELOPER_KEY] = bool(enabled)
-        if not enabled and data.get(MODE_KEY) == MODE_DEVELOPER:
+        enabled = bool(enabled)
+        changes = {DEVELOPER_KEY: enabled}
+        if not enabled and self._load().get(MODE_KEY) == MODE_DEVELOPER:
             # Turning the display setting off while in developer mode
             # returns the app to the streamer workspace safely.
-            data[MODE_KEY] = MODE_STREAMER
-        self._save(data)
-        return bool(enabled)
+            changes[MODE_KEY] = MODE_STREAMER
+        # update() re-reads strictly and merges under a lock: an
+        # unreadable settings file aborts the save instead of being
+        # overwritten, and other writers' keys cannot be lost.
+        Settings.update(changes)
+        return enabled
 
     def available_modes(self):
         modes = [MODE_STREAMER]
@@ -75,7 +78,5 @@ class WorkspaceManager:
         """Persist a mode switch. Returns False when not selectable."""
         if mode not in self.available_modes():
             return False
-        data = self._load()
-        data[MODE_KEY] = mode
-        self._save(data)
+        Settings.update({MODE_KEY: mode})
         return True
