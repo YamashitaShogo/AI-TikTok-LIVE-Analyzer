@@ -10,6 +10,7 @@ except ImportError:
 # badge looks the same in Pro and (future) Agency screens.
 _KINDS = {
     'running': ('● 観測中', theme.SUCCESS),
+    'collector_stopped': ('⚠ コレクタ停止', theme.DANGER),
     'normal': ('終了', theme.PRIMARY),
     'abnormal': ('異常終了', theme.DANGER),
     'interrupted': ('中断', theme.WARNING),
