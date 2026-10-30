@@ -159,25 +159,30 @@ class Settings:
             return {}
 
     @staticmethod
-    def update(changes):
+    def update(changes, remove=()):
         """Merge `changes` into the stored settings, safely.
 
         Reads the current file strictly (aborting with
-        SettingsLoadError when it exists but is unreadable), merges,
-        and saves — all under a process-wide lock so concurrent
-        in-process writers cannot lose each other's keys. When every
-        change already matches the stored value, the file is NOT
-        rewritten. Returns True when the file was written.
+        SettingsLoadError when it exists but is unreadable), applies
+        the changes and the `remove` key deletions (used for legacy
+        cleanups such as dropping a plaintext API key), and saves —
+        all under a process-wide lock so concurrent in-process
+        writers cannot lose each other's keys, and so keys written
+        by other writers after a caller read its (stale) snapshot
+        survive: only the named keys are touched. When nothing
+        effectively changes, the file is NOT rewritten. Returns True
+        when the file was written.
         """
         if not isinstance(changes, dict):
             raise TypeError("changes must be a dict")
         with _UPDATE_LOCK:
             current = Settings.load_strict()
-            if all(current.get(key) == value
-                   for key, value in changes.items()):
-                return False
             merged = dict(current)
+            for key in remove:
+                merged.pop(key, None)
             merged.update(changes)
+            if merged == current:
+                return False
             Settings.save(merged)
             return True
 
