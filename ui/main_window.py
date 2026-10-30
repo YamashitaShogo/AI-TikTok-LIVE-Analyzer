@@ -874,6 +874,7 @@ class MainWindow(ctk.CTk):
         self.clear_page()
         self.current_page = SettingsPage(
             self.content,
+            on_developer_toggle=self._handle_developer_toggle_changed,
         )
         self.current_page.pack(
             fill="both",
@@ -887,6 +888,15 @@ class MainWindow(ctk.CTk):
             500,
             self._refresh_after_settings,
         )
+
+    def _handle_developer_toggle_changed(self, enabled):
+        """Called by SettingsPage the moment the developer display
+        switch flips (callback, not polling). Deferred to the end of
+        the current event handling so the settings page is never
+        destroyed mid-handler; the sidebar still updates in the same
+        turn, and disabling the switch while in developer mode
+        returns to the streamer workspace immediately."""
+        self.after(0, self.sync_workspace_from_settings)
 
     def _refresh_after_settings(self):
         if self._closing:
