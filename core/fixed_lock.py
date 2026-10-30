@@ -38,6 +38,15 @@ except ImportError:  # direct-script import style
 
 LOCK_FILENAME = 'fixed_viewer.lock'
 STATUS_FILENAME = 'fixed_lock_status.json'
+CONFLICT_FILENAME = 'fixed_lock_conflict.json'
+
+# Per-process record of lock outcomes, used to protect the owner
+# status file: a process whose acquire FAILED for a profile may not
+# rewrite that profile's owner information (state held/released).
+# Its conflict note goes to a separate file instead. Exclusion
+# decisions never depend on either file — the OS lock is the truth.
+_HELD_PATHS = {}
+_FAILED_PATHS = set()
 
 
 def lock_path(base=None):
@@ -46,6 +55,10 @@ def lock_path(base=None):
 
 def status_path(base=None):
     return Path(base or BASE) / STATUS_FILENAME
+
+
+def conflict_path(base=None):
+    return Path(base or BASE) / CONFLICT_FILENAME
 
 
 def target_id_from_url(url):
@@ -87,14 +100,18 @@ class ProfileLock:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except OSError:
                 handle.close()
+                _FAILED_PATHS.add(str(self._path))
                 return False
             self._handle = handle
+            _HELD_PATHS[str(self._path)] = self
             return True
         except OSError:
+            _FAILED_PATHS.add(str(self._path))
             return False
 
     def release(self):
         handle, self._handle = self._handle, None
+        _HELD_PATHS.pop(str(self._path), None)
         if handle is None:
             return
         try:
@@ -128,13 +145,28 @@ def probe_locked(base=None):
 
 
 def write_status(state, target_id=None, base=None, pid=None):
+    """Record lock state information. Returns the payload, or None
+    when the write was refused.
+
+    Protection rules (the OS lock stays the only exclusion truth):
+    - 'conflict' notes are written to fixed_lock_conflict.json, NEVER
+      to the owner status file, so a competing process that failed to
+      acquire cannot clobber the legitimate owner's information.
+    - 'held'/'released' writes are refused (None) when THIS process
+      previously failed to acquire this profile's lock.
+    """
     payload = {
         'state': state,  # 'held' | 'conflict' | 'released'
         'pid': pid if pid is not None else os.getpid(),
         'target_id': target_id or '',
         'updated_at': time.time(),
     }
-    path = status_path(base)
+    if state == 'conflict':
+        path = conflict_path(base)
+    else:
+        if str(lock_path(base)) in _FAILED_PATHS:
+            return None
+        path = status_path(base)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix('.json.tmp')
@@ -151,3 +183,45 @@ def read_status(base=None):
         return data if isinstance(data, dict) else None
     except (OSError, ValueError):
         return None
+
+
+def read_conflict(base=None):
+    try:
+        data = json.loads(conflict_path(base).read_text(encoding='utf-8'))
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def acquire_profile_lock_or_exit(target_id, base=None):
+    """Fail-closed gate for the fixed collector (Phase 4 review).
+
+    Returns the held ProfileLock on success. On ANY failure —
+    contention, lock-infra error, or a status write that cannot be
+    verified — raises SystemExit so the collector process ends
+    BEFORE collecting any data:
+    - exit 3: another collector legitimately holds the profile;
+    - exit 4: initialization/verification failure.
+    """
+    lock = ProfileLock(base)
+    try:
+        acquired = lock.acquire()
+    except Exception as exc:
+        print(f'固定観測コレクタ: 排他ロックの初期化に失敗したため終了します: {exc!r}',
+              flush=True)
+        raise SystemExit(4)
+    if not acquired:
+        write_status('conflict', target_id=target_id, base=base)
+        print('固定観測コレクタ: 同じプロファイルの固定観測が既に動作中のため終了します'
+              f' (target=@{target_id})', flush=True)
+        raise SystemExit(3)
+    written = write_status('held', target_id=target_id, base=base)
+    verified = read_status(base)
+    if (written is None or not verified
+            or verified.get('state') != 'held'
+            or verified.get('pid') != os.getpid()):
+        lock.release()
+        print('固定観測コレクタ: ロック所有者情報を検証できなかったため終了します',
+              flush=True)
+        raise SystemExit(4)
+    return lock
