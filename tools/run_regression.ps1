@@ -1,4 +1,4 @@
-# Livemetry Pulse 回帰テスト実行スクリプト (Windows)
+﻿# Livemetry Pulse 回帰テスト実行スクリプト (Windows)
 #
 # 使い方:
 #   cd D:\Projects\AI-TikTok-LIVE-Analyzer
