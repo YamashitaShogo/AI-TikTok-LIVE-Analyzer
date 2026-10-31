@@ -1,4 +1,4 @@
-"""Diagnostic for the fixed-lock parent/child status mismatch.
+r"""Diagnostic for the fixed-lock parent/child status mismatch.
 
 Reproduces the review test's V1 arrangement (a child process takes
 the profile lock through the fail-closed gate and reports 'held'
