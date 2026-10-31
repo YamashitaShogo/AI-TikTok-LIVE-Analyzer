@@ -215,5 +215,45 @@ check('K21 session report contains only the bound streamer',
 check('K22 the other streamer\'s score never enters the summary',
       report['summary']['final_score_max'] == 500)
 
+# --- launcher-shim robustness ------------------------------------------------
+# Under a launcher-shim python (e.g. the Python Install Manager),
+# Popen.pid is the shim's pid and NEVER equals the interpreter's
+# os.getpid() written into the lock status. Start verification must
+# corroborate (fresh held status for the target + OS lock held)
+# instead of comparing pids; and a STALE held status must never
+# substitute for a live lock holder.
+DUMMY_SHIFTED = Path(_TMP) / 'dummy_shifted_pid_collector.py'
+DUMMY_SHIFTED.write_text(
+    "import os, sys, time, atexit\n"
+    "sys.path.insert(0, r'" + str(Path(__file__).resolve().parent.parent) + "')\n"
+    "from core import fixed_lock\n"
+    "target = fixed_lock.target_id_from_url(os.environ.get('LIVEMETRY_FIXED_URL', ''))\n"
+    "lock = fixed_lock.ProfileLock()\n"
+    "if not lock.acquire():\n"
+    "    sys.exit(3)\n"
+    "fixed_lock.write_status('held', target_id=target, pid=os.getpid() + 100000)\n"
+    "atexit.register(lock.release)\n"
+    "print('READY', flush=True)\n"
+    "time.sleep(120)\n", encoding='utf-8')
+
+shifted = FixedObservationController(capture_dir=CAPTURE_FIXED,
+                                     script_path=DUMMY_SHIFTED)
+result = shifted.start_ex('alice', verify_timeout=5.0)
+check('K23 start verifies despite a shim-shifted status pid',
+      result['outcome'] == 'started' and shifted.is_running()
+      and fixed_lock.probe_locked() is True)
+check('K23b shifted-pid controller stops cleanly',
+      shifted.stop() is True
+      and wait_for(lambda: fixed_lock.probe_locked() is False))
+
+fixed_lock.status_path().write_text(json.dumps(
+    {'state': 'held', 'pid': 424242, 'target_id': 'alice',
+     'updated_at': time.time() - 3600}), encoding='utf-8')
+stale = FixedObservationController(capture_dir=CAPTURE_FIXED,
+                                   script_path=NO_LOCK)
+result = stale.start_ex('alice', verify_timeout=0.8)
+check('K24 a stale held status never verifies a non-locking child',
+      result['outcome'] == 'error' and not stale.is_running())
+
 print(f'\n{passed} passed, {failed} failed')
 sys.exit(1 if failed else 0)

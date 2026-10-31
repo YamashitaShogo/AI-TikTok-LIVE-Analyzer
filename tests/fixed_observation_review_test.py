@@ -63,11 +63,11 @@ ROOT = str(Path(__file__).resolve().parent.parent)
 
 HOLDER = Path(_TMP) / 'holder.py'
 HOLDER.write_text(
-    "import sys, time\n"
+    "import os, sys, time\n"
     f"sys.path.insert(0, r'{ROOT}')\n"
     "from core import fixed_lock\n"
     "lock = fixed_lock.acquire_profile_lock_or_exit('owner')\n"
-    "print('HELD', flush=True)\n"
+    "print('HELD %d' % os.getpid(), flush=True)\n"
     "time.sleep(120)\n", encoding='utf-8')
 
 CONTENDER = Path(_TMP) / 'contender.py'
@@ -97,12 +97,18 @@ GATE.write_text(
 # --- 1+2: owner protection and the fail-closed gate -------------------------
 holder = subprocess.Popen([sys.executable, str(HOLDER)],
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-holder.stdout.readline()
+holder_line = holder.stdout.readline()
+try:
+    # The holder's SELF-reported pid: under a launcher-shim python,
+    # Popen.pid is the shim's pid, not the interpreter's.
+    holder_pid = int(holder_line.split()[-1])
+except (ValueError, IndexError):
+    holder_pid = -1
 owner_status = fixed_lock.read_status()
 check('V1 gate holder owns the status with its target',
       owner_status and owner_status['state'] == 'held'
       and owner_status['target_id'] == 'owner'
-      and owner_status['pid'] == holder.pid)
+      and owner_status['pid'] == holder_pid)
 
 out = subprocess.run([sys.executable, str(CONTENDER)], capture_output=True,
                      text=True, timeout=30).stdout.strip()
@@ -115,7 +121,7 @@ check('V4 contender conflict note is recorded separately',
       and (fixed_lock.read_conflict() or {}).get('target_id') == 'contender')
 after = fixed_lock.read_status()
 check('V5 owner status is NOT clobbered by the contender',
-      after and after['target_id'] == 'owner' and after['pid'] == holder.pid)
+      after and after['target_id'] == 'owner' and after['pid'] == holder_pid)
 
 gate = subprocess.run([sys.executable, str(GATE)], capture_output=True,
                       text=True, timeout=30)
@@ -123,7 +129,7 @@ check('V6 gate under contention exits 3 (fail-closed, no collection)',
       gate.returncode == 3)
 after_gate = fixed_lock.read_status()
 check('V7 owner status still intact after the gate conflict',
-      after_gate and after_gate['pid'] == holder.pid)
+      after_gate and after_gate['pid'] == holder_pid)
 holder.kill()
 holder.wait(timeout=5)
 check('V8 profile frees after the holder dies',
