@@ -578,7 +578,7 @@ class UnattendedReportPage(ctk.CTkFrame):
         except Exception:
             return ''
         if state.get('running'):
-            if state.get('state') in ('stalled', 'blocked'):
+            if state.get('state') in ('stalled', 'blocked', 'not_found'):
                 return (f"固定観測コレクタが正常に収集できていません（{state.get('label', '')}）。"
                         'セッションだけが「観測中」の状態になっています。')
             return ''
@@ -586,8 +586,35 @@ class UnattendedReportPage(ctk.CTkFrame):
         if (state.get('state') == 'conflict'
                 and str(state.get('external_target') or '') in targets):
             return ''  # an external collector observes the same target
+        if state.get('state') == 'not_found':
+            return ('対象ユーザーが見つかりません（IDをご確認ください）。'
+                    'セッションは「観測中」のままですが、現在データは収集されていません。')
         return ('固定観測コレクタが停止しています。セッションは「観測中」のままですが、'
                 '現在データは収集されていません。')
+
+    def _no_connection_note(self, session, now=None):
+        """Note for a running fixed session that has never connected.
+
+        Waiting offline is legitimate, so this is not an alarm: it
+        states the fact and the ambiguity. After the grace period a
+        session with zero connected time is just as consistent with
+        a mistyped ID or a login-required profile as with a streamer
+        who simply has not gone live — the user cannot tell from a
+        plain '待機中', and a zero-record report at the end should
+        not be the first time they learn nothing was collected.
+        """
+        if session is None or not self._is_fixed_source():
+            return ''
+        if session.get('end_kind') != 'running':
+            return ''
+        now = time.time() if now is None else now
+        if now - float(session.get('started_at') or now) < 300:
+            return ''
+        if float(session.get('monitored_seconds') or 0) > 0:
+            return ''
+        return ('開始から接続が確立した時間がありません。対象が配信していない場合は'
+                '待機が正常ですが、IDの誤りやログインが必要な状態でも同じ表示に'
+                'なります。')
 
     def _update_collector_status(self):
         if not self._is_fixed_source():
@@ -714,6 +741,9 @@ class UnattendedReportPage(ctk.CTkFrame):
         note = f'前回の未完了セッション{len(recovered)}件を「中断」として記録しました。' if recovered else ''
         if alert:
             note = f'⚠ {alert} ' + note
+        no_conn = self._no_connection_note(current)
+        if no_conn:
+            note = f'{no_conn} ' + note
         self.status.configure(text=note + ('TopWatchのデータは参照のみです（セッション開始は対象プロセス側）。'
                                            if self._is_topwatch() else
                                            'セッション終了時にレポートJSONを自動生成します（画面での集計・PDF・AI分析は手動操作です）。'))
@@ -855,7 +885,26 @@ class UnattendedReportPage(ctk.CTkFrame):
                              '観測は継続しています。もう一度「配信分析を終了」を押してください。')
                     self._update_collector_status()
                     return
-            self._runtime.stop_session(self._active_session_id, end_kind='normal')
+            try:
+                self._runtime.stop_session(self._active_session_id,
+                                           end_kind='normal')
+            except Exception:
+                # The collector is already confirmed stopped, but the
+                # session record could not be closed (e.g. the
+                # sessions database was momentarily locked). Never let
+                # the exception escape the button handler and never
+                # claim the session ended: it stays 'running' in the
+                # record, the collector-stopped alert will show, and
+                # pressing stop again retries the close.
+                logging.exception('session stop failed')
+                need_refresh = False
+                self.stop_button.configure(state='normal')
+                self.status.configure(
+                    text='セッションの終了処理に失敗しました（記録用データベースが'
+                         '使用中だった可能性があります）。セッションは継続中として'
+                         '残っています。もう一度「配信分析を終了」を押してください。')
+                self._update_collector_status()
+                return
             self.badge.set_status('normal')
             self.status.configure(
                 text='配信分析を終了しました。レポートJSONは自動生成されます（画面集計・PDF・AIは手動）。')
