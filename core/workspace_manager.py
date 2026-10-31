@@ -33,9 +33,10 @@ class WorkspaceManager:
         data = Settings.load()
         return data if isinstance(data, dict) else {}
 
-    @staticmethod
-    def _save(data):
-        Settings.save(data)
+    # NOTE: there is deliberately no _save() helper. All writes go
+    # through Settings.update() (strict read + locked merge); a
+    # save-the-whole-snapshot helper here was dead code and a
+    # lost-update trap for any future caller.
 
     def developer_enabled(self):
         return self._load().get(DEVELOPER_KEY) is True
