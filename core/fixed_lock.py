@@ -28,6 +28,7 @@ Design (the lock is held by the COLLECTOR, not by a launcher):
 import json
 import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -169,9 +170,23 @@ def write_status(state, target_id=None, base=None, pid=None):
         path = status_path(base)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix('.json.tmp')
-        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
-        tmp.replace(path)
+        # Unique temp name per write: several processes can write
+        # status information for the same profile (owner + conflict
+        # reporters), and a shared fixed temp name lets them collide
+        # mid-write. The status file stays informational either way.
+        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent),
+                                        prefix=path.name + '.',
+                                        suffix='.tmp')
+        tmp = Path(tmp_name)
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                f.write(json.dumps(payload, ensure_ascii=False))
+            tmp.replace(path)
+        finally:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
     except OSError:
         pass
     return payload

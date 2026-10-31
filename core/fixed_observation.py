@@ -41,6 +41,13 @@ except ImportError:  # direct-script import style
     from settings import Settings
 
 SETTINGS_KEY = 'pro_tiktok_id'
+
+# The fixed collector's stdout log (viewer_fixed.log) is append-only
+# and the collector prints status lines on a 5-second cadence, so an
+# unattended install grows it without bound. At spawn time (when no
+# child of ours is running) an oversized log is rotated to a single
+# .1 generation; collection behaviour itself is untouched.
+LOG_ROTATE_BYTES = 20 * 1024 * 1024
 FIXED_PROFILE = 'capture_fixed'
 
 
@@ -103,6 +110,7 @@ def status_from_health(running, health):
     """
     health = health or {}
     raw = str(health.get('status') or '')
+    error_kind = str(health.get('error_kind') or '')
     if not running:
         state, label = 'stopped', '停止中'
     elif raw.startswith('接続中'):
@@ -110,14 +118,25 @@ def status_from_health(running, health):
     elif raw.startswith('接続制限'):
         state, label = 'blocked', '接続制限で停止'
     elif raw.startswith('更新停止'):
+        # A stale heartbeat wins over any recorded error kind: the
+        # error may belong to an attempt the collector has since
+        # stopped reporting on.
         state, label = 'stalled', '接続切れの可能性（ハートビート更新停止）'
+    elif error_kind == 'not_found':
+        state, label = 'not_found', '対象ユーザーが見つかりません（IDをご確認ください）'
     elif raw.startswith('未接続'):
-        state, label = 'waiting', '待機中（配信オフライン／未接続）'
+        if error_kind == 'offline':
+            state, label = 'waiting', '待機中（対象はオフラインです）'
+        elif error_kind:
+            state, label = 'waiting', '待機中（接続エラーのため再試行中）'
+        else:
+            state, label = 'waiting', '待機中（配信オフライン／未接続）'
     else:
         state, label = 'waiting', '待機中（起動直後／稼働情報なし）'
     return {'state': state, 'label': label, 'health_status': raw,
             'unique_id': health.get('unique_id') or '',
-            'last_data': health.get('last_data')}
+            'last_data': health.get('last_data'),
+            'error_kind': error_kind}
 
 
 class FixedObservationController:
@@ -147,7 +166,7 @@ class FixedObservationController:
             return False
         return self._spawn(tiktok_id)
 
-    def start_ex(self, tiktok_id, verify_timeout=2.5):
+    def start_ex(self, tiktok_id, verify_timeout=10.0):
         """Safe start used by the product UI (Phase 4).
 
         Returns {'outcome': ..., 'target_id': ...} where outcome is:
@@ -216,8 +235,23 @@ class FixedObservationController:
                 raise FileNotFoundError(f'固定観測コレクタが見つかりません: {self._script}')
             command = [sys.executable, '-u', str(self._script)]
             working_directory = str(self._script.parent.parent)
-        self._log_handle = open(self.capture_dir / 'viewer_fixed.log', 'a',
-                                encoding='utf-8', buffering=1)
+        # A previous child may have died without stop() running:
+        # never overwrite its log handle without closing it first
+        # (each respawn otherwise leaks one descriptor for the life
+        # of the app process).
+        if self._log_handle is not None:
+            try:
+                self._log_handle.close()
+            except Exception:
+                pass
+            self._log_handle = None
+        log_path = self.capture_dir / 'viewer_fixed.log'
+        try:
+            if log_path.exists() and log_path.stat().st_size > LOG_ROTATE_BYTES:
+                os.replace(log_path, log_path.with_name(log_path.name + '.1'))
+        except OSError:
+            pass  # rotation is housekeeping; never block a start
+        self._log_handle = open(log_path, 'a', encoding='utf-8', buffering=1)
         creationflags = 0
         if os.name == 'nt':
             creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)

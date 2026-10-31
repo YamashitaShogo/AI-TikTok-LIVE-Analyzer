@@ -423,6 +423,17 @@ def build_report(database, scope, session=None, profile="capture", now=None,
         "window_start_jst": format_jst(start) if start is not None else "指定なし",
         "window_end_jst": format_jst(end) if end is not None else "指定なし",
     }
+    if session is not None and not battles and monitored == 0 \
+            and disconnected > 0:
+        # The session ran but never connected and recorded nothing.
+        # Say so explicitly: a successful auto-generated JSON with
+        # zero records otherwise reads as if observation happened.
+        # The possible causes are NOT distinguishable from this data
+        # alone, and the note must not pretend otherwise.
+        report["data_notes"].append(
+            "このセッションでは接続が確立した時間がなく、バトル記録もありませんでした。"
+            "対象が配信していなかった可能性のほか、対象ユーザーが存在しない・"
+            "ログインが必要な状態だった可能性もあり、このデータだけでは区別できません。")
     return report
 
 
