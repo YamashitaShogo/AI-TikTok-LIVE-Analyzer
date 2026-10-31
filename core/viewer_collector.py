@@ -1499,6 +1499,9 @@ def collector_loop():
 
 
 
+_theme_state = {"last": None, "last_error": None}
+
+
 def apply_viewer_theme():
     mode = get_app_appearance_mode()
 
@@ -1535,14 +1538,21 @@ def apply_viewer_theme():
 
     try:
         result = window.evaluate_js(js)
-        print(
-            f"[Viewer Theme] {result}",
-            flush=True
-        )
+        # Called every 5 seconds by theme_sync_loop; log only when
+        # the applied mode actually changes, so the collector log
+        # does not gain a line per poll for the whole session.
+        if result != _theme_state["last"]:
+            _theme_state["last"] = result
+            print(
+                f"[Viewer Theme] {result}",
+                flush=True
+            )
     except Exception as exc:
-        print(
-            "[Viewer Theme Error]",
-            repr(exc),
+        if repr(exc) != _theme_state["last_error"]:
+            _theme_state["last_error"] = repr(exc)
+            print(
+                "[Viewer Theme Error]",
+                repr(exc),
             flush=True
         )
 
