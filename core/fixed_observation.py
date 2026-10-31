@@ -82,6 +82,15 @@ def set_pro_tiktok_id(raw):
     return tiktok_id
 
 
+def _status_ts(status):
+    """updated_at of a lock status/conflict dict as a float (0 when
+    absent or unreadable, so a corrupt value never looks fresh)."""
+    try:
+        return float((status or {}).get('updated_at') or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def build_fixed_env(tiktok_id, base_env=None):
     """Environment for the fixed collector child process."""
     env = dict(os.environ if base_env is None else base_env)
@@ -197,6 +206,7 @@ class FixedObservationController:
             held = read_status() or {}
             return {'outcome': 'conflict',
                     'target_id': str(held.get('target_id') or '')}
+        spawned_at = time.time()
         try:
             spawned = self._spawn(tiktok_id)
         except Exception as exc:
@@ -205,19 +215,29 @@ class FixedObservationController:
         if not spawned:
             return {'outcome': 'error', 'target_id': '',
                     'message': 'コレクタを起動できませんでした'}
-        child_pid = self._process.pid
         deadline = time.time() + verify_timeout
         while time.time() < deadline:
             if self._process.poll() is not None:
                 break
             held = read_status() or {}
-            if held.get('state') == 'held' and held.get('pid') == child_pid:
+            # Corroborate the child's self-report WITHOUT comparing
+            # pids: under a launcher-shim python (e.g. the Python
+            # Install Manager), Popen.pid is the shim's pid and never
+            # equals the interpreter's os.getpid() that the child
+            # writes into the status. A held status for exactly this
+            # target, written after our spawn, while the OS lock is
+            # actually held, proves our collector owns the profile.
+            if (held.get('state') == 'held'
+                    and str(held.get('target_id') or '') == tiktok_id
+                    and _status_ts(held) >= spawned_at
+                    and probe_locked()):
                 return {'outcome': 'started', 'target_id': tiktok_id}
             time.sleep(0.05)
         # A child that lost the lock race records its conflict in the
-        # separate conflict file (it may not touch owner status).
+        # separate conflict file (it may not touch owner status). The
+        # note is attributed by freshness, not pid (same shim reason).
         conf = read_conflict() or {}
-        conflict = conf.get('pid') == child_pid
+        conflict = _status_ts(conf) >= spawned_at
         self.stop()
         if conflict:
             return {'outcome': 'conflict',
