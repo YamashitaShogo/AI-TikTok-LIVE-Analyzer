@@ -13,7 +13,7 @@ from PIL import Image
 
 from core.ai_client import AIClient
 from core.license_client import LicenseClient
-from core.settings import Settings as AppSettings
+from core.settings import Settings as AppSettings, SettingsLoadError
 from core.workspace_manager import WorkspaceManager
 
 class SettingsPage(ctk.CTkFrame):
@@ -105,6 +105,7 @@ class SettingsPage(ctk.CTkFrame):
         self._build_analysis_section()
         self._build_appearance_section()
         self._build_developer_section()
+        self._build_viewer_section()
         self._build_action_section()
 
     def _build_quick_setup_section(self):
@@ -407,9 +408,88 @@ class SettingsPage(ctk.CTkFrame):
             pady=(4, 8),
         )
 
+    def _build_viewer_section(self):
+        body = self._section("Viewer")
+
+        self._field_label(
+            body,
+            "通常Viewerの自動起動",
+            0,
+        )
+
+        self.viewer_autostart_var = ctk.BooleanVar(
+            value=AppSettings.load().get("normal_viewer_autostart", True) is not False
+        )
+        self.viewer_autostart_switch = ctk.CTkSwitch(
+            body,
+            text="アプリ起動時に通常Viewerを自動起動する",
+            variable=self.viewer_autostart_var,
+            command=self._on_viewer_autostart_toggle,
+            font=("Yu Gothic UI", 13),
+            text_color=("#475569", "#CBD5E1"),
+        )
+        self.viewer_autostart_switch.grid(
+            row=0,
+            column=1,
+            sticky="w",
+            pady=8,
+        )
+
+        ctk.CTkLabel(
+            body,
+            text=("OFFにすると起動時の負荷を減らせますが、通常Viewerが動作している"
+                  "間だけ更新される機能（Battle Hunter巡回、Dashboardのライブ表示、"
+                  "自動分析）は止まります。固定観測（配信レポート）には影響しません。"
+                  "反映は次回起動時です。実行中のViewerをこのスイッチで停止することは"
+                  "ありません。"),
+            anchor="w",
+            justify="left",
+            wraplength=560,
+            font=("Yu Gothic UI", 11),
+            text_color=("#94A3B8", "#64748B"),
+        ).grid(
+            row=1,
+            column=1,
+            sticky="w",
+            pady=(4, 8),
+        )
+
+    def _on_viewer_autostart_toggle(self):
+        enabled = bool(self.viewer_autostart_var.get())
+        try:
+            AppSettings.update({"normal_viewer_autostart": enabled})
+        except (OSError, SettingsLoadError) as exc:
+            # Never leave the switch showing a state that was not
+            # saved; the existing settings file is untouched.
+            self.viewer_autostart_var.set(not enabled)
+            self.status_label.configure(text="設定を保存できませんでした")
+            messagebox.showerror(
+                "設定保存エラー",
+                "設定を保存できませんでした。既存の設定は変更されていません。\n\n"
+                f"{exc}",
+            )
+            return
+        self.status_label.configure(
+            text=("通常Viewerの自動起動をONにしました（次回起動時から反映）"
+                  if enabled else
+                  "通常Viewerの自動起動をOFFにしました（次回起動時から反映）")
+        )
+
     def _on_developer_toggle(self):
         enabled = bool(self.developer_var.get())
-        WorkspaceManager().set_developer_enabled(enabled)
+        try:
+            WorkspaceManager().set_developer_enabled(enabled)
+        except (OSError, SettingsLoadError) as exc:
+            # Revert the switch and skip the sidebar callback: the
+            # setting was not saved, so nothing may act on it.
+            self.developer_var.set(not enabled)
+            self.status_label.configure(text="設定を保存できませんでした")
+            messagebox.showerror(
+                "設定保存エラー",
+                "設定を保存できませんでした。既存の設定は変更されていません。\n\n"
+                f"{exc}",
+            )
+            return
         self.status_label.configure(
             text=("開発機能を表示しました（左メニューで開発者モードを選べます）"
                   if enabled else
@@ -493,15 +573,16 @@ class SettingsPage(ctk.CTkFrame):
         ctk.set_appearance_mode(mode)
 
         try:
-            settings = AppSettings.load()
-            settings["appearance_mode"] = mode
-            AppSettings.save(settings)
+            AppSettings.update({"appearance_mode": mode})
 
             self.status_label.configure(
                 text="\u5916\u89b3\u3092\u5909\u66f4\u3057\u307e\u3057\u305f"
             )
 
         except Exception as exc:
+            # Not saved: revert the visual mode so the UI does not
+            # claim a theme the settings file does not hold.
+            ctk.set_appearance_mode("dark" if mode == "light" else "light")
             messagebox.showerror(
                 "\u5916\u89b3\u8a2d\u5b9a",
                 (
@@ -516,7 +597,16 @@ class SettingsPage(ctk.CTkFrame):
     # Settings
     # ==================================================
 
-    def _read_settings_file(self):
+    def _read_settings_file(self, for_save=False):
+        """Read settings.json merged over DEFAULTS.
+
+        A MISSING file (first run) legitimately yields the defaults.
+        An EXISTING file that cannot be read or parsed is different:
+        for display we fall back to defaults with a warning, but with
+        for_save=True we raise SettingsLoadError instead — saving on
+        top of defaults would wipe the license key, the registered
+        ID, workspace settings and everything else in the real file.
+        """
         settings = dict(self.DEFAULTS)
 
         if not self._get_settings_path().exists():
@@ -529,13 +619,19 @@ class SettingsPage(ctk.CTkFrame):
             ) as file:
                 loaded = json.load(file)
 
-            if isinstance(loaded, dict):
-                settings.update(loaded)
+            if not isinstance(loaded, dict):
+                raise ValueError("settings.jsonの形式が不正です")
 
-                for suffix in ("host", "port", "password"):
-                    settings.pop("obs_" + suffix, None)
+            settings.update(loaded)
 
-        except (OSError, json.JSONDecodeError) as exc:
+            for suffix in ("host", "port", "password"):
+                settings.pop("obs_" + suffix, None)
+
+        except (OSError, ValueError) as exc:
+            if for_save:
+                raise SettingsLoadError(
+                    f"既存のsettings.jsonを読み込めませんでした: {exc}"
+                ) from exc
             messagebox.showwarning(
                 "設定読込",
                 "settings.jsonを読み込めなかったため、"
@@ -613,38 +709,20 @@ class SettingsPage(ctk.CTkFrame):
     def save_settings(self):
         try:
             new_settings = self.collect_settings()
-            current = self._read_settings_file()
-    
-            # 旧バージョンでsettings.jsonに保存されていた
-            # OpenAI APIキーがあれば削除します。
-            current.pop(
-                "openai_api_key",
-                None,
+            # Save ONLY this form's keys through Settings.update():
+            # it re-reads the file strictly (an unreadable file
+            # aborts via SettingsLoadError below), merges under a
+            # lock, and writes through a unique temp file — so keys
+            # written meanwhile by other writers (registered ID,
+            # workspace mode, license) survive even though this page
+            # loaded its values earlier. The legacy cleanup of a
+            # plaintext OpenAI API key from old versions is kept as
+            # a `remove` in the same locked merge.
+            AppSettings.update(
+                new_settings,
+                remove=("openai_api_key",),
             )
-    
-            current.update(new_settings)
-    
-            self._get_settings_path().parent.mkdir(
-                parents=True,
-                exist_ok=True,
-            )
-    
-            temp_path = self._get_settings_path().with_suffix(".json.tmp")
-    
-            with temp_path.open(
-                "w",
-                encoding="utf-8",
-            ) as file:
-                json.dump(
-                    current,
-                    file,
-                    ensure_ascii=False,
-                    indent=4,
-                )
-    
-            temp_path.replace(self._get_settings_path())
-    
-    
+
             self.status_label.configure(
                 text="✅ 保存しました"
             )
@@ -656,6 +734,13 @@ class SettingsPage(ctk.CTkFrame):
                 "いったん停止してから再開してください。",
             )
     
+        except SettingsLoadError as exc:
+            messagebox.showerror(
+                "保存中止",
+                "既存の設定ファイルを読み込めなかったため、設定を上書きせず保存を中止しました。"
+                "ファイルが復旧してから再度お試しください。\n\n"
+                f"{exc}",
+            )
         except ValueError as exc:
             messagebox.showwarning(
                 "入力エラー",
@@ -664,7 +749,8 @@ class SettingsPage(ctk.CTkFrame):
         except OSError as exc:
             messagebox.showerror(
                 "保存エラー",
-                f"設定を保存できませんでした。\n\n{exc}",
+                "設定を保存できませんでした。既存の設定ファイルは変更されていません。\n\n"
+                f"{exc}",
             )
     
     
@@ -817,31 +903,14 @@ class SettingsPage(ctk.CTkFrame):
     def _save_license_result(self, key, status):
         """ライセンス認証結果をsettings.jsonへ保存します。"""
         try:
-            current = self._read_settings_file()
-            current["license_key"] = key
-            current["license_status"] = status
-
-            self._get_settings_path().parent.mkdir(
-                parents=True,
-                exist_ok=True,
-            )
-
-            temp_path = self._get_settings_path().with_suffix(
-                ".json.tmp"
-            )
-
-            with temp_path.open(
-                "w",
-                encoding="utf-8",
-            ) as file:
-                json.dump(
-                    current,
-                    file,
-                    ensure_ascii=False,
-                    indent=4,
-                )
-
-            temp_path.replace(self._get_settings_path())
+            # Save ONLY the two license keys through Settings.update()
+            # (strict re-read + locked merge + unique temp file), so
+            # nothing this page loaded earlier can overwrite keys
+            # written meanwhile by other writers.
+            AppSettings.update({
+                "license_key": key,
+                "license_status": status,
+            })
 
             # MainWindowの左メニューもすぐ更新します。
             root = self.winfo_toplevel()
@@ -854,6 +923,17 @@ class SettingsPage(ctk.CTkFrame):
                 refresh()
 
             return True
+
+        except SettingsLoadError as exc:
+            self.license_status_label.configure(
+                text="❌ 保存中止（読込失敗）"
+            )
+            messagebox.showerror(
+                "ライセンス保存中止",
+                "既存の設定ファイルを読み込めなかったため、設定を上書きせず保存を中止しました。\n\n"
+                f"{exc}",
+            )
+            return False
 
         except OSError as exc:
             self.license_status_label.configure(

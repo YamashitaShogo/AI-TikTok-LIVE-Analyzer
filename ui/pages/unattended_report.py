@@ -35,6 +35,7 @@ import customtkinter as ctk
 
 from core.fixed_observation import (get_fixed_controller, get_pro_tiktok_id,
                                     set_pro_tiktok_id)
+from core.settings import SettingsLoadError, SettingsSaveError
 from core.observation_sessions import JST, format_jst, get_runtime
 from core.report_ai import analyze as ai_analyze, evidence_preview
 from core.report_export import export_csv, export_json, export_pdf
@@ -171,6 +172,7 @@ class UnattendedReportPage(ctk.CTkFrame):
         self._runtime = get_runtime(self._source['capture_dir']) if self._source else None
         self._active_session_id = None
         self._running_started_at = None
+        self._transition = False  # start/stop reentrancy guard (Phase 4)
         self._sessions = []
         self._report = None
         self._ai_text = None
@@ -228,6 +230,12 @@ class UnattendedReportPage(ctk.CTkFrame):
         ctk.CTkLabel(row3, text='収集の状態:', text_color=MUTED, width=76, anchor='w').pack(side='left', padx=(10, 0))
         self.collector_label = ctk.CTkLabel(row3, text='停止中', text_color=TEXT, anchor='w')
         self.collector_label.pack(side='left')
+        row4 = ctk.CTkFrame(info, fg_color='transparent')
+        row4.pack(fill='x', pady=(4, 0))
+        ctk.CTkLabel(row4, text='実際に観測中のID:', text_color=MUTED, width=110, anchor='w').pack(side='left')
+        self.observing_label = ctk.CTkLabel(row4, text='—', text_color=TEXT, anchor='w',
+                                            justify='left', wraplength=560)
+        self.observing_label.pack(side='left', fill='x', expand=True)
         ctk.CTkLabel(
             info, text_color=MUTED, anchor='w', justify='left', wraplength=760,
             font=(theme.FONT_FAMILY, theme.FONT_SMALL),
@@ -542,18 +550,80 @@ class UnattendedReportPage(ctk.CTkFrame):
         except ValueError as exc:
             messagebox.showerror('自分のTikTok ID', str(exc))
             return
+        except (SettingsSaveError, SettingsLoadError) as exc:
+            # The ID was NOT saved; say so plainly (existing settings
+            # are untouched) instead of leaking an unhandled error.
+            messagebox.showerror(
+                '設定保存エラー',
+                'TikTok IDを保存できませんでした。既存の設定は変更されていません。'
+                '時間をおいて再度お試しください。\n\n'
+                f'{exc}')
+            return
         self.account_entry.delete(0, 'end')
         self.account_entry.insert(0, tiktok_id)
         self.status.configure(
             text=f'自分のTikTok IDを保存しました: @{tiktok_id}'
                  '（観測対象の設定です。本人確認済みという意味ではありません）')
 
+    def _fixed_collection_alert(self, session):
+        """Warning when a session is 'running' but nothing is actually
+        collecting for it on the fixed source; '' when collection is
+        genuinely underway (our collector running healthily, or an
+        external collector observing the SAME target). Unknown state
+        yields '' — never fabricate either way."""
+        if session is None or not self._is_fixed_source():
+            return ''
+        try:
+            state = get_fixed_controller(self._source['capture_dir']).status()
+        except Exception:
+            return ''
+        if state.get('running'):
+            if state.get('state') in ('stalled', 'blocked', 'not_found'):
+                return (f"固定観測コレクタが正常に収集できていません（{state.get('label', '')}）。"
+                        'セッションだけが「観測中」の状態になっています。')
+            return ''
+        targets = [str(t) for t in (session.get('targets') or [])]
+        if (state.get('state') == 'conflict'
+                and str(state.get('external_target') or '') in targets):
+            return ''  # an external collector observes the same target
+        if state.get('state') == 'not_found':
+            return ('対象ユーザーが見つかりません（IDをご確認ください）。'
+                    'セッションは「観測中」のままですが、現在データは収集されていません。')
+        return ('固定観測コレクタが停止しています。セッションは「観測中」のままですが、'
+                '現在データは収集されていません。')
+
+    def _no_connection_note(self, session, now=None):
+        """Note for a running fixed session that has never connected.
+
+        Waiting offline is legitimate, so this is not an alarm: it
+        states the fact and the ambiguity. After the grace period a
+        session with zero connected time is just as consistent with
+        a mistyped ID or a login-required profile as with a streamer
+        who simply has not gone live — the user cannot tell from a
+        plain '待機中', and a zero-record report at the end should
+        not be the first time they learn nothing was collected.
+        """
+        if session is None or not self._is_fixed_source():
+            return ''
+        if session.get('end_kind') != 'running':
+            return ''
+        now = time.time() if now is None else now
+        if now - float(session.get('started_at') or now) < 300:
+            return ''
+        if float(session.get('monitored_seconds') or 0) > 0:
+            return ''
+        return ('開始から接続が確立した時間がありません。対象が配信していない場合は'
+                '待機が正常ですが、IDの誤りやログインが必要な状態でも同じ表示に'
+                'なります。')
+
     def _update_collector_status(self):
         if not self._is_fixed_source():
             self.collector_label.configure(text='固定観測ではありません')
+            self.observing_label.configure(text='—')
             return
         try:
-            state = get_fixed_controller(self._source['capture_dir']).status()
+            controller = get_fixed_controller(self._source['capture_dir'])
+            state = controller.status()
         except Exception:
             self.collector_label.configure(text='状態を取得できません')
             return
@@ -561,6 +631,33 @@ class UnattendedReportPage(ctk.CTkFrame):
         if state.get('last_data'):
             text += f" ／ 最終データ {format_jst(state['last_data'])}"
         self.collector_label.configure(text=text)
+        # Show the ACTUAL observation target, kept distinct from the
+        # registered ID: a running session's targets are authoritative,
+        # then our controller's target, then an external holder's.
+        observing = ''
+        active = next((s for s in self._sessions
+                       if s['session_id'] == self._active_session_id), None)
+        if active and active.get('targets'):
+            observing = str(active['targets'][0])
+        elif state.get('running') and state.get('target_id'):
+            observing = str(state['target_id'])
+        elif state.get('state') == 'conflict':
+            external = state.get('external_target') or ''
+            self.observing_label.configure(
+                text=f'別の固定観測が動作中です（対象 @{external}）'
+                     '。この画面からは開始・停止できません' if external else
+                     '別の固定観測が動作中です。この画面からは開始・停止できません')
+            return
+        if observing:
+            note = f'@{observing}'
+            registered = get_pro_tiktok_id()
+            if registered and registered != observing:
+                note += '（登録IDと異なります。変更は次回の分析開始から反映されます）'
+            if active is not None and self._fixed_collection_alert(active):
+                note += '（コレクタ停止中：現在は収集していません）'
+            self.observing_label.configure(text=note)
+        else:
+            self.observing_label.configure(text='—')
 
     def change_source(self):
         label = self.source_menu.get()
@@ -608,10 +705,13 @@ class UnattendedReportPage(ctk.CTkFrame):
         running = next((s for s in self._sessions if s['end_kind'] == 'running'), None)
         latest = self._sessions[0] if self._sessions else None
         current = running or latest
+        alert = self._fixed_collection_alert(running)
         if running is not None:
             self._active_session_id = running['session_id']
             self._running_started_at = running['started_at']
-            self.badge.set_status('running')
+            # A running session whose collector is gone must not look
+            # like healthy observation.
+            self.badge.set_status('collector_stopped' if alert else 'running')
             self.stop_button.configure(state='normal')
             self.start_button.configure(state='disabled')
             self.elapsed_label.configure(
@@ -639,6 +739,11 @@ class UnattendedReportPage(ctk.CTkFrame):
             self.started_label.configure(text='—')
             self.session_id_label.configure(text='セッションID: —')
         note = f'前回の未完了セッション{len(recovered)}件を「中断」として記録しました。' if recovered else ''
+        if alert:
+            note = f'⚠ {alert} ' + note
+        no_conn = self._no_connection_note(current)
+        if no_conn:
+            note = f'{no_conn} ' + note
         self.status.configure(text=note + ('TopWatchのデータは参照のみです（セッション開始は対象プロセス側）。'
                                            if self._is_topwatch() else
                                            'セッション終了時にレポートJSONを自動生成します（画面での集計・PDF・AI分析は手動操作です）。'))
@@ -650,71 +755,166 @@ class UnattendedReportPage(ctk.CTkFrame):
                 if part.strip()]
 
     def start_session(self):
+        if self._transition:
+            return  # a start/stop is already in flight (double-click guard)
         if self._source is None or self._is_topwatch() or self._runtime is None:
             return
+        self._transition = True
+        self.start_button.configure(state='disabled')
+        self.stop_button.configure(state='disabled')
+        try:
+            self._start_session_inner()
+        finally:
+            self._transition = False
+            self.refresh()
+
+    def _start_session_inner(self):
         if self._is_fixed_source():
             # Pulse Pro standard flow: the registered account is the
             # observation target. Save the ID first (this only sets the
             # target; it is NOT ownership verification), then start the
-            # fixed collector process for that account and bind the
-            # session to it, so no other streamer's records can be
-            # presented as this streamer's results.
+            # fixed collector for that account and bind the session to
+            # it ONLY when the collector provably observes that ID
+            # (start_ex), so another streamer's observation can never
+            # be bound to this streamer's session.
             try:
                 tiktok_id = set_pro_tiktok_id(
                     self.account_entry.get() or get_pro_tiktok_id())
             except ValueError as exc:
                 messagebox.showerror('自分のTikTok ID', str(exc))
                 return
+            except (SettingsSaveError, SettingsLoadError) as exc:
+                # Without a saved target ID, neither the collector
+                # nor a session may start.
+                messagebox.showerror(
+                    '設定保存エラー',
+                    'TikTok IDを保存できなかったため、配信分析を開始しませんでした。'
+                    '既存の設定は変更されていません。時間をおいて再度お試しください。\n\n'
+                    f'{exc}')
+                return
             self.account_entry.delete(0, 'end')
             self.account_entry.insert(0, tiktok_id)
             controller = get_fixed_controller(self._source['capture_dir'])
             try:
-                controller.start(tiktok_id)
+                result = controller.start_ex(tiktok_id)
             except Exception as exc:
                 logging.exception('fixed collector start failed')
                 messagebox.showerror('配信分析', f'固定観測を開始できませんでした: {exc}')
                 return
-            session = self._runtime.start_session('固定観測', [tiktok_id],
-                                                  profile='capture_fixed')
+            outcome = result['outcome']
+            if outcome == 'already_other':
+                messagebox.showwarning(
+                    '配信分析',
+                    f'固定観測は既に別のID（@{result["target_id"]}）で動作しています。\n'
+                    '対象を切り替えるには、先に「配信分析を終了」を押して現在の観測を'
+                    '終了してください。今回はセッションを開始しませんでした。')
+                return
+            if outcome == 'conflict':
+                other = result.get('target_id') or ''
+                messagebox.showwarning(
+                    '配信分析',
+                    '別の固定観測が既に動作しているため開始できませんでした'
+                    + (f'（対象 @{other}）' if other else '')
+                    + '。\nTop固定観測など、他の固定観測を停止してからお試しください。'
+                      '今回はセッションを開始しませんでした。')
+                return
+            if outcome != 'started' and outcome != 'already_same':
+                messagebox.showerror(
+                    '配信分析',
+                    '固定観測を開始できませんでした: '
+                    + str(result.get('message') or '起動を確認できませんでした')
+                    + '\nセッションは開始していません。')
+                return
+            try:
+                session = self._runtime.start_session('固定観測', [tiktok_id],
+                                                      profile='capture_fixed')
+            except Exception as exc:
+                logging.exception('session start failed after collector start')
+                if outcome == 'started':
+                    controller.stop()  # roll back only the collector WE started
+                messagebox.showerror('配信分析', f'セッションを開始できませんでした: {exc}')
+                return
             self._active_session_id = session['session_id']
             self._running_started_at = session['started_at']
             self.badge.set_status('running')
-            self.start_button.configure(state='disabled')
-            self.stop_button.configure(state='normal')
             self.status.configure(
                 text=f'配信分析を開始しました（固定観測: @{tiktok_id}）。'
                      '配信がオフラインの間は「待機中」と表示されます。'
                      '画面を切り替えても記録は継続します。')
             self._update_collector_status()
-            self.refresh()
             return
         session = self._runtime.start_session(self.mode_menu.get(), self._targets(),
                                               profile=self._source['profile'])
         self._active_session_id = session['session_id']
         self._running_started_at = session['started_at']
         self.badge.set_status('running')
-        self.start_button.configure(state='disabled')
-        self.stop_button.configure(state='normal')
         self.status.configure(text='分析を開始しました。画面を切り替えても記録は継続します。')
-        self.refresh()
 
     def stop_session(self):
+        if self._transition:
+            return  # double-click guard
         if self._active_session_id is None or self._runtime is None:
             return
-        self._runtime.stop_session(self._active_session_id, end_kind='normal')
-        if self._is_fixed_source():
-            try:
-                get_fixed_controller(self._source['capture_dir']).stop()
-            except Exception:
-                logging.exception('fixed collector stop failed')
-        self.badge.set_status('normal')
-        self.status.configure(
-            text='配信分析を終了しました。レポートJSONは自動生成されます（画面集計・PDF・AIは手動）。')
+        self._transition = True
+        self.start_button.configure(state='disabled')
         self.stop_button.configure(state='disabled')
-        self._active_session_id = None
-        self._running_started_at = None
-        self._update_collector_status()
-        self.refresh()
+        need_refresh = True
+        try:
+            if self._is_fixed_source():
+                # Ordering (Phase 4 review): the collector must be
+                # CONFIRMED stopped before the session is closed as a
+                # normal end and its final JSON is generated, so the
+                # JSON is built from complete data and no collector
+                # writes can land after the session's end.
+                try:
+                    collector_stopped = get_fixed_controller(
+                        self._source['capture_dir']).stop()
+                except Exception:
+                    logging.exception('fixed collector stop failed')
+                    collector_stopped = False
+                if not collector_stopped:
+                    # Never record a normal end the data does not
+                    # support: the session stays running (collection
+                    # state unchanged) and the user can retry. No
+                    # refresh here — re-rendering would overwrite this
+                    # message; the buttons are restored directly.
+                    need_refresh = False
+                    self.stop_button.configure(state='normal')
+                    self.status.configure(
+                        text='固定観測の停止を確認できなかったため、セッションを終了しませんでした。'
+                             '観測は継続しています。もう一度「配信分析を終了」を押してください。')
+                    self._update_collector_status()
+                    return
+            try:
+                self._runtime.stop_session(self._active_session_id,
+                                           end_kind='normal')
+            except Exception:
+                # The collector is already confirmed stopped, but the
+                # session record could not be closed (e.g. the
+                # sessions database was momentarily locked). Never let
+                # the exception escape the button handler and never
+                # claim the session ended: it stays 'running' in the
+                # record, the collector-stopped alert will show, and
+                # pressing stop again retries the close.
+                logging.exception('session stop failed')
+                need_refresh = False
+                self.stop_button.configure(state='normal')
+                self.status.configure(
+                    text='セッションの終了処理に失敗しました（記録用データベースが'
+                         '使用中だった可能性があります）。セッションは継続中として'
+                         '残っています。もう一度「配信分析を終了」を押してください。')
+                self._update_collector_status()
+                return
+            self.badge.set_status('normal')
+            self.status.configure(
+                text='配信分析を終了しました。レポートJSONは自動生成されます（画面集計・PDF・AIは手動）。')
+            self._active_session_id = None
+            self._running_started_at = None
+            self._update_collector_status()
+        finally:
+            self._transition = False
+            if need_refresh:
+                self.refresh()
 
     # ------------------------------------------------------------ report
     def _selected_session(self):

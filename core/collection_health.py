@@ -15,6 +15,23 @@ def heartbeat(directory, monitor, paused=False):
             state = dict(updated_at=time.time(), pid=os.getpid(),
                          unique_id=monitor._unique_id, connected=monitor._connected,
                          blocked=monitor._connection_blocked, navigation_paused=paused)
+            # Why the latest connection attempt ended, when the
+            # monitor tracks it (core.battle_monitor). Reported only
+            # for the CURRENT target: a previous target's error must
+            # never be presented as this target's state.
+            error = {}
+            reporter = getattr(monitor, 'last_connection_error', None)
+            if callable(reporter):
+                try:
+                    error = reporter() or {}
+                except Exception:
+                    error = {}
+            if error.get('unique_id') == monitor._unique_id:
+                state['error_kind'] = error.get('kind') or ''
+                state['error_name'] = error.get('name') or ''
+            else:
+                state['error_kind'] = ''
+                state['error_name'] = ''
         directory = Path(directory)
         with tempfile.NamedTemporaryFile('w', encoding='utf-8', dir=directory, delete=False) as f:
             temporary = f.name
@@ -32,10 +49,13 @@ def read_health(directory, now=None):
     directory = Path(directory)
     now = time.time() if now is None else now
     result = dict(status='稼働情報なし', unique_id='', heartbeat=None,
-                  last_data=None, today=None, reason='記録なし', db_error=None)
+                  last_data=None, today=None, reason='記録なし', db_error=None,
+                  error_kind='', error_name='')
     try:
         h = json.loads((directory / 'collector_health.json').read_text(encoding='utf-8-sig'))
-        result.update(unique_id=h.get('unique_id') or '', heartbeat=h['updated_at'])
+        result.update(unique_id=h.get('unique_id') or '', heartbeat=h['updated_at'],
+                      error_kind=h.get('error_kind') or '',
+                      error_name=h.get('error_name') or '')
         age = now - float(h['updated_at'])
         if age < -5 or age > 30: result['status'] = '更新停止・停止の可能性'
         elif h.get('blocked'): result['status'] = '接続制限で停止'

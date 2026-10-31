@@ -249,12 +249,26 @@ class SessionStore:
             session["evidence_refs"] = json.loads(session.pop("evidence_refs_json") or "[]")
         except ValueError:
             session["evidence_refs"] = []
+        # Events are loaded on every session read (the report page
+        # refreshes constantly), so a long session with a flapping
+        # connection must not grow this read without bound:
+        # target_switch events are always kept in full (reports list
+        # them and they are user-driven, hence few), other kinds are
+        # capped at the most recent 1000.
+        sid = session["session_id"]
+        event_rows = db.execute(
+            "SELECT at, kind, detail_json FROM session_events"
+            " WHERE session_id=? AND kind='target_switch'"
+            " ORDER BY at, id", (sid,)).fetchall()
+        event_rows += db.execute(
+            "SELECT at, kind, detail_json FROM session_events"
+            " WHERE session_id=? AND kind<>'target_switch'"
+            " ORDER BY id DESC LIMIT 1000", (sid,)).fetchall()
+        event_rows.sort(key=lambda r: r["at"])
         session["events"] = [
             {"at": r["at"], "kind": r["kind"],
              "detail": json.loads(r["detail_json"] or "{}")}
-            for r in db.execute(
-                "SELECT at, kind, detail_json FROM session_events"
-                " WHERE session_id=? ORDER BY at, id", (session["session_id"],))]
+            for r in event_rows]
         session["started_jst"] = format_jst(session["started_at"])
         session["ended_jst"] = format_jst(session["ended_at"])
         session["elapsed_seconds"] = (
@@ -297,6 +311,7 @@ class SessionSampler:
         self._stop = threading.Event()
         self._thread = None
         self._was_connected = None
+        self._last_error_kind = ''
 
     def start(self):
         if self._thread and self._thread.is_alive():
@@ -320,6 +335,19 @@ class SessionSampler:
             from collection_health import read_health
         health = read_health(self.capture_dir, now=now)
         connected = str(health.get("status") or "").startswith("接続中")
+        # Record WHY collection is failing when the collector knows:
+        # without this, a session whose target did not exist (or was
+        # rate-limited) is indistinguishable from plain offline
+        # waiting in the stored record. One event per transition;
+        # the tracker re-arms when the error clears.
+        error_kind = str(health.get("error_kind") or "")
+        if error_kind in ("not_found", "rate_limit") \
+                and error_kind != self._last_error_kind:
+            self.store.record_event(
+                self.session_id, "connection_error",
+                {"kind": error_kind, "status": health.get("status")},
+                now=now)
+        self._last_error_kind = error_kind
         if self._was_connected is not None and connected != self._was_connected:
             self.store.record_event(
                 self.session_id,
