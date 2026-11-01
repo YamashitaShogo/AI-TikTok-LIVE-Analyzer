@@ -503,6 +503,10 @@ class UnattendedReportPage(ctk.CTkFrame):
                 + 8 * len(self._action_buttons))
 
     def _on_status_resize(self, event):
+        if self._alive and event.width > 1:
+            self._apply_status_layout(event.width)
+
+    def _apply_status_layout(self, width):
         """Responsive rearrangement of the status card.
 
         Widths are measured (requested widths are already DPI-scaled
@@ -511,14 +515,19 @@ class UnattendedReportPage(ctk.CTkFrame):
         buttons move below the info; when they would not fit even
         there, they stack full-width. A hysteresis band keeps the
         layout from oscillating while a window is dragged.
+
+        Driven both by <Configure> and by the page's pump: a child's
+        requested width can settle AFTER the last size event (fonts
+        and CTk scaling realise progressively), and the wrap widths
+        depend on those requests — the pump pass makes the layout
+        converge instead of freezing on a transient measurement.
         """
-        if not self._alive or event.width <= 1:
+        if not self._alive or width <= 1:
             return
         actions_req = self._actions_req_width()
         if actions_req < 100:
             return  # widgets not realised yet; a later event corrects
         need = actions_req + self._id_row.winfo_reqwidth()
-        width = event.width
         if self._status_mode == 'h' and width < need + 24:
             self._set_status_mode('v')
         elif self._status_mode == 'v' and width >= need + 72:
@@ -560,20 +569,45 @@ class UnattendedReportPage(ctk.CTkFrame):
         running off the right edge: their wrap lengths follow the
         info column's actual width (which also stops a fixed long
         wraplength from inflating the info column's requested width
-        and squeezing the buttons out)."""
+        and squeezing the buttons out).
+
+        CTk treats width/wraplength as UNSCALED units and multiplies
+        them by the widget scaling itself, while layout widths here
+        are physical pixels — so the values are converted back, and
+        width is pinned together with wraplength: wraplength alone
+        does not cap a label's requested width (a long unbroken
+        Japanese sentence requests its longest segment, which is how
+        the info column outgrew the card at 125%/150% scaling)."""
+        try:
+            scaling = ctk.ScalingTracker.get_widget_scaling(self) or 1.0
+        except Exception:
+            scaling = 1.0
         if self._status_mode == 'h':
-            info_w = max(200, layout_width - actions_req - 16)
+            # Reserve the buttons' full request plus slack for the
+            # frames' own scaled padding: CTk frames request a few
+            # scaled pixels beyond their contents, and pack takes any
+            # shortfall out of the last parcel (the buttons).
+            info_w = max(200, layout_width - actions_req
+                         - 24 - int(16 * scaling))
         else:
             info_w = max(200, layout_width)
-        wraps = (('target', self.target_label, max(140, info_w - 210)),
-                 ('observing', self.observing_label, max(140, info_w - 126)),
-                 ('collector', self.collector_label, max(140, info_w - 126)),
+        # Allowances for the fixed captions sharing each label's row,
+        # in physical pixels (the captions scale, so a fixed pixel
+        # allowance under-reserves at 125%/150% and the row again
+        # outgrows the info column).
+        target_allow = int(100 * scaling) + self.badge.winfo_reqwidth() + 30
+        side_allow = int(110 * scaling) + 16
+        wraps = (('target', self.target_label, max(140, info_w - target_allow)),
+                 ('observing', self.observing_label, max(140, info_w - side_allow)),
+                 ('collector', self.collector_label, max(140, info_w - side_allow)),
                  ('note', self._note_label, max(140, info_w - 8)),
-                 ('head', self._head_desc, max(200, layout_width - 30)))
-        for key, label, wrap in wraps:
+                 ('head', self._head_desc,
+                  max(200, layout_width - (int(78 * scaling) + 46))))
+        for key, label, wrap_px in wraps:
+            wrap = int(wrap_px / scaling)
             if abs(self._wrap_cache.get(key, 0) - wrap) > 4:
                 self._wrap_cache[key] = wrap
-                label.configure(wraplength=wrap)
+                label.configure(width=wrap, wraplength=wrap)
 
     # ------------------------------------------------------------ plumbing
     def _schedule(self):
@@ -620,6 +654,12 @@ class UnattendedReportPage(ctk.CTkFrame):
                     self._set_generating(False)
         except queue.Empty:
             pass
+        try:
+            layout_width = self._status_layout.winfo_width()
+        except Exception:
+            layout_width = 0
+        if layout_width > 1:
+            self._apply_status_layout(layout_width)
         self._tick += 1
         if self._tick % 10 == 0:
             self._update_elapsed()
