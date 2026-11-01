@@ -199,19 +199,34 @@ class UnattendedReportPage(ctk.CTkFrame):
         title_box.pack(side='left', fill='x', expand=True)
         ctk.CTkLabel(title_box, text='配信レポート', text_color=TEXT, anchor='w',
                      font=(theme.FONT_FAMILY, 26, 'bold')).pack(anchor='w')
-        ctk.CTkLabel(
+        self._head_desc = ctk.CTkLabel(
             title_box, anchor='w', justify='left', wraplength=760, text_color=MUTED,
             text='Pulseが観測できたバトルと同時視聴者数の記録を集計します。'
                  '配信全体の成果ではなく、音声・発言内容は含みません。'
                  '取得できなかった情報は「未取得」と表示します。',
-            font=(theme.FONT_FAMILY, theme.FONT_SMALL)).pack(anchor='w', pady=(2, 0))
+            font=(theme.FONT_FAMILY, theme.FONT_SMALL))
+        self._head_desc.pack(anchor='w', pady=(2, 0))
         ctk.CTkButton(head, text='更新', width=70, command=self.refresh).pack(side='right', padx=4)
 
         # ------------------------------------------------ status / actions
         bar = SectionCard(self, '観測の状態')
         bar.grid(row=1, column=0, sticky='ew', padx=24, pady=(6, 6))
-        info = ctk.CTkFrame(bar.body, fg_color='transparent')
+        # Responsive status layout: info and the action buttons share
+        # one container and are rearranged by _on_status_resize —
+        # side by side when the measured widths fit, stacked (info
+        # above, buttons below) when they do not, with the buttons
+        # themselves stacking on very narrow windows. The primary
+        # actions must never be pushed off-screen by the info column
+        # (the 125%/150% scaling failure this replaces).
+        layout = ctk.CTkFrame(bar.body, fg_color='transparent')
+        layout.pack(fill='x')
+        self._status_layout = layout
+        self._status_mode = 'h'
+        self._actions_stacked = False
+        self._wrap_cache = {}
+        info = ctk.CTkFrame(layout, fg_color='transparent')
         info.pack(side='left', fill='x', expand=True)
+        self._status_info = info
         row1 = ctk.CTkFrame(info, fg_color='transparent')
         row1.pack(fill='x')
         ctk.CTkLabel(row1, text='観測対象:', text_color=MUTED, width=76, anchor='w').pack(side='left')
@@ -230,6 +245,7 @@ class UnattendedReportPage(ctk.CTkFrame):
         self.elapsed_label.pack(side='left')
         row3 = ctk.CTkFrame(info, fg_color='transparent')
         row3.pack(fill='x', pady=(6, 0))
+        self._id_row = row3
         ctk.CTkLabel(row3, text='自分のTikTok ID:', text_color=MUTED, width=110, anchor='w').pack(side='left')
         self.account_entry = ctk.CTkEntry(row3, width=200, placeholder_text='@IDまたはLIVEのURL')
         self.account_entry.pack(side='left')
@@ -238,24 +254,31 @@ class UnattendedReportPage(ctk.CTkFrame):
             self.account_entry.insert(0, saved_id)
         ctk.CTkButton(row3, text='IDを保存', width=84,
                       command=self.save_account_id).pack(side='left', padx=8)
-        ctk.CTkLabel(row3, text='収集の状態:', text_color=MUTED, width=76, anchor='w').pack(side='left', padx=(10, 0))
-        self.collector_label = ctk.CTkLabel(row3, text='停止中', text_color=TEXT, anchor='w')
-        self.collector_label.pack(side='left')
+        # The collection status gets its own row: sharing the ID row
+        # made its (potentially long) text the first thing clipped off
+        # the right edge on narrow windows.
+        row3b = ctk.CTkFrame(info, fg_color='transparent')
+        row3b.pack(fill='x', pady=(4, 0))
+        ctk.CTkLabel(row3b, text='収集の状態:', text_color=MUTED, width=110, anchor='w').pack(side='left')
+        self.collector_label = ctk.CTkLabel(row3b, text='停止中', text_color=TEXT, anchor='w',
+                                            justify='left', wraplength=560)
+        self.collector_label.pack(side='left', fill='x', expand=True)
         row4 = ctk.CTkFrame(info, fg_color='transparent')
         row4.pack(fill='x', pady=(4, 0))
         ctk.CTkLabel(row4, text='実際に観測中のID:', text_color=MUTED, width=110, anchor='w').pack(side='left')
         self.observing_label = ctk.CTkLabel(row4, text='—', text_color=TEXT, anchor='w',
                                             justify='left', wraplength=560)
         self.observing_label.pack(side='left', fill='x', expand=True)
-        ctk.CTkLabel(
+        self._note_label = ctk.CTkLabel(
             info, text_color=MUTED, anchor='w', justify='left', wraplength=760,
             font=(theme.FONT_FAMILY, theme.FONT_SMALL),
             text='本人確認は未実装です。登録IDは観測対象の設定であり、アカウント所有者として'
                  '認証されたものではありません。IDの変更は次回の分析開始から反映されます。'
-                 '固定観測は自動スクロール（Battle Hunter）を使いません。').pack(
-                     fill='x', pady=(4, 0))
-        actions = ctk.CTkFrame(bar.body, fg_color='transparent')
+                 '固定観測は自動スクロール（Battle Hunter）を使いません。')
+        self._note_label.pack(fill='x', pady=(4, 0))
+        actions = ctk.CTkFrame(layout, fg_color='transparent')
         actions.pack(side='right', padx=(16, 0))
+        self._status_actions = actions
         self.start_button = ctk.CTkButton(actions, text='配信分析を開始', width=140, height=38,
                                           fg_color=theme.PRIMARY, hover_color=theme.PRIMARY_HOVER,
                                           command=self.start_session)
@@ -267,6 +290,9 @@ class UnattendedReportPage(ctk.CTkFrame):
                                                 fg_color=theme.PURPLE, hover_color=theme.PURPLE_HOVER,
                                                 command=self.show_latest_report)
         self.show_report_button.pack(side='left', padx=4)
+        self._action_buttons = [self.start_button, self.stop_button,
+                                self.show_report_button]
+        layout.bind('<Configure>', self._on_status_resize)
 
         # ------------------------------------------------ tabs
         self.tabs = ctk.CTkTabview(self, fg_color=CARD)
@@ -470,6 +496,84 @@ class UnattendedReportPage(ctk.CTkFrame):
                                               font=(theme.FONT_FAMILY, 12))
         self.definitions_box.pack(fill='both', expand=True)
         self.definitions_box.configure(state='disabled')
+
+    # ------------------------------------------------ status layout
+    def _actions_req_width(self):
+        return (sum(b.winfo_reqwidth() for b in self._action_buttons)
+                + 8 * len(self._action_buttons))
+
+    def _on_status_resize(self, event):
+        """Responsive rearrangement of the status card.
+
+        Widths are measured (requested widths are already DPI-scaled
+        by CTk), so the same rule works at 100%/125%/150%: when the
+        buttons plus the ID row no longer fit side by side, the
+        buttons move below the info; when they would not fit even
+        there, they stack full-width. A hysteresis band keeps the
+        layout from oscillating while a window is dragged.
+        """
+        if not self._alive or event.width <= 1:
+            return
+        actions_req = self._actions_req_width()
+        if actions_req < 100:
+            return  # widgets not realised yet; a later event corrects
+        need = actions_req + self._id_row.winfo_reqwidth()
+        width = event.width
+        if self._status_mode == 'h' and width < need + 24:
+            self._set_status_mode('v')
+        elif self._status_mode == 'v' and width >= need + 72:
+            self._set_status_mode('h')
+        stacked = self._status_mode == 'v' and width < actions_req + 16
+        if stacked != self._actions_stacked:
+            self._actions_stacked = stacked
+            self._pack_action_buttons()
+        self._update_status_wraps(width, actions_req)
+
+    def _set_status_mode(self, mode):
+        if mode == self._status_mode:
+            return
+        self._status_mode = mode
+        self._status_actions.pack_forget()
+        self._status_info.pack_forget()
+        if mode == 'h':
+            self._status_info.pack(side='left', fill='x', expand=True)
+            self._status_actions.pack(side='right', padx=(16, 0))
+        else:
+            self._status_info.pack(side='top', fill='x')
+            self._status_actions.pack(side='top', fill='x', pady=(8, 0))
+        if self._actions_stacked:
+            self._actions_stacked = False
+            self._pack_action_buttons()
+
+    def _pack_action_buttons(self):
+        for button in self._action_buttons:
+            button.pack_forget()
+        if self._actions_stacked:
+            for button in self._action_buttons:
+                button.pack(side='top', fill='x', padx=4, pady=3)
+        else:
+            for button in self._action_buttons:
+                button.pack(side='left', padx=4)
+
+    def _update_status_wraps(self, layout_width, actions_req):
+        """Keep long status texts wrapping inside the card instead of
+        running off the right edge: their wrap lengths follow the
+        info column's actual width (which also stops a fixed long
+        wraplength from inflating the info column's requested width
+        and squeezing the buttons out)."""
+        if self._status_mode == 'h':
+            info_w = max(200, layout_width - actions_req - 16)
+        else:
+            info_w = max(200, layout_width)
+        wraps = (('target', self.target_label, max(140, info_w - 210)),
+                 ('observing', self.observing_label, max(140, info_w - 126)),
+                 ('collector', self.collector_label, max(140, info_w - 126)),
+                 ('note', self._note_label, max(140, info_w - 8)),
+                 ('head', self._head_desc, max(200, layout_width - 30)))
+        for key, label, wrap in wraps:
+            if abs(self._wrap_cache.get(key, 0) - wrap) > 4:
+                self._wrap_cache[key] = wrap
+                label.configure(wraplength=wrap)
 
     # ------------------------------------------------------------ plumbing
     def _schedule(self):
