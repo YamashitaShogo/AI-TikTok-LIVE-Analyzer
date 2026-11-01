@@ -125,12 +125,40 @@ def inside(widget):
             and widget.winfo_width() >= widget.winfo_reqwidth() - 2)
 
 
+def dump_geometry(context):
+    """Failure diagnostics: real clipping vs measurement error is
+    decided from these numbers, not from the pass/fail bit alone."""
+    try:
+        scaling = ctk.ScalingTracker.get_widget_scaling(root)
+    except Exception:
+        scaling = '?'
+    print(f'  [diag {context}] mode={page._status_mode} '
+          f'stacked={page._actions_stacked} widget_scaling={scaling} '
+          f'page_rootx={page.winfo_rootx()} page_w={page.winfo_width()} '
+          f'layout_w={page._status_layout.winfo_width()} '
+          f'info_req={page._status_info.winfo_reqwidth()} '
+          f'actions_w={page._status_actions.winfo_width()} '
+          f'actions_req={page._status_actions.winfo_reqwidth()}')
+    for name, b in zip(('start', 'stop', 'show'), buttons):
+        print(f'  [diag {context}] {name}: rootx={b.winfo_rootx()} '
+              f'w={b.winfo_width()} req={b.winfo_reqwidth()} '
+              f'right={b.winfo_rootx() + b.winfo_width()} '
+              f'page_right={page.winfo_rootx() + page.winfo_width()}')
+
+
+def buttons_inside(context):
+    ok = all(inside(b) for b in buttons)
+    if not ok:
+        dump_geometry(context)
+    return ok
+
+
 # ---------------------------------------------------------------- L1
 set_width(1500)
 check('L1a wide window uses the side-by-side layout',
       page._status_mode == 'h')
 check('L1b all three action buttons are fully inside the page',
-      all(inside(b) for b in buttons))
+      buttons_inside('L1b'))
 check('L1c actions sit beside the info, not below it',
       page._status_actions.winfo_rootx()
       >= page._status_info.winfo_rootx() + page._status_info.winfo_width() - 2
@@ -142,7 +170,7 @@ set_width(780)
 check('L2a narrow window switches to the stacked layout',
       page._status_mode == 'v')
 check('L2b all three action buttons are still fully inside',
-      all(inside(b) for b in buttons))
+      buttons_inside('L2b'))
 check('L2c actions are below the info in the stacked layout',
       page._status_actions.winfo_rooty()
       >= page._status_info.winfo_rooty() + page._status_info.winfo_height() - 2)
@@ -152,7 +180,7 @@ set_width(470)
 check('L3a very narrow window stacks the buttons themselves',
       page._actions_stacked is True)
 check('L3b stacked buttons are fully inside and full-width',
-      all(inside(b) for b in buttons)
+      buttons_inside('L3b')
       and all(b.winfo_width() >= page._status_actions.winfo_width() - 24
               for b in buttons))
 check('L3c stacked buttons run top to bottom in order',
@@ -164,7 +192,7 @@ set_width(1500)
 check('L4a widening restores the side-by-side layout',
       page._status_mode == 'h' and page._actions_stacked is False)
 check('L4b buttons are fully inside again after the round trip',
-      all(inside(b) for b in buttons))
+      buttons_inside('L4b'))
 
 # ---------------------------------------------------------------- L5
 set_width(780)
