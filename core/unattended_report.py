@@ -245,7 +245,7 @@ def build_report(database, scope, session=None, profile="capture", now=None,
         "scope": dict(scope),
         "generation": {"trigger": generation_trigger,
                        "note": "セッション終了時はJSONレポートを自動生成します。"
-                               "画面での集計・PDF出力・AI分析は手動操作です。"},
+                               "画面での集計は自動更新されます（ファイル出力・PDF出力・AI分析は手動操作です）。"},
         "session": None,
         "summary": None,
         "per_streamer": [],
