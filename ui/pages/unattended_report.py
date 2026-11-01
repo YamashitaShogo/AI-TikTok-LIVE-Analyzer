@@ -173,6 +173,17 @@ class UnattendedReportPage(ctk.CTkFrame):
         self._active_session_id = None
         self._running_started_at = None
         self._transition = False  # start/stop reentrancy guard (Phase 4)
+        # Read-only display auto-refresh: re-aggregates what is on
+        # screen from the latest DB/session rows every few seconds.
+        # Strictly separated from generate(): it never writes report
+        # files, never marks a session's report as generated and never
+        # runs AI. _display_gen invalidates results that arrive after
+        # the target changed (session switch, source change, manual
+        # generation, page destroy).
+        self._generating = False
+        self._display_gen = 0
+        self._display_inflight = None  # gen of the running display worker
+        self._display_request = None   # {'scope', 'session_id', 'auto'}
         self._sessions = []
         self._report = None
         self._ai_text = None
@@ -479,6 +490,19 @@ class UnattendedReportPage(ctk.CTkFrame):
                     _, report, previous_path = item
                     self._report = report
                     self._render_report(previous_path)
+                elif kind == 'display_report':
+                    _, gen, report = item
+                    if gen == self._display_inflight:
+                        self._display_inflight = None
+                    if gen == self._display_gen:
+                        self._report = report
+                        self._render_report(None, display_only=True)
+                elif kind == 'display_error':
+                    _, gen, message = item
+                    if gen == self._display_inflight:
+                        self._display_inflight = None
+                    if gen == self._display_gen:
+                        self.status.configure(text=message)
                 elif kind == 'ai':
                     _, payload, path, warning = item
                     self._ai_text = payload['answer']
@@ -497,6 +521,8 @@ class UnattendedReportPage(ctk.CTkFrame):
             self._update_elapsed()
         if self._tick % 25 == 0:
             self._update_collector_status()
+        if self._tick % 50 == 0:
+            self._auto_refresh()  # ~6s: sessions + read-only display
         self._poll = self.after(120, self._pump)
 
     def _update_elapsed(self):
@@ -505,6 +531,7 @@ class UnattendedReportPage(ctk.CTkFrame):
                 text=duration_clock(time.time() - self._running_started_at))
 
     def _set_generating(self, active):
+        self._generating = active
         state = 'disabled' if active else 'normal'
         self.generate_button.configure(state=state)
         self.show_report_button.configure(state=state)
@@ -518,7 +545,11 @@ class UnattendedReportPage(ctk.CTkFrame):
     def destroy(self):
         # Deliberately does NOT stop any sampler or session: recording
         # is owned by the SessionRuntime and continues across pages.
+        # Display auto-refresh, on the other hand, belongs to this
+        # page: the pump stops below and in-flight display results are
+        # invalidated, so nothing updates a page the user left.
         self._alive = False
+        self._display_gen += 1
         if self._poll is not None:
             try:
                 self.after_cancel(self._poll)
@@ -668,6 +699,13 @@ class UnattendedReportPage(ctk.CTkFrame):
         self._runtime = get_runtime(self._source['capture_dir']) if self._source else None
         self._active_session_id = None
         self._running_started_at = None
+        # The old source's report/refresh state must not leak into the
+        # new source: invalidate in-flight display results and let the
+        # auto display retarget to this source's latest session.
+        self._display_gen += 1
+        self._display_request = None
+        self._report = None
+        self._selected_battle = None
         self.refresh()
 
     def refresh(self):
@@ -694,14 +732,95 @@ class UnattendedReportPage(ctk.CTkFrame):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    # ------------------------------------------------ display auto-refresh
+    def _auto_refresh(self):
+        """Periodic while the page is open (~6s from the pump tick):
+        reload the session list and re-aggregate the on-screen report
+        from the latest database rows. Read-only — see generate() for
+        the file-writing path; the two never mix."""
+        if not self._alive:
+            return
+        self.refresh()
+        self._start_display_refresh()
+
+    def _display_target_session(self):
+        running = next((s for s in self._sessions if s['end_kind'] == 'running'), None)
+        return running or (self._sessions[0] if self._sessions else None)
+
+    def _retarget_display(self):
+        """Aim an AUTO display request at the live session (or the
+        latest one). A request the user generated explicitly (session
+        指定・配信者・期間) is sticky and never retargeted."""
+        target = self._display_target_session()
+        if target is None:
+            return
+        req = self._display_request
+        if req is not None and not req.get('auto'):
+            return
+        if req is not None and req.get('session_id') == target['session_id']:
+            return
+        self._display_request = {'scope': {'kind': 'session'},
+                                 'session_id': target['session_id'],
+                                 'auto': True}
+        self._display_gen += 1
+
+    def _start_display_refresh(self):
+        """Aggregate the current display request in a worker thread.
+
+        One aggregation at a time (an in-flight one is never
+        duplicated), never while a manual generate() runs, and the
+        result is applied only when its generation is still current
+        when it lands — a session switch or source change in the
+        meantime drops it instead of overwriting the newer view.
+        """
+        if not self._alive or self._source is None:
+            return
+        if self._display_inflight is not None or self._generating:
+            return
+        req = self._display_request
+        if req is None:
+            return
+        scope = dict(req['scope'])
+        session = None
+        if scope.get('kind') == 'session':
+            session = next((s for s in self._sessions
+                            if s['session_id'] == req.get('session_id')), None)
+            if session is None:
+                if req.get('auto'):
+                    self._display_request = None
+                return
+        gen = self._display_gen
+        self._display_inflight = gen
+        source = self._source
+
+        def worker():
+            try:
+                report = build_report(source['database'], scope, session=session,
+                                      profile=source['profile'],
+                                      generation_trigger='display')
+                self._queue.put(('display_report', gen, report))
+            except Exception as exc:
+                logging.exception('display refresh failed')
+                self._queue.put(('display_error', gen,
+                                 f'表示の自動更新に失敗しました: {exc}'))
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _render_sessions(self, recovered):
+        previous = self._selected_session()
         labels = []
         for session in self._sessions:
             labels.append(f"{session['started_jst']} / {session['mode']} / "
                           f"{END_LABELS.get(session['end_kind'], session['end_kind'])}")
         self.session_menu.configure(values=labels or ['セッションなし'])
         if labels:
-            self.session_menu.set(labels[0])
+            chosen = labels[0]
+            if previous is not None:
+                for session, text in zip(self._sessions, labels):
+                    if session['session_id'] == previous['session_id']:
+                        chosen = text
+                        break
+            self.session_menu.set(chosen)
         running = next((s for s in self._sessions if s['end_kind'] == 'running'), None)
         latest = self._sessions[0] if self._sessions else None
         current = running or latest
@@ -746,8 +865,17 @@ class UnattendedReportPage(ctk.CTkFrame):
             note = f'{no_conn} ' + note
         self.status.configure(text=note + ('TopWatchのデータは参照のみです（セッション開始は対象プロセス側）。'
                                            if self._is_topwatch() else
-                                           'セッション終了時にレポートJSONを自動生成します（画面での集計・PDF・AI分析は手動操作です）。'))
+                                           'セッション終了時にレポートJSONを自動生成します（画面は自動更新・PDF・AI分析は手動操作です）。'))
         self._update_collector_status()
+        # Opening the page (or a session starting/stopping) shows the
+        # latest session's aggregation without waiting for a button:
+        # retarget the auto display request, and aggregate immediately
+        # when nothing is on screen yet or the target just changed.
+        # The periodic tick covers the steady-state updates.
+        display_gen_before = self._display_gen
+        self._retarget_display()
+        if self._report is None or self._display_gen != display_gen_before:
+            self._start_display_refresh()
 
     def _targets(self):
         raw = self.target_entry.get() or ''
@@ -973,6 +1101,13 @@ class UnattendedReportPage(ctk.CTkFrame):
                 return
             scope = {'kind': 'period', 'start': start.timestamp(), 'end': end.timestamp(),
                      'streamers': self._targets()}
+        # A manual generation supersedes any display refresh in
+        # flight, and the auto refresh from here on re-aggregates
+        # exactly what the user asked to see (read-only).
+        self._display_gen += 1
+        self._display_request = {'scope': dict(scope),
+                                 'session_id': session['session_id'] if session else None,
+                                 'auto': False}
         self._set_generating(True)
         self.status.configure(text='集計中…（収集は継続しています）')
         source = self._source
@@ -997,7 +1132,22 @@ class UnattendedReportPage(ctk.CTkFrame):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _render_report(self, previous_path):
+    @staticmethod
+    def _scroll_fraction(frame):
+        try:
+            return frame._parent_canvas.yview()[0]
+        except Exception:
+            return None
+
+    def _restore_scroll(self, frame, fraction):
+        if not self._alive:
+            return
+        try:
+            frame._parent_canvas.yview_moveto(fraction)
+        except Exception:
+            pass
+
+    def _render_report(self, previous_path, display_only=False):
         self._set_generating(False)
         report = self._report
         summary = report['summary']
@@ -1037,12 +1187,29 @@ class UnattendedReportPage(ctk.CTkFrame):
             ['', 'データの注意事項:'] + ['・' + note for note in report['data_notes']]
         self._set_text(self.definitions_box, '\n'.join(definitions))
 
+        # Keep the user's place across re-renders (auto refresh must
+        # not yank the battle selection or the list scroll): remember
+        # the selected battle by identity and the list's scroll top.
+        selected_key = None
+        if self._selected_battle is not None:
+            selected_key = (self._selected_battle.get('unique_id'),
+                            self._selected_battle.get('battle_id'))
+        scroll_fraction = self._scroll_fraction(self.battles_scroll)
         self._render_battle_list(report['battles'])
+        if scroll_fraction is not None:
+            self.after_idle(lambda f=scroll_fraction:
+                            self._restore_scroll(self.battles_scroll, f))
         labels = [f"{b['nickname']} / {b['first_seen_jst']}" for b in report['battles']]
         self.battle_menu.configure(values=labels or ['バトル未取得'])
         if labels:
-            self.battle_menu.set(labels[0])
-            self._selected_battle = report['battles'][0]
+            chosen = report['battles'][0]
+            if selected_key is not None:
+                for battle in report['battles']:
+                    if (battle.get('unique_id'), battle.get('battle_id')) == selected_key:
+                        chosen = battle
+                        break
+            self.battle_menu.set(f"{chosen['nickname']} / {chosen['first_seen_jst']}")
+            self._selected_battle = chosen
         else:
             self._selected_battle = None
         self._render_battle_detail()
@@ -1051,6 +1218,14 @@ class UnattendedReportPage(ctk.CTkFrame):
             self._set_text(self.ai_preview, evidence_preview(report))
         except Exception:
             self._set_text(self.ai_preview, 'プレビューを生成できませんでした。')
+
+        if display_only:
+            # No file was written and nothing was marked as generated;
+            # the comparison box (a manual-generation feature) stays
+            # exactly as it was.
+            self.status.configure(
+                text='表示を最新の観測データに更新しました（この更新ではファイルは保存していません）。')
+            return
 
         comparison_text = '比較できる前回レポートがありません。'
         if previous_path is not None:
