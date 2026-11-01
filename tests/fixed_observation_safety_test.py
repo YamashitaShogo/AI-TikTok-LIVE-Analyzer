@@ -136,7 +136,8 @@ external = subprocess.Popen([sys.executable, str(DUMMY)], env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 try:
     check('K15 external collector takes the profile',
-          wait_for(lambda: fixed_lock.probe_locked() is True))
+          wait_for(lambda: fixed_lock.probe_locked() is True
+                   and (fixed_lock.read_status() or {}).get('target_id') == 'carol'))
     result = controller.start_ex('alice')
     check('K16 conflict is reported with the external target, no spawn',
           result['outcome'] == 'conflict' and result['target_id'] == 'carol'
