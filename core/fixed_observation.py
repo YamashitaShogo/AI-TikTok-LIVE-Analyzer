@@ -203,7 +203,18 @@ class FixedObservationController:
             outcome = 'already_same' if self.target_id == tiktok_id else 'already_other'
             return {'outcome': outcome, 'target_id': self.target_id}
         if probe_locked():
-            held = read_status() or {}
+            # The OS lock is the truth and it is already held; the
+            # holder's informational status can lag the lock by a few
+            # milliseconds (it is written right after acquiring).
+            # Poll briefly so the conflict answer reliably names the
+            # target instead of intermittently reporting ''.
+            held = {}
+            grace_deadline = time.time() + 1.5
+            while True:
+                held = read_status() or {}
+                if held.get('target_id') or time.time() >= grace_deadline:
+                    break
+                time.sleep(0.05)
             return {'outcome': 'conflict',
                     'target_id': str(held.get('target_id') or '')}
         spawned_at = time.time()
