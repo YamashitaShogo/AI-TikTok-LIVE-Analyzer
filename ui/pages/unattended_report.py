@@ -233,51 +233,62 @@ class UnattendedReportPage(ctk.CTkFrame):
         layout = ctk.CTkFrame(bar.body, fg_color='transparent')
         layout.pack(fill='x')
         self._status_layout = layout
-        self._status_cols = 3
+        self._status_cols = 4
         self._actions_stacked = False
         self._wrap_cache = {}
         fields = ctk.CTkFrame(layout, fg_color='transparent')
         fields.pack(fill='x')
         self._status_fields = fields
 
-        def field_block(caption, caption_width=76):
-            block = ctk.CTkFrame(fields, fg_color='transparent')
+        def field_block(parent, caption, caption_width=76):
+            block = ctk.CTkFrame(parent, fg_color='transparent')
             ctk.CTkLabel(block, text=caption, text_color=MUTED,
                          width=caption_width, anchor='w').pack(side='left')
             return block
 
-        b_target = field_block('観測対象:')
+        # Short fields share a re-flowing grid (4/2/1 columns). The
+        # badge is packed BEFORE the flexible target label so its
+        # parcel is reserved first and can never be starved by it.
+        b_target = field_block(fields, '観測対象:')
+        self.badge = StatusBadge(b_target, 'none')
+        self.badge.pack(side='right', padx=(8, 0))
         self.target_label = ctk.CTkLabel(b_target, text='未選択', text_color=TEXT,
                                          anchor='w', justify='left', wraplength=300)
         self.target_label.pack(side='left', fill='x', expand=True)
-        self.badge = StatusBadge(b_target, 'none')
-        self.badge.pack(side='right', padx=(8, 0))
-        b_started = field_block('観測開始:')
+        b_started = field_block(fields, '観測開始:')
         self.started_label = ctk.CTkLabel(b_started, text='—', text_color=TEXT, anchor='w')
         self.started_label.pack(side='left')
-        b_elapsed = field_block('観測時間:')
+        b_elapsed = field_block(fields, '観測時間:')
         self.elapsed_label = ctk.CTkLabel(b_elapsed, text='—', text_color=TEXT, anchor='w',
                                           font=(theme.FONT_FAMILY, theme.FONT_BODY, 'bold'))
         self.elapsed_label.pack(side='left')
-        b_id = field_block('自分のTikTok ID:', caption_width=110)
+        b_observing = field_block(fields, '実際の観測ID:', caption_width=110)
+        self.observing_label = ctk.CTkLabel(b_observing, text='—', text_color=TEXT,
+                                            anchor='w', justify='left', wraplength=300)
+        self.observing_label.pack(side='left', fill='x', expand=True)
+        self._short_blocks = [b_target, b_started, b_elapsed, b_observing]
+        # The ID row and the collection status get their OWN
+        # full-width rows: equal grid columns starved exactly these
+        # two at 125% (the save button squeezed below its requested
+        # width, the long status crushed into a third of the card).
+        b_id = field_block(layout, '自分のTikTok ID:', caption_width=110)
+        b_id.pack(fill='x', pady=(2, 0))
         self._id_block = b_id
         self.account_entry = ctk.CTkEntry(b_id, width=200, placeholder_text='@IDまたはLIVEのURL')
         self.account_entry.pack(side='left')
         saved_id = get_pro_tiktok_id()
         if saved_id:
             self.account_entry.insert(0, saved_id)
-        ctk.CTkButton(b_id, text='IDを保存', width=84,
-                      command=self.save_account_id).pack(side='left', padx=8)
-        b_collector = field_block('収集状態:', caption_width=110)
+        self._id_save_button = ctk.CTkButton(
+            b_id, text='IDを保存', width=84, command=self.save_account_id)
+        self._id_save_button.pack(side='left', padx=8)
+        b_collector = field_block(layout, '収集状態:', caption_width=110)
+        b_collector.pack(fill='x', pady=(2, 0))
         self.collector_label = ctk.CTkLabel(b_collector, text='停止中', text_color=TEXT,
-                                            anchor='w', justify='left', wraplength=420)
+                                            anchor='w', justify='left', wraplength=760)
         self.collector_label.pack(side='left', fill='x', expand=True)
-        b_observing = field_block('実際の観測ID:', caption_width=110)
-        self.observing_label = ctk.CTkLabel(b_observing, text='—', text_color=TEXT,
-                                            anchor='w', justify='left', wraplength=420)
-        self.observing_label.pack(side='left', fill='x', expand=True)
         self._field_blocks = [b_target, b_started, b_elapsed,
-                              b_id, b_collector, b_observing]
+                              b_observing, b_id, b_collector]
         self._grid_field_blocks()
         self._note_label = ctk.CTkLabel(
             layout, text_color=MUTED, anchor='w', justify='left', wraplength=760,
@@ -440,16 +451,15 @@ class UnattendedReportPage(ctk.CTkFrame):
 
     def _build_history(self, body):
         ctk.CTkLabel(
-            body, text='選択すると右側に分析が表示されます。閲覧だけでは'
-                       'ファイルは生成されません。',
+            body, text='選択すると右側に分析が表示されます',
             text_color=MUTED, anchor='w', justify='left', wraplength=340,
-            font=(theme.FONT_FAMILY, theme.FONT_SMALL)).pack(fill='x', pady=(0, 6))
+            font=(theme.FONT_FAMILY, theme.FONT_SMALL)).pack(fill='x', pady=(0, 4))
         self.history_filter_entry = ctk.CTkEntry(
             body, placeholder_text='配信者で検索（例: mio）')
         self.history_filter_entry.pack(fill='x')
         self.history_filter_entry.bind('<Return>', lambda _e: self.apply_history_filter())
         date_row = ctk.CTkFrame(body, fg_color='transparent')
-        date_row.pack(fill='x', pady=(6, 0))
+        date_row.pack(fill='x', pady=(4, 0))
         self.history_date_entry = ctk.CTkEntry(
             date_row, width=120, placeholder_text='日付 YYYY-MM-DD')
         self.history_date_entry.pack(side='left', fill='x', expand=True)
@@ -463,12 +473,12 @@ class UnattendedReportPage(ctk.CTkFrame):
             body, text='最新の観測を表示', height=34,
             fg_color='#EAF1FE', hover_color='#D6E4FC', text_color=theme.PRIMARY,
             command=self.show_latest_display)
-        self.history_latest_button.pack(fill='x', pady=(8, 2))
+        self.history_latest_button.pack(fill='x', pady=(6, 0))
         self.history_note = ctk.CTkLabel(body, text='', text_color=MUTED, anchor='w',
                                          justify='left', wraplength=340)
-        self.history_note.pack(fill='x', pady=(2, 0))
+        self.history_note.pack(fill='x', pady=(1, 0))
         self.history_list = ctk.CTkScrollableFrame(body, fg_color='transparent')
-        self.history_list.pack(fill='both', expand=True, pady=4)
+        self.history_list.pack(fill='both', expand=True, pady=2)
         pager = ctk.CTkFrame(body, fg_color='transparent')
         pager.pack(fill='x', pady=(2, 0))
         self.history_prev_button = ctk.CTkButton(
@@ -611,15 +621,31 @@ class UnattendedReportPage(ctk.CTkFrame):
         if self._alive and event.width > 1:
             self._apply_status_layout(event.width)
 
+    def _short_block_minimums(self, scaling):
+        """Design minimums (physical px) for the four short blocks:
+        the measured caption width plus a fixed minimum for the
+        value. Deliberately NOT the labels' current requested
+        widths — those follow the wrap pins, which would make the
+        column decision circular (the 125% starvation bug)."""
+        caps = []
+        for block in self._short_blocks:
+            caption = block.winfo_children()[0]
+            caps.append(caption.winfo_reqwidth())
+        label_mins = (int(120 * scaling) + self.badge.winfo_reqwidth() + 8,
+                      int(150 * scaling), int(70 * scaling),
+                      int(70 * scaling))
+        return [cap + label_min for cap, label_min in zip(caps, label_mins)]
+
     def _apply_status_layout(self, width):
         """Responsive rearrangement of the status card.
 
-        The six field blocks re-flow between 3, 2 and 1 grid columns
-        by their measured (DPI-scaled) requested widths, and the
-        action row — which lives below the fields, never beside
-        them — stacks its buttons full-width only when even the row
-        no longer fits. A hysteresis band keeps the column count
-        from oscillating while a window is dragged.
+        The four short field blocks re-flow between 4, 2 and 1 grid
+        columns (natural column widths — never uniform, which
+        starved the wide blocks at 125%); the ID row and the
+        collection status always span the full card width below
+        them. The action row stacks its buttons full-width only
+        when even the row no longer fits. A hysteresis band keeps
+        the column count from oscillating while a window is dragged.
 
         Driven both by <Configure> and by the page's pump: a child's
         requested width can settle AFTER the last size event (fonts
@@ -630,17 +656,22 @@ class UnattendedReportPage(ctk.CTkFrame):
         if not self._alive or width <= 1:
             return
         actions_req = self._actions_req_width()
-        reqs = [b.winfo_reqwidth() for b in self._field_blocks]
-        if actions_req < 100 or min(reqs) < 10:
+        if actions_req < 100:
             return  # widgets not realised yet; a later event corrects
-        need3 = max(sum(reqs[0:3]), sum(reqs[3:6])) + 28
-        need2 = max(reqs[0] + reqs[1], reqs[2] + reqs[3],
-                    reqs[4] + reqs[5]) + 14
+        try:
+            scaling = ctk.ScalingTracker.get_widget_scaling(self) or 1.0
+        except Exception:
+            scaling = 1.0
+        mins = self._short_block_minimums(scaling)
+        if min(mins) < 10:
+            return
+        need4 = sum(mins) + 36
+        need2 = max(mins[0] + mins[1], mins[2] + mins[3]) + 12
         cols = self._status_cols
-        if cols == 3 and width < need3:
+        if cols == 4 and width < need4:
             cols = 2 if width >= need2 - 24 else 1
-        elif cols == 2 and width >= need3 + 48:
-            cols = 3
+        elif cols == 2 and width >= need4 + 48:
+            cols = 4
         elif cols == 2 and width < need2 - 24:
             cols = 1
         elif cols == 1 and width >= need2 + 48:
@@ -657,14 +688,13 @@ class UnattendedReportPage(ctk.CTkFrame):
     def _grid_field_blocks(self):
         cols = self._status_cols
         fields = self._status_fields
-        for col in range(3):
-            fields.grid_columnconfigure(
-                col, weight=1 if col < cols else 0, uniform='fld')
-        for index, block in enumerate(self._field_blocks):
+        for col in range(4):
+            fields.grid_columnconfigure(col, weight=1 if col < cols else 0)
+        for index, block in enumerate(self._short_blocks):
             last = index % cols == cols - 1
             block.grid(row=index // cols, column=index % cols,
                        sticky='ew', padx=(0, 0) if last else (0, 12),
-                       pady=3)
+                       pady=2)
 
     def _pack_action_buttons(self):
         for button in self._action_buttons:
@@ -694,12 +724,24 @@ class UnattendedReportPage(ctk.CTkFrame):
             scaling = ctk.ScalingTracker.get_widget_scaling(self) or 1.0
         except Exception:
             scaling = 1.0
-        col_w = max(200, layout_width // self._status_cols)
-        target_allow = int(84 * scaling) + self.badge.winfo_reqwidth() + 24
-        side_allow = int(116 * scaling) + 12
-        wraps = (('target', self.target_label, max(140, col_w - target_allow)),
-                 ('observing', self.observing_label, max(140, col_w - side_allow)),
-                 ('collector', self.collector_label, max(140, col_w - side_allow)),
+        cols = self._status_cols
+        fallback = max(200, layout_width // cols)
+
+        def cell_width(index):
+            cell = self._status_fields.grid_bbox(index % cols, index // cols)
+            return cell[2] if cell and cell[2] > 50 else fallback
+
+        def caption_req(block):
+            return block.winfo_children()[0].winfo_reqwidth()
+
+        target_w = (cell_width(0) - caption_req(self._short_blocks[0])
+                    - self.badge.winfo_reqwidth() - 20)
+        observing_w = (cell_width(3) - caption_req(self._short_blocks[3]) - 12)
+        collector_w = (layout_width
+                       - caption_req(self._field_blocks[5]) - 12)
+        wraps = (('target', self.target_label, max(140, target_w)),
+                 ('observing', self.observing_label, max(140, observing_w)),
+                 ('collector', self.collector_label, max(140, collector_w)),
                  ('note', self._note_label, max(140, layout_width - 8)),
                  ('head', self._head_desc,
                   max(200, layout_width - (int(78 * scaling) + 46))))
@@ -1204,7 +1246,11 @@ class UnattendedReportPage(ctk.CTkFrame):
         return END_LABELS.get(end_kind, str(end_kind)), '#E8ECF2', '#5B6B82'
 
     def _history_card_texts(self, session):
-        """(date, targets, stats) lines for one history card."""
+        """(date, targets, stats_rows) for one history card.
+
+        stats_rows is a list of rows of (caption, value) pairs laid
+        out as two short lines — never one long sentence, which
+        wrapped into awkward fragments inside the narrow card."""
         summary = self._history_summaries.get(session['session_id'])
         targets = session.get('targets') or []
         targets_text = '、'.join(f'@{t}' for t in targets) if targets else '対象指定なし'
@@ -1212,14 +1258,14 @@ class UnattendedReportPage(ctk.CTkFrame):
         date_text = f'{started.month}月{started.day}日 {started:%H:%M}'
         duration = duration_clock(session.get('elapsed_seconds'))
         if summary is None:
-            stats = f'観測 {duration} ・ バトル集計は未取得'
-        else:
-            best = summary['final_score_max']
-            best_text = f'{best:,}' if best is not None else '未取得'
-            stats = (f"観測 {duration} ・ 記録バトル {summary['record_count']}件 ・ "
-                     f"確定 {summary['score_known_battles']}件 ・ "
-                     f'最大確認スコア {best_text}')
-        return date_text, targets_text, stats
+            return date_text, targets_text, None
+        best = summary['final_score_max']
+        best_text = f'{best:,}' if best is not None else '未取得'
+        rows = [[('観測時間：', duration),
+                 ('バトル：', f"{summary['record_count']}件")],
+                [('確定：', f"{summary['score_known_battles']}件"),
+                 ('最大スコア：', best_text)]]
+        return date_text, targets_text, rows
 
     def _update_viewing_label(self):
         """Refresh the detail header (title / state badge / mode
@@ -1313,7 +1359,7 @@ class UnattendedReportPage(ctk.CTkFrame):
             fg_color='#EAF1FE' if selected else '#FFFFFF',
             border_width=2 if selected else 1,
             border_color=theme.PRIMARY if selected else '#D5DCE8')
-        card.pack(fill='x', padx=4, pady=4)
+        card.pack(fill='x', padx=4, pady=3)
         card.session_id = session['session_id']
         # height=1: an empty CTkFrame otherwise requests its 200px
         # default height and inflates the whole card.
@@ -1321,8 +1367,8 @@ class UnattendedReportPage(ctk.CTkFrame):
                               fg_color=theme.PRIMARY if selected else 'transparent')
         accent.pack(side='left', fill='y')
         inner = ctk.CTkFrame(card, fg_color='transparent')
-        inner.pack(side='left', fill='both', expand=True, padx=(9, 10), pady=7)
-        date_text, targets_text, stats_text = self._history_card_texts(session)
+        inner.pack(side='left', fill='both', expand=True, padx=(9, 10), pady=5)
+        date_text, targets_text, stats_rows = self._history_card_texts(session)
         top = ctk.CTkFrame(inner, fg_color='transparent')
         top.pack(fill='x')
         date_label = ctk.CTkLabel(
@@ -1337,10 +1383,22 @@ class UnattendedReportPage(ctk.CTkFrame):
         badge_label.pack(side='right')
         target_label = ctk.CTkLabel(inner, text=targets_text, text_color=MUTED,
                                     anchor='w')
-        target_label.pack(fill='x', pady=(2, 0))
-        stats_label = ctk.CTkLabel(inner, text=stats_text, text_color=TEXT,
-                                   anchor='w', justify='left', wraplength=330)
-        stats_label.pack(fill='x', pady=(2, 0))
+        target_label.pack(fill='x', pady=(1, 0))
+        if stats_rows is None:
+            duration = duration_clock(session.get('elapsed_seconds'))
+            ctk.CTkLabel(inner, text=f'観測時間：{duration} ・ バトル集計は未取得',
+                         text_color=MUTED, anchor='w').pack(fill='x', pady=(1, 0))
+        else:
+            for row in stats_rows:
+                line = ctk.CTkFrame(inner, fg_color='transparent')
+                line.pack(fill='x', pady=(1, 0))
+                for caption, value in row:
+                    ctk.CTkLabel(line, text=caption, text_color=MUTED,
+                                 anchor='w').pack(side='left', padx=(0, 0))
+                    ctk.CTkLabel(line, text=value, text_color=TEXT, anchor='w',
+                                 font=(theme.FONT_FAMILY, theme.FONT_BODY,
+                                       'bold')).pack(side='left',
+                                                      padx=(0, 10))
         sid = session['session_id']
 
         def _click(_event, sid=sid):
