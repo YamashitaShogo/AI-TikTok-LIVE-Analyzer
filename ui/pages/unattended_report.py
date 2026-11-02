@@ -198,6 +198,7 @@ class UnattendedReportPage(ctk.CTkFrame):
         self._history_filter_date = ''
         self._history_page = 0
         self._history_signature = None
+        self._history_cards = {}
         self._report = None
         self._ai_text = None
         self._selected_battle = None
@@ -221,101 +222,122 @@ class UnattendedReportPage(ctk.CTkFrame):
         self._head_desc.pack(anchor='w', pady=(2, 0))
         ctk.CTkButton(head, text='更新', width=70, command=self.refresh).pack(side='right', padx=4)
 
-        # ------------------------------------------------ status / actions
-        bar = SectionCard(self, '観測の状態')
+        # ------------------------------------------------ status card
+        # The CURRENT collection state only — never the past session
+        # selected below. Fields sit in a re-flowing grid (3/2/1
+        # columns by measured width) and the actions live in their
+        # own row, so they can never be squeezed off-screen by the
+        # info column again (the 125%/150% failure this replaces).
+        bar = SectionCard(self, '現在の観測状態')
         bar.grid(row=1, column=0, sticky='ew', padx=24, pady=(6, 6))
-        # Responsive status layout: info and the action buttons share
-        # one container and are rearranged by _on_status_resize —
-        # side by side when the measured widths fit, stacked (info
-        # above, buttons below) when they do not, with the buttons
-        # themselves stacking on very narrow windows. The primary
-        # actions must never be pushed off-screen by the info column
-        # (the 125%/150% scaling failure this replaces).
         layout = ctk.CTkFrame(bar.body, fg_color='transparent')
         layout.pack(fill='x')
         self._status_layout = layout
-        self._status_mode = 'h'
+        self._status_cols = 3
         self._actions_stacked = False
         self._wrap_cache = {}
-        info = ctk.CTkFrame(layout, fg_color='transparent')
-        info.pack(side='left', fill='x', expand=True)
-        self._status_info = info
-        row1 = ctk.CTkFrame(info, fg_color='transparent')
-        row1.pack(fill='x')
-        ctk.CTkLabel(row1, text='観測対象:', text_color=MUTED, width=76, anchor='w').pack(side='left')
-        self.target_label = ctk.CTkLabel(row1, text='未選択', text_color=TEXT, anchor='w',
-                                         justify='left', wraplength=430)
+        fields = ctk.CTkFrame(layout, fg_color='transparent')
+        fields.pack(fill='x')
+        self._status_fields = fields
+
+        def field_block(caption, caption_width=76):
+            block = ctk.CTkFrame(fields, fg_color='transparent')
+            ctk.CTkLabel(block, text=caption, text_color=MUTED,
+                         width=caption_width, anchor='w').pack(side='left')
+            return block
+
+        b_target = field_block('観測対象:')
+        self.target_label = ctk.CTkLabel(b_target, text='未選択', text_color=TEXT,
+                                         anchor='w', justify='left', wraplength=300)
         self.target_label.pack(side='left', fill='x', expand=True)
-        self.badge = StatusBadge(row1, 'none')
+        self.badge = StatusBadge(b_target, 'none')
         self.badge.pack(side='right', padx=(8, 0))
-        row2 = ctk.CTkFrame(info, fg_color='transparent')
-        row2.pack(fill='x', pady=(4, 0))
-        ctk.CTkLabel(row2, text='観測開始:', text_color=MUTED, width=76, anchor='w').pack(side='left')
-        self.started_label = ctk.CTkLabel(row2, text='—', text_color=TEXT, anchor='w')
+        b_started = field_block('観測開始:')
+        self.started_label = ctk.CTkLabel(b_started, text='—', text_color=TEXT, anchor='w')
         self.started_label.pack(side='left')
-        ctk.CTkLabel(row2, text='経過時間:', text_color=MUTED, width=76, anchor='w').pack(side='left', padx=(18, 0))
-        self.elapsed_label = ctk.CTkLabel(row2, text='—', text_color=TEXT, anchor='w')
+        b_elapsed = field_block('観測時間:')
+        self.elapsed_label = ctk.CTkLabel(b_elapsed, text='—', text_color=TEXT, anchor='w',
+                                          font=(theme.FONT_FAMILY, theme.FONT_BODY, 'bold'))
         self.elapsed_label.pack(side='left')
-        row3 = ctk.CTkFrame(info, fg_color='transparent')
-        row3.pack(fill='x', pady=(6, 0))
-        self._id_row = row3
-        ctk.CTkLabel(row3, text='自分のTikTok ID:', text_color=MUTED, width=110, anchor='w').pack(side='left')
-        self.account_entry = ctk.CTkEntry(row3, width=200, placeholder_text='@IDまたはLIVEのURL')
+        b_id = field_block('自分のTikTok ID:', caption_width=110)
+        self._id_block = b_id
+        self.account_entry = ctk.CTkEntry(b_id, width=200, placeholder_text='@IDまたはLIVEのURL')
         self.account_entry.pack(side='left')
         saved_id = get_pro_tiktok_id()
         if saved_id:
             self.account_entry.insert(0, saved_id)
-        ctk.CTkButton(row3, text='IDを保存', width=84,
+        ctk.CTkButton(b_id, text='IDを保存', width=84,
                       command=self.save_account_id).pack(side='left', padx=8)
-        # The collection status gets its own row: sharing the ID row
-        # made its (potentially long) text the first thing clipped off
-        # the right edge on narrow windows.
-        row3b = ctk.CTkFrame(info, fg_color='transparent')
-        row3b.pack(fill='x', pady=(4, 0))
-        ctk.CTkLabel(row3b, text='収集の状態:', text_color=MUTED, width=110, anchor='w').pack(side='left')
-        self.collector_label = ctk.CTkLabel(row3b, text='停止中', text_color=TEXT, anchor='w',
-                                            justify='left', wraplength=560)
+        b_collector = field_block('収集状態:', caption_width=110)
+        self.collector_label = ctk.CTkLabel(b_collector, text='停止中', text_color=TEXT,
+                                            anchor='w', justify='left', wraplength=420)
         self.collector_label.pack(side='left', fill='x', expand=True)
-        row4 = ctk.CTkFrame(info, fg_color='transparent')
-        row4.pack(fill='x', pady=(4, 0))
-        ctk.CTkLabel(row4, text='実際に観測中のID:', text_color=MUTED, width=110, anchor='w').pack(side='left')
-        self.observing_label = ctk.CTkLabel(row4, text='—', text_color=TEXT, anchor='w',
-                                            justify='left', wraplength=560)
+        b_observing = field_block('実際の観測ID:', caption_width=110)
+        self.observing_label = ctk.CTkLabel(b_observing, text='—', text_color=TEXT,
+                                            anchor='w', justify='left', wraplength=420)
         self.observing_label.pack(side='left', fill='x', expand=True)
+        self._field_blocks = [b_target, b_started, b_elapsed,
+                              b_id, b_collector, b_observing]
+        self._grid_field_blocks()
         self._note_label = ctk.CTkLabel(
-            info, text_color=MUTED, anchor='w', justify='left', wraplength=760,
+            layout, text_color=MUTED, anchor='w', justify='left', wraplength=760,
             font=(theme.FONT_FAMILY, theme.FONT_SMALL),
-            text='本人確認は未実装です。登録IDは観測対象の設定であり、アカウント所有者として'
-                 '認証されたものではありません。IDの変更は次回の分析開始から反映されます。'
-                 '固定観測は自動スクロール（Battle Hunter）を使いません。')
-        self._note_label.pack(fill='x', pady=(4, 0))
+            text='※この表示は現在の収集状態です。下で選択している過去の配信とは別に表示します。'
+                 '本人確認は未実装のため、登録IDは観測対象の設定であり、所有者として認証されたものではありません。')
+        self._note_label.pack(fill='x', pady=(6, 0))
+        # Action row: priority is explicit — レポート出力 is the
+        # primary action (it generates the report file), 分析を開始
+        # is secondary, 分析を終了 is the destructive action.
         actions = ctk.CTkFrame(layout, fg_color='transparent')
-        actions.pack(side='right', padx=(16, 0))
+        actions.pack(fill='x', pady=(8, 0))
         self._status_actions = actions
-        self.start_button = ctk.CTkButton(actions, text='配信分析を開始', width=140, height=38,
-                                          fg_color=theme.PRIMARY, hover_color=theme.PRIMARY_HOVER,
-                                          command=self.start_session)
+        self.start_button = ctk.CTkButton(
+            actions, text='分析を開始', width=140, height=38,
+            fg_color='#EAF1FE', hover_color='#D6E4FC', text_color=theme.PRIMARY,
+            command=self.start_session)
         self.start_button.pack(side='left', padx=4)
-        self.stop_button = ctk.CTkButton(actions, text='配信分析を終了', width=140, height=38,
-                                         command=self.stop_session, state='disabled')
+        self.stop_button = ctk.CTkButton(
+            actions, text='分析を終了', width=140, height=38,
+            fg_color='#FFFFFF', hover_color='#FDECEF', text_color=theme.DANGER,
+            border_width=1, border_color=theme.DANGER,
+            command=self.stop_session, state='disabled')
         self.stop_button.pack(side='left', padx=4)
-        self.show_report_button = ctk.CTkButton(actions, text='レポートを見る', width=140, height=38,
-                                                fg_color=theme.PURPLE, hover_color=theme.PURPLE_HOVER,
-                                                command=self.show_latest_report)
-        self.show_report_button.pack(side='left', padx=4)
+        self.show_report_button = ctk.CTkButton(
+            actions, text='レポート出力', width=170, height=38,
+            fg_color=theme.PURPLE, hover_color=theme.PURPLE_HOVER,
+            command=self.show_latest_report)
+        self.show_report_button.pack(side='right', padx=4)
         self._action_buttons = [self.start_button, self.stop_button,
                                 self.show_report_button]
         layout.bind('<Configure>', self._on_status_resize)
 
-        # ------------------------------------------------ tabs
-        self.tabs = ctk.CTkTabview(self, fg_color=CARD)
-        self.tabs.grid(row=2, column=0, sticky='nsew', padx=24, pady=(4, 8))
+        # ------------------------------------------------ main split
+        # Left: the always-visible history list. Right: the selected
+        # session's detail (header + the five analysis tabs). The
+        # split collapses to a vertical stack on narrow windows.
+        main = ctk.CTkFrame(self, fg_color='transparent')
+        main.grid(row=2, column=0, sticky='nsew', padx=24, pady=(4, 8))
+        self._main = main
+        self._main_mode = 'side'
+        history_card = SectionCard(main, '配信履歴')
+        self._history_panel = history_card
+        self._build_history(history_card.body)
+        detail_card = SectionCard(main, '現在表示中の配信')
+        self._detail_panel = detail_card
+        self._build_detail_header(detail_card.body)
+        self.tabs = ctk.CTkTabview(detail_card.body, fg_color=CARD)
+        self.tabs.pack(fill='both', expand=True, pady=(6, 0))
         self._build_overview(self.tabs.add('概要'))
-        self._build_history(self.tabs.add('配信履歴'))
         self._build_battles(self.tabs.add('バトル履歴'))
         self._build_ai(self.tabs.add('AI改善提案'))
         self._build_export(self.tabs.add('レポート出力'))
         self._build_details(self.tabs.add('詳細設定'))
+        history_card.grid(row=0, column=0, sticky='ns')
+        history_card.configure(width=400)
+        detail_card.grid(row=0, column=1, sticky='nsew', padx=(12, 0))
+        main.grid_columnconfigure(1, weight=1)
+        main.grid_rowconfigure(0, weight=1)
+        main.bind('<Configure>', self._on_main_resize)
 
         # ------------------------------------------------ status line
         bottom = ctk.CTkFrame(self, fg_color='transparent')
@@ -391,55 +413,71 @@ class UnattendedReportPage(ctk.CTkFrame):
 
     HISTORY_PAGE_SIZE = 20
 
-    def _build_history(self, tab):
-        head = ctk.CTkFrame(tab, fg_color='transparent')
-        head.pack(fill='x', padx=10, pady=(10, 2))
+    def _build_detail_header(self, body):
+        row = ctk.CTkFrame(body, fg_color='transparent')
+        row.pack(fill='x')
+        left = ctk.CTkFrame(row, fg_color='transparent')
+        left.pack(side='left', fill='x', expand=True)
+        self.detail_title_label = ctk.CTkLabel(
+            left, text='読み込んでいます…', text_color=TEXT, anchor='w',
+            justify='left', wraplength=560,
+            font=(theme.FONT_FAMILY, 17, 'bold'))
+        self.detail_title_label.pack(anchor='w')
+        sub = ctk.CTkFrame(left, fg_color='transparent')
+        sub.pack(anchor='w', pady=(3, 0))
+        self.detail_badge = ctk.CTkLabel(
+            sub, text='', width=76, corner_radius=9,
+            font=(theme.FONT_FAMILY, theme.FONT_SMALL, 'bold'))
+        self.detail_badge.pack(side='left')
         self.history_viewing_label = ctk.CTkLabel(
-            head, text='現在、最新の観測を表示しています。', anchor='w',
-            justify='left', wraplength=760)
-        self.history_viewing_label.pack(side='left', fill='x', expand=True)
-        self.history_latest_button = ctk.CTkButton(
-            head, text='最新の観測を表示', width=150,
+            sub, text='最新の観測を表示中', text_color=MUTED, anchor='w')
+        self.history_viewing_label.pack(side='left', padx=(8, 0))
+        self.detail_latest_button = ctk.CTkButton(
+            row, text='最新の観測に戻る', width=150, height=34,
+            fg_color='#EAF1FE', hover_color='#D6E4FC', text_color=theme.PRIMARY,
             command=self.show_latest_display)
-        self.history_latest_button.pack(side='right')
-        filters = ctk.CTkFrame(tab, fg_color='transparent')
-        filters.pack(fill='x', padx=10, pady=(4, 2))
-        ctk.CTkLabel(filters, text='配信者:', text_color=MUTED, width=52,
-                     anchor='w').pack(side='left')
-        self.history_filter_entry = ctk.CTkEntry(
-            filters, width=170, placeholder_text='@IDの一部')
-        self.history_filter_entry.pack(side='left')
-        self.history_filter_entry.bind('<Return>', lambda _e: self.apply_history_filter())
-        ctk.CTkLabel(filters, text='日付:', text_color=MUTED, width=40,
-                     anchor='w').pack(side='left', padx=(12, 0))
-        self.history_date_entry = ctk.CTkEntry(
-            filters, width=120, placeholder_text='YYYY-MM-DD')
-        self.history_date_entry.pack(side='left')
-        self.history_date_entry.bind('<Return>', lambda _e: self.apply_history_filter())
-        ctk.CTkButton(filters, text='絞り込み', width=84,
-                      command=self.apply_history_filter).pack(side='left', padx=(10, 0))
-        ctk.CTkButton(filters, text='クリア', width=70,
-                      command=self.clear_history_filter).pack(side='left', padx=(6, 0))
+        self.detail_latest_button.pack(side='right', padx=(10, 0))
+
+    def _build_history(self, body):
         ctk.CTkLabel(
-            tab, text_color=MUTED, anchor='w', justify='left', wraplength=900,
-            font=(theme.FONT_FAMILY, theme.FONT_SMALL),
-            text='過去の観測セッションの一覧です。行を押すと、その配信の概要・バトル履歴・'
-                 'グラフが表示されます（表示だけではファイルは生成されません）。'
-                 '中断したセッションも、取得できたバトルはそのまま残ります。'
-        ).pack(fill='x', padx=10, pady=(2, 2))
-        self.history_note = ctk.CTkLabel(tab, text='', text_color=MUTED, anchor='w')
-        self.history_note.pack(fill='x', padx=12, pady=(2, 0))
-        self.history_list = ctk.CTkScrollableFrame(tab, fg_color='transparent')
-        self.history_list.pack(fill='both', expand=True, padx=6, pady=4)
-        pager = ctk.CTkFrame(tab, fg_color='transparent')
-        pager.pack(fill='x', padx=10, pady=(2, 8))
+            body, text='選択すると右側に分析が表示されます。閲覧だけでは'
+                       'ファイルは生成されません。',
+            text_color=MUTED, anchor='w', justify='left', wraplength=340,
+            font=(theme.FONT_FAMILY, theme.FONT_SMALL)).pack(fill='x', pady=(0, 6))
+        self.history_filter_entry = ctk.CTkEntry(
+            body, placeholder_text='配信者で検索（例: mio）')
+        self.history_filter_entry.pack(fill='x')
+        self.history_filter_entry.bind('<Return>', lambda _e: self.apply_history_filter())
+        date_row = ctk.CTkFrame(body, fg_color='transparent')
+        date_row.pack(fill='x', pady=(6, 0))
+        self.history_date_entry = ctk.CTkEntry(
+            date_row, width=120, placeholder_text='日付 YYYY-MM-DD')
+        self.history_date_entry.pack(side='left', fill='x', expand=True)
+        self.history_date_entry.bind('<Return>', lambda _e: self.apply_history_filter())
+        ctk.CTkButton(date_row, text='絞り込み', width=76,
+                      command=self.apply_history_filter).pack(side='left', padx=(6, 0))
+        ctk.CTkButton(date_row, text='クリア', width=64, fg_color='#EEF1F6',
+                      hover_color='#E0E6EF', text_color=TEXT,
+                      command=self.clear_history_filter).pack(side='left', padx=(6, 0))
+        self.history_latest_button = ctk.CTkButton(
+            body, text='最新の観測を表示', height=34,
+            fg_color='#EAF1FE', hover_color='#D6E4FC', text_color=theme.PRIMARY,
+            command=self.show_latest_display)
+        self.history_latest_button.pack(fill='x', pady=(8, 2))
+        self.history_note = ctk.CTkLabel(body, text='', text_color=MUTED, anchor='w',
+                                         justify='left', wraplength=340)
+        self.history_note.pack(fill='x', pady=(2, 0))
+        self.history_list = ctk.CTkScrollableFrame(body, fg_color='transparent')
+        self.history_list.pack(fill='both', expand=True, pady=4)
+        pager = ctk.CTkFrame(body, fg_color='transparent')
+        pager.pack(fill='x', pady=(2, 0))
         self.history_prev_button = ctk.CTkButton(
-            pager, text='前のページ', width=100, command=self.history_prev_page)
+            pager, text='前のページ', width=92, command=self.history_prev_page)
         self.history_prev_button.pack(side='left')
         self.history_page_label = ctk.CTkLabel(pager, text='', text_color=MUTED)
-        self.history_page_label.pack(side='left', padx=10)
+        self.history_page_label.pack(side='left', padx=8)
         self.history_next_button = ctk.CTkButton(
-            pager, text='次のページ', width=100, command=self.history_next_page)
+            pager, text='次のページ', width=92, command=self.history_next_page)
         self.history_next_button.pack(side='left')
 
     def _build_ai(self, tab):
@@ -576,12 +614,12 @@ class UnattendedReportPage(ctk.CTkFrame):
     def _apply_status_layout(self, width):
         """Responsive rearrangement of the status card.
 
-        Widths are measured (requested widths are already DPI-scaled
-        by CTk), so the same rule works at 100%/125%/150%: when the
-        buttons plus the ID row no longer fit side by side, the
-        buttons move below the info; when they would not fit even
-        there, they stack full-width. A hysteresis band keeps the
-        layout from oscillating while a window is dragged.
+        The six field blocks re-flow between 3, 2 and 1 grid columns
+        by their measured (DPI-scaled) requested widths, and the
+        action row — which lives below the fields, never beside
+        them — stacks its buttons full-width only when even the row
+        no longer fits. A hysteresis band keeps the column count
+        from oscillating while a window is dragged.
 
         Driven both by <Configure> and by the page's pump: a child's
         requested width can settle AFTER the last size event (fonts
@@ -592,51 +630,58 @@ class UnattendedReportPage(ctk.CTkFrame):
         if not self._alive or width <= 1:
             return
         actions_req = self._actions_req_width()
-        if actions_req < 100:
+        reqs = [b.winfo_reqwidth() for b in self._field_blocks]
+        if actions_req < 100 or min(reqs) < 10:
             return  # widgets not realised yet; a later event corrects
-        need = actions_req + self._id_row.winfo_reqwidth()
-        if self._status_mode == 'h' and width < need + 24:
-            self._set_status_mode('v')
-        elif self._status_mode == 'v' and width >= need + 72:
-            self._set_status_mode('h')
-        stacked = self._status_mode == 'v' and width < actions_req + 16
+        need3 = max(sum(reqs[0:3]), sum(reqs[3:6])) + 28
+        need2 = max(reqs[0] + reqs[1], reqs[2] + reqs[3],
+                    reqs[4] + reqs[5]) + 14
+        cols = self._status_cols
+        if cols == 3 and width < need3:
+            cols = 2 if width >= need2 - 24 else 1
+        elif cols == 2 and width >= need3 + 48:
+            cols = 3
+        elif cols == 2 and width < need2 - 24:
+            cols = 1
+        elif cols == 1 and width >= need2 + 48:
+            cols = 2
+        if cols != self._status_cols:
+            self._status_cols = cols
+            self._grid_field_blocks()
+        stacked = width < actions_req + 16
         if stacked != self._actions_stacked:
             self._actions_stacked = stacked
             self._pack_action_buttons()
-        self._update_status_wraps(width, actions_req)
+        self._update_status_wraps(width)
 
-    def _set_status_mode(self, mode):
-        if mode == self._status_mode:
-            return
-        self._status_mode = mode
-        self._status_actions.pack_forget()
-        self._status_info.pack_forget()
-        if mode == 'h':
-            self._status_info.pack(side='left', fill='x', expand=True)
-            self._status_actions.pack(side='right', padx=(16, 0))
-        else:
-            self._status_info.pack(side='top', fill='x')
-            self._status_actions.pack(side='top', fill='x', pady=(8, 0))
-        if self._actions_stacked:
-            self._actions_stacked = False
-            self._pack_action_buttons()
+    def _grid_field_blocks(self):
+        cols = self._status_cols
+        fields = self._status_fields
+        for col in range(3):
+            fields.grid_columnconfigure(
+                col, weight=1 if col < cols else 0, uniform='fld')
+        for index, block in enumerate(self._field_blocks):
+            last = index % cols == cols - 1
+            block.grid(row=index // cols, column=index % cols,
+                       sticky='ew', padx=(0, 0) if last else (0, 12),
+                       pady=3)
 
     def _pack_action_buttons(self):
         for button in self._action_buttons:
             button.pack_forget()
         if self._actions_stacked:
-            for button in self._action_buttons:
+            # Primary action first when the row becomes a stack.
+            for button in (self.show_report_button, self.start_button,
+                           self.stop_button):
                 button.pack(side='top', fill='x', padx=4, pady=3)
         else:
-            for button in self._action_buttons:
-                button.pack(side='left', padx=4)
+            self.start_button.pack(side='left', padx=4)
+            self.stop_button.pack(side='left', padx=4)
+            self.show_report_button.pack(side='right', padx=4)
 
-    def _update_status_wraps(self, layout_width, actions_req):
-        """Keep long status texts wrapping inside the card instead of
-        running off the right edge: their wrap lengths follow the
-        info column's actual width (which also stops a fixed long
-        wraplength from inflating the info column's requested width
-        and squeezing the buttons out).
+    def _update_status_wraps(self, layout_width):
+        """Keep long status texts wrapping inside their field block:
+        wrap lengths follow the block's actual column width.
 
         CTk treats width/wraplength as UNSCALED units and multiplies
         them by the widget scaling itself, while layout widths here
@@ -649,25 +694,13 @@ class UnattendedReportPage(ctk.CTkFrame):
             scaling = ctk.ScalingTracker.get_widget_scaling(self) or 1.0
         except Exception:
             scaling = 1.0
-        if self._status_mode == 'h':
-            # Reserve the buttons' full request plus slack for the
-            # frames' own scaled padding: CTk frames request a few
-            # scaled pixels beyond their contents, and pack takes any
-            # shortfall out of the last parcel (the buttons).
-            info_w = max(200, layout_width - actions_req
-                         - 24 - int(16 * scaling))
-        else:
-            info_w = max(200, layout_width)
-        # Allowances for the fixed captions sharing each label's row,
-        # in physical pixels (the captions scale, so a fixed pixel
-        # allowance under-reserves at 125%/150% and the row again
-        # outgrows the info column).
-        target_allow = int(100 * scaling) + self.badge.winfo_reqwidth() + 30
-        side_allow = int(110 * scaling) + 16
-        wraps = (('target', self.target_label, max(140, info_w - target_allow)),
-                 ('observing', self.observing_label, max(140, info_w - side_allow)),
-                 ('collector', self.collector_label, max(140, info_w - side_allow)),
-                 ('note', self._note_label, max(140, info_w - 8)),
+        col_w = max(200, layout_width // self._status_cols)
+        target_allow = int(84 * scaling) + self.badge.winfo_reqwidth() + 24
+        side_allow = int(116 * scaling) + 12
+        wraps = (('target', self.target_label, max(140, col_w - target_allow)),
+                 ('observing', self.observing_label, max(140, col_w - side_allow)),
+                 ('collector', self.collector_label, max(140, col_w - side_allow)),
+                 ('note', self._note_label, max(140, layout_width - 8)),
                  ('head', self._head_desc,
                   max(200, layout_width - (int(78 * scaling) + 46))))
         for key, label, wrap_px in wraps:
@@ -675,6 +708,71 @@ class UnattendedReportPage(ctk.CTkFrame):
             if abs(self._wrap_cache.get(key, 0) - wrap) > 4:
                 self._wrap_cache[key] = wrap
                 label.configure(width=wrap, wraplength=wrap)
+
+    # ------------------------------------------------ main split layout
+    def _on_main_resize(self, event):
+        if self._alive and event.width > 1:
+            self._apply_main_layout(event.width)
+
+    def _apply_main_layout(self, width):
+        """Side-by-side (history left ~400 units, detail right) when
+        the measured widths fit; a vertical stack (history above,
+        detail below) when they do not — with hysteresis, driven by
+        <Configure> and the pump like the status card."""
+        if not self._alive or width <= 1:
+            return
+        left_req = self._history_panel.winfo_reqwidth()
+        if left_req < 100:
+            return
+        try:
+            scaling = ctk.ScalingTracker.get_widget_scaling(self) or 1.0
+        except Exception:
+            scaling = 1.0
+        need = left_req + int(600 * scaling) + 36
+        mode = self._main_mode
+        if mode == 'side' and width < need - 24:
+            mode = 'stack'
+        elif mode == 'stack' and width >= need + 48:
+            mode = 'side'
+        if mode == 'stack':
+            # Cap the history panel's height: at its natural height
+            # it would take the whole main area on short windows and
+            # leave the detail row 0px tall (Tk then never re-lays
+            # the detail panel out at all). ~45% of the main height,
+            # clamped, keeps both panes usable and scrollable.
+            main_h = self._main.winfo_height()
+            if main_h > 1:
+                target = max(230, min(340, int(main_h * 0.45)))
+                if abs(target - getattr(self, '_stack_hist_h', 0)) > 4:
+                    self._stack_hist_h = target
+                    self._history_panel.configure(height=target)
+                    # The panel's content is PACKED, so it is pack
+                    # propagation that must stop for the height to hold.
+                    self._history_panel.pack_propagate(False)
+        elif getattr(self, '_stack_hist_h', 0):
+            self._stack_hist_h = 0
+            self._history_panel.pack_propagate(True)
+        if mode == self._main_mode:
+            return
+        self._main_mode = mode
+        self._history_panel.grid_forget()
+        self._detail_panel.grid_forget()
+        if mode == 'side':
+            self._history_panel.grid(row=0, column=0, sticky='ns')
+            self._detail_panel.grid(row=0, column=1, sticky='nsew',
+                                    padx=(12, 0))
+            self._main.grid_columnconfigure(0, weight=0)
+            self._main.grid_columnconfigure(1, weight=1)
+            self._main.grid_rowconfigure(0, weight=1)
+            self._main.grid_rowconfigure(1, weight=0)
+        else:
+            self._history_panel.grid(row=0, column=0, sticky='ew')
+            self._detail_panel.grid(row=1, column=0, sticky='nsew',
+                                    pady=(12, 0))
+            self._main.grid_columnconfigure(0, weight=1)
+            self._main.grid_columnconfigure(1, weight=0)
+            self._main.grid_rowconfigure(0, weight=0)
+            self._main.grid_rowconfigure(1, weight=1)
 
     # ------------------------------------------------------------ plumbing
     def _schedule(self):
@@ -742,6 +840,12 @@ class UnattendedReportPage(ctk.CTkFrame):
             layout_width = 0
         if layout_width > 1:
             self._apply_status_layout(layout_width)
+        try:
+            main_width = self._main.winfo_width()
+        except Exception:
+            main_width = 0
+        if main_width > 1:
+            self._apply_main_layout(main_width)
         if self._refresh_pending and not self._busy:
             self._refresh_pending = False
             self.refresh()
@@ -1085,41 +1189,69 @@ class UnattendedReportPage(ctk.CTkFrame):
             out.append(session)
         return out
 
-    def _history_row_text(self, session):
+    @staticmethod
+    def _state_badge(end_kind):
+        """(short label, background, foreground) for a session state.
+        Colour supports the text, never replaces it."""
+        if end_kind == 'running':
+            return '観測中', '#D9F7E8', '#0E7A44'
+        if end_kind == 'normal':
+            return '正常終了', '#E3EBFA', '#2F5AA8'
+        if end_kind == 'interrupted':
+            return '中断', '#FDEBD2', '#9A6206'
+        if end_kind == 'abnormal':
+            return '異常終了', '#FFDEE4', '#B32346'
+        return END_LABELS.get(end_kind, str(end_kind)), '#E8ECF2', '#5B6B82'
+
+    def _history_card_texts(self, session):
+        """(date, targets, stats) lines for one history card."""
         summary = self._history_summaries.get(session['session_id'])
         targets = session.get('targets') or []
         targets_text = '、'.join(f'@{t}' for t in targets) if targets else '対象指定なし'
-        state = END_LABELS.get(session['end_kind'], session['end_kind'])
-        line1 = f"{session['started_jst']}  ／  {targets_text}  ／  {state}"
+        started = datetime.fromtimestamp(session['started_at'], JST)
+        date_text = f'{started.month}月{started.day}日 {started:%H:%M}'
         duration = duration_clock(session.get('elapsed_seconds'))
         if summary is None:
-            line2 = f'観測時間 {duration}  ／  バトル集計は未取得'
+            stats = f'観測 {duration} ・ バトル集計は未取得'
         else:
             best = summary['final_score_max']
             best_text = f'{best:,}' if best is not None else '未取得'
-            line2 = (f"観測時間 {duration}  ／  記録バトル {summary['record_count']}件  ／  "
-                     f"確定 {summary['score_known_battles']}件  ／  最大確認スコア {best_text}")
-        return f'{line1}\n{line2}'
+            stats = (f"観測 {duration} ・ 記録バトル {summary['record_count']}件 ・ "
+                     f"確定 {summary['score_known_battles']}件 ・ "
+                     f'最大確認スコア {best_text}')
+        return date_text, targets_text, stats
 
     def _update_viewing_label(self):
+        """Refresh the detail header (title / state badge / mode
+        line) so it always names the session actually on display —
+        current observation and past history are never conflated."""
         if not hasattr(self, 'history_viewing_label'):
             return
-        req = self._display_request
-        if req is None or req.get('auto'):
-            text = '現在、最新の観測（または観測中の配信）を表示しています。'
-        elif req.get('session_id'):
+        report_session = (self._report or {}).get('session') or {}
+        session = None
+        if report_session.get('session_id'):
             session = next((s for s in self._history_sessions + self._sessions
-                            if s['session_id'] == req['session_id']), None)
-            if session is not None:
-                targets = session.get('targets') or []
-                targets_text = ('、'.join(f'@{t}' for t in targets)
-                                if targets else '対象指定なし')
-                text = (f"過去の履歴を表示中: {session['started_jst']} ／ {targets_text}"
-                        '（自動更新はこの履歴に対して行われます）')
-            else:
-                text = '過去の履歴を表示中です。'
+                            if s['session_id'] == report_session['session_id']),
+                           None) or report_session
+        req = self._display_request
+        if session is not None:
+            targets = session.get('targets') or []
+            targets_text = ('、'.join(f'@{t}' for t in targets)
+                            if targets else '対象指定なし')
+            started_jst = session.get('started_jst') or format_jst(session['started_at'])
+            self.detail_title_label.configure(
+                text=f'{started_jst} ／ {targets_text}')
+            label, bg, fg = self._state_badge(session.get('end_kind'))
+            self.detail_badge.configure(text=label, fg_color=bg, text_color=fg)
         else:
-            text = '詳細設定で指定した条件の集計を表示しています。'
+            self.detail_title_label.configure(text='読み込んでいます…')
+            self.detail_badge.configure(text='', fg_color='transparent')
+        if req is None or req.get('auto'):
+            text = '最新の観測を表示中'
+        elif req.get('session_id'):
+            text = '過去の配信を表示中（自動更新はこの配信に対して行われます）'
+        else:
+            text = '詳細設定で指定した条件の集計を表示中'
         self.history_viewing_label.configure(text=text)
 
     def _render_history(self):
@@ -1156,17 +1288,11 @@ class UnattendedReportPage(ctk.CTkFrame):
         fraction = self._scroll_fraction(self.history_list)
         for child in self.history_list.winfo_children():
             child.destroy()
+        self._history_cards = {}
         for session in visible:
-            selected = session['session_id'] == displayed_id
-            button = ctk.CTkButton(
-                self.history_list, text=self._history_row_text(session),
-                anchor='w', height=56,
-                fg_color='#DCE9FD' if selected else '#FFFFFF',
-                hover_color='#C9DDFB' if selected else '#EFF4FC',
-                text_color=TEXT, border_width=1,
-                border_color=theme.PRIMARY if selected else '#D5DCE8',
-                command=lambda sid=session['session_id']: self.show_history_session(sid))
-            button.pack(fill='x', padx=4, pady=3)
+            card = self._build_history_card(session,
+                                            session['session_id'] == displayed_id)
+            self._history_cards[session['session_id']] = card
         self.history_note.configure(
             text=note, text_color=theme.DANGER if self._history_error else MUTED)
         self.history_page_label.configure(
@@ -1177,8 +1303,59 @@ class UnattendedReportPage(ctk.CTkFrame):
             state='normal' if self._history_page < pages - 1 else 'disabled')
         self._restore_scroll(self.history_list, fraction)
 
+    def _build_history_card(self, session, selected):
+        """One clickable history card: date + state badge on top,
+        targets in the middle, observation stats at the bottom. The
+        selected card gets a tinted background, a primary border and
+        a left accent bar so the current selection is unmistakable."""
+        card = ctk.CTkFrame(
+            self.history_list, corner_radius=10,
+            fg_color='#EAF1FE' if selected else '#FFFFFF',
+            border_width=2 if selected else 1,
+            border_color=theme.PRIMARY if selected else '#D5DCE8')
+        card.pack(fill='x', padx=4, pady=4)
+        card.session_id = session['session_id']
+        # height=1: an empty CTkFrame otherwise requests its 200px
+        # default height and inflates the whole card.
+        accent = ctk.CTkFrame(card, width=5, height=1, corner_radius=0,
+                              fg_color=theme.PRIMARY if selected else 'transparent')
+        accent.pack(side='left', fill='y')
+        inner = ctk.CTkFrame(card, fg_color='transparent')
+        inner.pack(side='left', fill='both', expand=True, padx=(9, 10), pady=7)
+        date_text, targets_text, stats_text = self._history_card_texts(session)
+        top = ctk.CTkFrame(inner, fg_color='transparent')
+        top.pack(fill='x')
+        date_label = ctk.CTkLabel(
+            top, text=date_text, text_color=TEXT, anchor='w',
+            font=(theme.FONT_FAMILY, 14, 'bold'))
+        date_label.pack(side='left')
+        badge_text, badge_bg, badge_fg = self._state_badge(session['end_kind'])
+        badge_label = ctk.CTkLabel(
+            top, text=badge_text, width=76, corner_radius=9,
+            fg_color=badge_bg, text_color=badge_fg,
+            font=(theme.FONT_FAMILY, theme.FONT_SMALL, 'bold'))
+        badge_label.pack(side='right')
+        target_label = ctk.CTkLabel(inner, text=targets_text, text_color=MUTED,
+                                    anchor='w')
+        target_label.pack(fill='x', pady=(2, 0))
+        stats_label = ctk.CTkLabel(inner, text=stats_text, text_color=TEXT,
+                                   anchor='w', justify='left', wraplength=330)
+        stats_label.pack(fill='x', pady=(2, 0))
+        sid = session['session_id']
+
+        def _click(_event, sid=sid):
+            self.show_history_session(sid)
+
+        def _bind(widget):
+            widget.bind('<Button-1>', _click)
+            for child in widget.winfo_children():
+                _bind(child)
+
+        _bind(card)
+        return card
+
     def show_history_session(self, session_id):
-        """Show one past session, read-only (history tab click).
+        """Show one past session, read-only (history card click).
 
         Sticky like a manual generate() — the auto refresh keeps
         re-aggregating THIS session and never jumps back to the
