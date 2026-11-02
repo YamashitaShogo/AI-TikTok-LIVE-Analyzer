@@ -147,6 +147,24 @@ check('H4b missing database reads as unknown, never zero',
 root = ctk.CTk()
 
 
+def history_cards():
+    return [c for c in page.history_list.winfo_children()
+            if isinstance(c, ctk.CTkFrame)]
+
+
+def card_text(card):
+    texts = []
+
+    def walk(widget):
+        if isinstance(widget, ctk.CTkLabel):
+            texts.append(widget.cget('text'))
+        for child in widget.winfo_children():
+            walk(child)
+
+    walk(card)
+    return ' '.join(texts)
+
+
 def pump(seconds=0.3):
     end = time.time() + seconds
     while time.time() < end:
@@ -169,26 +187,32 @@ while time.time() < deadline and len(page._history_sessions) < 4:
     root.update()
     time.sleep(0.02)
 
-check('H6a the history tab exists', page.tabs.get() is not None
+check('H6a history is an always-visible panel, not a tab',
+      '配信履歴' not in page.tabs._tab_dict
+      and set(page.tabs._tab_dict) == {'概要', 'バトル履歴', 'AI改善提案',
+                                       'レポート出力', '詳細設定'}
       and hasattr(page, 'history_list'))
-page.tabs.set('配信履歴')
 pump(0.3)
-check('H6b the history tab can be opened', page.tabs.get() == '配信履歴')
-rows = [c for c in page.history_list.winfo_children()
-        if isinstance(c, ctk.CTkButton)]
-check('H7a one row per session, newest first', len(rows) == 4
+check('H6b the detail tabs open on 概要 by default',
+      page.tabs.get() == '概要')
+cards = history_cards()
+check('H7a one card per session, newest first', len(cards) == 4
       and S_LATEST in page._history_sessions[0]['session_id'])
-first_text = rows[0].cget('text') if rows else ''
-check('H7b rows show date, target, counts and the confirmed max',
+first_text = card_text(cards[0]) if cards else ''
+check('H7b cards show date, target, counts and the confirmed max',
       '記録バトル 1件' in first_text and '最大確認スコア 未取得' in first_text)
-old_text = rows[3].cget('text') if len(rows) > 3 else ''
-check('H7c the old row shows its confirmed score, not the clipped one',
-      '最大確認スコア 500' in old_text and '確定 1件' in old_text)
+old_text = card_text(cards[3]) if len(cards) > 3 else ''
+check('H7c the old card shows its confirmed score, not the clipped one',
+      '最大確認スコア 500' in old_text and '確定 1件' in old_text
+      and '正常終了' in old_text)
 
 # ---------------------------------------------------------------- click
 reports_dir = CAP_FIXED / 'observation_report' / 'reports'
 before_files = set(reports_dir.glob('*.json')) if reports_dir.exists() else set()
-rows[3].invoke()
+# CTkFrame.bind registers on the frame's internal canvas, so the
+# synthetic click is generated there (a real mouse click lands on
+# the same canvas).
+cards[3]._canvas.event_generate('<Button-1>', x=10, y=10)
 deadline = time.time() + 15
 while time.time() < deadline:
     root.update()
@@ -203,10 +227,11 @@ after_files = set(reports_dir.glob('*.json')) if reports_dir.exists() else set()
 check('H8c viewing writes no report file and marks nothing generated',
       after_files == before_files
       and store.get_session(S_OLD)['report_state'] == 'none')
-check('H10 the viewing label names the displayed history',
-      '過去の履歴を表示中' in page.history_viewing_label.cget('text')
+check('H10 the detail header names the displayed history',
+      '過去の配信を表示中' in page.history_viewing_label.cget('text')
       and format_jst(NOW - 14000)[:10]
-      in page.history_viewing_label.cget('text'))
+      in page.detail_title_label.cget('text')
+      and '@mio' in page.detail_title_label.cget('text'))
 
 page._auto_refresh()
 pump(1.2)
@@ -228,15 +253,13 @@ check('H9b "show latest" returns to following the latest session',
       or page._display_request.get('auto') is True)
 
 # ---------------------------------------------------------------- filter
-page.tabs.set('配信履歴')
 page.history_filter_entry.insert(0, 'alice')
 page.apply_history_filter()
 pump(0.2)
 check('H11a the streamer filter narrows to matching sessions',
       [s['session_id'] for s in page._filtered_history()] == [S_ALICE])
-rows = [c for c in page.history_list.winfo_children()
-        if isinstance(c, ctk.CTkButton)]
-check('H11b the filtered list renders one row', len(rows) == 1)
+check('H11b the filtered list renders one card',
+      len(history_cards()) == 1)
 page.clear_history_filter()
 page.history_date_entry.insert(0, '1999-01-01')
 page.apply_history_filter()
@@ -267,21 +290,17 @@ while time.time() < deadline and len(page._history_sessions) < db_total:
 pump(0.3)
 page._history_signature = None
 page._render_history()
-_diag_rows = [c for c in page.history_list.winfo_children()
-              if isinstance(c, ctk.CTkButton)]
 print(f'  [diag H12] db_sessions={db_total} '
       f'page_history={len(page._history_sessions)} '
       f'filtered={len(page._filtered_history())} '
-      f'buttons={len(_diag_rows)} page_index={page._history_page} '
+      f'cards={len(history_cards())} page_index={page._history_page} '
       f'label={page.history_page_label.cget("text")!r} busy={page._busy}')
-rows = [c for c in page.history_list.winfo_children()
-        if isinstance(c, ctk.CTkButton)]
-check('H12a the first page shows 20 rows with a page indicator',
-      len(rows) == 20 and '1 / 2 ページ（全29件）' in page.history_page_label.cget('text'))
+check('H12a the first page shows 20 cards with a page indicator',
+      len(history_cards()) == 20
+      and '1 / 2 ページ（全29件）' in page.history_page_label.cget('text'))
 page.history_next_page()
-rows = [c for c in page.history_list.winfo_children()
-        if isinstance(c, ctk.CTkButton)]
-check('H12b the second page reaches the older sessions', len(rows) == 9)
+check('H12b the second page reaches the older sessions',
+      len(history_cards()) == 9)
 page.history_prev_page()
 
 # ------------------------------------------------------- empty vs error

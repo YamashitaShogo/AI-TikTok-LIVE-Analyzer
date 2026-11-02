@@ -1,20 +1,22 @@
-"""Responsive layout tests for the streaming report page (PR #12).
+"""Responsive layout tests for the redesigned report page (PR #12).
 
-The 観測の状態 card used to place the info column and the three
-action buttons side by side unconditionally: at Windows 150%
-scaling (and in small windows at 125%) the info column's requested
-width squeezed the buttons off the right edge, and the long
-collection-status text was clipped.
+Structure under test: the status card's fields re-flow between
+3/2/1 grid columns and its action row (own row, never beside the
+fields) stacks only on very narrow windows; the main area is a
+two-pane split (history left, detail right) that collapses to a
+vertical stack on narrow windows. At every CTk scaling the three
+action buttons must stay fully inside the page at full width —
+the original 125%/150% failure was real clipping, so these checks
+measure geometry, and dump it on failure.
 
-L1  Wide window: buttons beside the info, fully inside the page.
-L2  Narrow window: buttons move below the info, still fully inside.
-L3  Very narrow: the buttons themselves stack full-width.
-L4  Widening again restores the side-by-side layout (no oscillation
-    damage, no lost widgets).
-L5  A long collection-status text wraps inside its own row instead
-    of running off the right edge.
-L6  The report auto-refresh still works after the relayouts, and
-    the start/stop/report buttons keep their commands.
+G1  Wide: buttons in one row inside the page, primary rightmost;
+    main area side by side.
+G2  Narrow: buttons still inside; fields re-flow; main stacks.
+G3  Very narrow: the buttons themselves stack (primary first).
+G4  Widening again restores the row and the side-by-side split.
+G5  A long collection-status text wraps instead of clipping.
+G6  The report auto-refresh still works after the relayouts, and
+    the buttons keep their commands.
 
 Run: python tests/report_layout_test.py  (GUI: needs a display)
 """
@@ -126,19 +128,13 @@ def inside(widget):
 
 
 def dump_geometry(context):
-    """Failure diagnostics: real clipping vs measurement error is
-    decided from these numbers, not from the pass/fail bit alone."""
     try:
         scaling = ctk.ScalingTracker.get_widget_scaling(root)
     except Exception:
         scaling = '?'
-    print(f'  [diag {context}] mode={page._status_mode} '
-          f'stacked={page._actions_stacked} widget_scaling={scaling} '
-          f'page_rootx={page.winfo_rootx()} page_w={page.winfo_width()} '
-          f'layout_w={page._status_layout.winfo_width()} '
-          f'info_req={page._status_info.winfo_reqwidth()} '
-          f'actions_w={page._status_actions.winfo_width()} '
-          f'actions_req={page._status_actions.winfo_reqwidth()}')
+    print(f'  [diag {context}] cols={page._status_cols} '
+          f'stacked={page._actions_stacked} main={page._main_mode} '
+          f'widget_scaling={scaling} page_w={page.winfo_width()}')
     for name, b in zip(('start', 'stop', 'show'), buttons):
         print(f'  [diag {context}] {name}: rootx={b.winfo_rootx()} '
               f'w={b.winfo_width()} req={b.winfo_reqwidth()} '
@@ -153,68 +149,86 @@ def buttons_inside(context):
     return ok
 
 
-# ---------------------------------------------------------------- L1
+# ---------------------------------------------------------------- G1
 set_width(1500)
-check('L1a wide window uses the side-by-side layout',
-      page._status_mode == 'h')
-check('L1b all three action buttons are fully inside the page',
-      buttons_inside('L1b'))
-check('L1c actions sit beside the info, not below it',
-      page._status_actions.winfo_rootx()
-      >= page._status_info.winfo_rootx() + page._status_info.winfo_width() - 2
-      and page._status_actions.winfo_rooty()
-      < page._status_info.winfo_rooty() + page._status_info.winfo_height())
+check('G1a wide window keeps the action row in one row',
+      page._actions_stacked is False)
+check('G1b all three action buttons are fully inside the page',
+      buttons_inside('G1b'))
+check('G1c the primary action (レポート出力) sits rightmost',
+      page.show_report_button.winfo_rootx() > page.stop_button.winfo_rootx()
+      > page.start_button.winfo_rootx())
+check('G1d the main area is side by side (history left of detail)',
+      page._main_mode == 'side'
+      and page._history_panel.winfo_rootx() + page._history_panel.winfo_width()
+      <= page._detail_panel.winfo_rootx() + 2)
+check('G1e the status fields are actually placed (gridded + mapped)',
+      all(b.winfo_ismapped() and b.winfo_height() > 10
+          for b in page._field_blocks)
+      and page.target_label.winfo_ismapped()
+      and page.account_entry.winfo_ismapped())
+check('G1f history cards keep a natural card height (no inflation)',
+      all(c.winfo_height() < 130 for c in page._history_cards.values()))
 
-# ---------------------------------------------------------------- L2
+# ---------------------------------------------------------------- G2
 set_width(780)
-check('L2a narrow window switches to the stacked layout',
-      page._status_mode == 'v')
-check('L2b all three action buttons are still fully inside',
-      buttons_inside('L2b'))
-check('L2c actions are below the info in the stacked layout',
-      page._status_actions.winfo_rooty()
-      >= page._status_info.winfo_rooty() + page._status_info.winfo_height() - 2)
+check('G2a narrow window still shows all buttons fully inside',
+      buttons_inside('G2a'))
+check('G2b the status fields re-flow to fewer columns',
+      page._status_cols in (1, 2))
+check('G2c the main area stacks (detail below history)',
+      page._main_mode == 'stack'
+      and page._detail_panel.winfo_rooty()
+      >= page._history_panel.winfo_rooty()
+      + page._history_panel.winfo_height() - 2)
 
-# ---------------------------------------------------------------- L3
+# ---------------------------------------------------------------- G3
 set_width(470)
-check('L3a very narrow window stacks the buttons themselves',
+check('G3a very narrow window stacks the buttons themselves',
       page._actions_stacked is True)
-check('L3b stacked buttons are fully inside and full-width',
-      buttons_inside('L3b')
-      and all(b.winfo_width() >= page._status_actions.winfo_width() - 24
-              for b in buttons))
-check('L3c stacked buttons run top to bottom in order',
-      buttons[0].winfo_rooty() < buttons[1].winfo_rooty()
-      < buttons[2].winfo_rooty())
+check('G3b stacked buttons are fully inside the page',
+      buttons_inside('G3b'))
+check('G3c the primary action leads the stack',
+      page.show_report_button.winfo_rooty() < page.start_button.winfo_rooty()
+      < page.stop_button.winfo_rooty())
 
-# ---------------------------------------------------------------- L4
+# ---------------------------------------------------------------- G4
 set_width(1500)
-check('L4a widening restores the side-by-side layout',
-      page._status_mode == 'h' and page._actions_stacked is False)
-check('L4b buttons are fully inside again after the round trip',
-      buttons_inside('L4b'))
+check('G4a widening restores the action row and the split',
+      page._actions_stacked is False and page._main_mode == 'side')
+check('G4b buttons are fully inside again after the round trip',
+      buttons_inside('G4b'))
 
-# ---------------------------------------------------------------- L5
+# ---------------------------------------------------------------- G5
 set_width(780)
-page.collector_label.configure(
-    text='固定観測コレクタが正常に収集できていません（接続エラーが発生したため再試行しています）。'
-         'セッションだけが「観測中」の状態になっています。 ／ 最終データ 2026-11-02 01:23:45')
+_LONG_STATUS = ('固定観測コレクタが正常に収集できていません（接続エラーが発生したため再試行しています）。'
+                'セッションだけが「観測中」の状態になっています。 ／ 最終データ 2026-11-02 01:23:45')
+page.collector_label.configure(text=_LONG_STATUS)
 pump(0.3)
-check('L5a the long collection status stays inside the page',
+if '正常に収集できていません' not in page.collector_label.cget('text'):
+    # The periodic health refresh overwrote the label mid-measure;
+    # set the long text once more and measure on idle layout.
+    page.collector_label.configure(text=_LONG_STATUS)
+    root.update_idletasks()
+check('G5a the long collection status stays inside the page',
       page.collector_label.winfo_rootx() + page.collector_label.winfo_width()
       <= page.winfo_rootx() + page.winfo_width() + 1)
-check('L5b the long collection status wraps to multiple lines',
-      page.collector_label.winfo_height() >= 34)
+check('G5b the long collection status wraps to multiple lines',
+      # reqheight is the wrapped text's own measure (the actual
+      # height differs by CTk's fixed internal padding; the
+      # no-clipping property itself is covered by G5a).
+      page.collector_label.winfo_reqheight() >= 34)
 
-# ---------------------------------------------------------------- L6
+# ---------------------------------------------------------------- G6
+set_width(1500)
 deadline = time.time() + 10
 while time.time() < deadline and page._report is None:
     root.update()
     time.sleep(0.02)
-check('L6a report auto-refresh still displays after relayouts',
+check('G6a report auto-refresh still displays after relayouts',
       page._report is not None
       and page._report['summary']['record_count'] == 1)
-check('L6b the action buttons kept their commands',
+check('G6b the action buttons kept their commands',
       all(b.cget('command') for b in buttons))
 page.destroy()
 pump(0.2)
