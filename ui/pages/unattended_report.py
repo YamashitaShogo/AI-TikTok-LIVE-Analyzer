@@ -808,6 +808,26 @@ class UnattendedReportPage(ctk.CTkFrame):
                 self._wrap_cache[key] = wrap
                 label.configure(width=wrap, wraplength=wrap)
 
+    def _history_chrome_l(self, scaling):
+        """The history panel's fixed chrome height (logical units):
+        card head + every mapped control row except the card list,
+        plus the body padding. Measured, never assumed — font
+        metrics differ per platform (Yu Gothic rows are taller),
+        and the stack split below budgets from this number."""
+        try:
+            panel = self._history_panel
+            total = panel.winfo_children()[0].winfo_reqheight()
+            for child in panel.body.winfo_children():
+                if child is self.history_list._parent_frame:
+                    continue
+                if child.winfo_ismapped():
+                    total += child.winfo_reqheight()
+            total += 8 * scaling if self._main_mode == 'stack' \
+                else 18 * scaling
+            return total / scaling
+        except Exception:
+            return 210.0
+
     # ------------------------------------------------ main split layout
     def _on_main_resize(self, event):
         if self._alive and event.width > 1:
@@ -885,7 +905,13 @@ class UnattendedReportPage(ctk.CTkFrame):
             # floor (~240 logical units).
             main_h_l = self._main.winfo_height() / scaling
             if main_h_l > 1:
-                target_l = max(330, min(440, int(main_h_l * 0.55)))
+                # Budget from the MEASURED chrome: the card list
+                # gets a ~140-logical viewport by construction, the
+                # detail pane keeps its ~190 floor. (A fixed share
+                # of the main height passed in the sandbox but
+                # failed on Windows, where taller font metrics grow
+                # the chrome and shrink the main area.)
+                target_l = int(self._history_chrome_l(scaling)) + 140
                 if main_h_l - target_l < 190:
                     target_l = int(main_h_l) - 190
                 if target_l < 250:
@@ -906,15 +932,30 @@ class UnattendedReportPage(ctk.CTkFrame):
                 if (not self.history_note.cget('text')
                         and self.history_note.winfo_ismapped()):
                     self.history_note.pack_forget()
+                if self.history_latest_button.winfo_ismapped():
+                    # The detail header carries the same
+                    # 'back to latest' action; the panel row yields
+                    # its height to the card list in stack mode.
+                    self.history_latest_button.pack_forget()
+                self._history_panel.body.pack_configure(pady=(2, 6))
             else:
                 if not self._history_caption.winfo_ismapped():
                     self._history_caption.pack(
                         fill='x', pady=(0, 4),
                         before=self.history_filter_entry)
+                if not self.history_latest_button.winfo_ismapped():
+                    try:
+                        self.history_latest_button.pack(
+                            fill='x', pady=(6, 0), before=self.history_note)
+                    except Exception:
+                        self.history_latest_button.pack(
+                            fill='x', pady=(6, 0),
+                            before=self.history_list._parent_frame)
                 if not self.history_note.winfo_ismapped():
                     self.history_note.pack(
                         fill='x', pady=(1, 0),
                         before=self.history_list._parent_frame)
+                self._history_panel.body.pack_configure(pady=(6, 12))
         except Exception:
             pass
 
