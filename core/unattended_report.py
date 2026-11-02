@@ -437,6 +437,65 @@ def build_report(database, scope, session=None, profile="capture", now=None,
     return report
 
 
+def session_summaries(database, sessions, now=None):
+    """Light per-session aggregates for the history list.
+
+    Mirrors build_report's session counting exactly — the window is
+    started_at .. ended_at (or the last heartbeat while running),
+    battles are filtered by the session's targets, and a final score
+    counts only when the battle's end is confirmed, the host score
+    is known, and the battle did not end after the window closed —
+    but reads only the battles table: no snapshots, no series, so a
+    long history stays cheap. Returns {session_id: summary}; a
+    session whose battles database is unavailable maps to None
+    (unknown — never presented as zero).
+    """
+    import time
+    now = time.time() if now is None else float(now)
+    result = {s["session_id"]: None for s in sessions}
+    if not sessions:
+        return result
+    store = CollectionStore(database)
+    if not store.database.exists():
+        return result
+    with store._connect() as db:
+        tables = store._tables(db)
+        if "battles" not in tables:
+            return result
+        rows = db.execute(
+            "SELECT unique_id, first_seen, last_seen, status, payload"
+            " FROM battles ORDER BY first_seen").fetchall()
+    parsed = []
+    for row in rows:
+        parsed.append((row["unique_id"], row["first_seen"],
+                       row["last_seen"], row["status"], row["payload"]))
+    for session in sessions:
+        start = float(session["started_at"])
+        end = float(session["ended_at"] or session["last_heartbeat_at"] or now)
+        targets = {str(t).strip().lstrip("@")
+                   for t in (session.get("targets") or []) if str(t).strip()}
+        records = 0
+        known = 0
+        best = None
+        for unique_id, first_seen, last_seen, status, payload in parsed:
+            if targets and unique_id not in targets:
+                continue
+            if last_seen < start or first_seen > end:
+                continue
+            records += 1
+            if status == "finished" and last_seen <= end:
+                score = host_score(safe_payload(payload))
+                if score is not None:
+                    known += 1
+                    best = score if best is None else max(best, score)
+        result[session["session_id"]] = {
+            "record_count": records,
+            "score_known_battles": known,
+            "final_score_max": best,
+        }
+    return result
+
+
 def compare_reports(current, previous):
     """Delta block for the metrics both reports actually have.
 
