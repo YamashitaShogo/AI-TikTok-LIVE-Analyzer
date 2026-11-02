@@ -266,6 +266,11 @@ check('A5b an auto request follows the running session',
       page4._display_request['session_id'] == s4['session_id'])
 store.stop_session(s4['session_id'], 'normal', now=time.time())
 gen_before = page4._display_gen
+# Source switching is a developer-workspace capability (the streamer
+# workspace is fixed-observation only), so enable it explicitly.
+from core.settings import Settings as _Settings
+_Settings.update({'developer_mode_enabled': True,
+                  'workspace_mode': 'developer'})
 page4.source_menu.set('通常観測')
 page4.change_source()
 check('A5c changing source resets display state and invalidates results',
