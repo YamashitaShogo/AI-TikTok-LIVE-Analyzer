@@ -160,6 +160,7 @@ class UnattendedReportPage(ctk.CTkFrame):
         self._alive = True
         self._queue = queue.Queue()
         self._busy = False
+        self._refresh_pending = False
         self._tick = 0
         self._sources = available_sources()
         # Pulse Pro default: fixed observation (capture_fixed) of the
@@ -741,6 +742,9 @@ class UnattendedReportPage(ctk.CTkFrame):
             layout_width = 0
         if layout_width > 1:
             self._apply_status_layout(layout_width)
+        if self._refresh_pending and not self._busy:
+            self._refresh_pending = False
+            self.refresh()
         self._tick += 1
         if self._tick % 10 == 0:
             self._update_elapsed()
@@ -940,6 +944,12 @@ class UnattendedReportPage(ctk.CTkFrame):
 
     def refresh(self):
         if self._busy:
+            # A load is already in flight. Do not drop this request:
+            # record it, and the pump runs it as soon as the current
+            # load finishes (a bare skip could leave the session list
+            # and the history stale until the next periodic cycle —
+            # and a caller waiting on fresh data would time out).
+            self._refresh_pending = True
             return
         self._busy = True
         runtime = self._runtime
