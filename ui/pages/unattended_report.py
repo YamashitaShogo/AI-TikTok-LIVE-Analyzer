@@ -464,10 +464,11 @@ class UnattendedReportPage(ctk.CTkFrame):
         self.detail_latest_button.pack(side='right', padx=(10, 0))
 
     def _build_history(self, body):
-        ctk.CTkLabel(
+        self._history_caption = ctk.CTkLabel(
             body, text='選択すると右側に分析が表示されます',
             text_color=MUTED, anchor='w', justify='left', wraplength=340,
-            font=(theme.FONT_FAMILY, theme.FONT_SMALL)).pack(fill='x', pady=(0, 4))
+            font=(theme.FONT_FAMILY, theme.FONT_SMALL))
+        self._history_caption.pack(fill='x', pady=(0, 4))
         self.history_filter_entry = ctk.CTkEntry(
             body, placeholder_text='配信者で検索（例: mio）')
         self.history_filter_entry.pack(fill='x')
@@ -663,8 +664,11 @@ class UnattendedReportPage(ctk.CTkFrame):
             caption = block.winfo_children()[0]
             caps.append(caption.winfo_reqwidth())
         label_mins = (int(120 * scaling) + self.badge.winfo_reqwidth() + 8,
-                      int(150 * scaling), int(70 * scaling),
-                      int(70 * scaling))
+                      # A full datetime ('2026-11-02 18:09:36') needs
+                      # ~175 logical units at the value font; 150
+                      # clipped its last digit at 150%.
+                      int(175 * scaling), int(85 * scaling),
+                      int(85 * scaling))
         return [cap + label_min for cap, label_min in zip(caps, label_mins)]
 
     def _apply_status_layout(self, width):
@@ -768,6 +772,28 @@ class UnattendedReportPage(ctk.CTkFrame):
         target_w = (cell_width(0) - caption_req(self._short_blocks[0])
                     - self.badge.winfo_reqwidth() - 20)
         observing_w = (cell_width(3) - caption_req(self._short_blocks[3]) - 12)
+
+        def text_cap(label):
+            # A pin wider than the current text is pure waste: the
+            # label's request follows the pin, so an over-wide pin
+            # inflates its grid column and the shrink then lands on
+            # a neighbour (the start datetime lost its last digit
+            # at 150% while the observing column sat mostly empty).
+            # Cap each pin at the measured text width (+ slack).
+            try:
+                from tkinter import font as tkfont
+                need = tkfont.Font(font=label.cget('font')).measure(
+                    str(label.cget('text') or '')) * scaling
+                return int(need) + 26
+            except Exception:
+                return None
+
+        cap = text_cap(self.target_label)
+        if cap is not None:
+            target_w = min(target_w, cap)
+        cap = text_cap(self.observing_label)
+        if cap is not None:
+            observing_w = min(observing_w, cap)
         collector_w = (layout_width
                        - caption_req(self._field_blocks[5]) - 12)
         wraps = (('target', self.target_label, max(140, target_w)),
@@ -788,64 +814,109 @@ class UnattendedReportPage(ctk.CTkFrame):
             self._apply_main_layout(event.width)
 
     def _apply_main_layout(self, width):
-        """Side-by-side (history left ~400 units, detail right) when
-        the measured widths fit; a vertical stack (history above,
-        detail below) when they do not — with hysteresis, driven by
-        <Configure> and the pump like the status card."""
+        """Side-by-side (history left, detail right) whenever the
+        width fits; a vertical stack only on genuinely narrow
+        windows — with hysteresis, driven by <Configure> and the
+        pump like the status card.
+
+        All comparisons happen in LOGICAL units: the widths Tk
+        reports are physical pixels, and mixing the two (a
+        600-physical-pixel detail budget written as 600*scaling, a
+        height clamp in logical units measured against a physical
+        main height) is what collapsed this layout at 150% — the
+        page stacked on a maximised window and the stack then gave
+        the history panel a floor height in the wrong unit while
+        the detail row shrank to a sliver.
+        """
         if not self._alive or width <= 1:
-            return
-        left_req = self._history_panel.winfo_reqwidth()
-        if left_req < 100:
             return
         try:
             scaling = ctk.ScalingTracker.get_widget_scaling(self) or 1.0
         except Exception:
             scaling = 1.0
-        need = left_req + int(600 * scaling) + 36
-        mode = self._main_mode
-        if mode == 'side' and width < need - 24:
-            mode = 'stack'
-        elif mode == 'stack' and width >= need + 48:
-            mode = 'side'
-        if mode == 'stack':
-            # Cap the history panel's height: at its natural height
-            # it would take the whole main area on short windows and
-            # leave the detail row 0px tall (Tk then never re-lays
-            # the detail panel out at all). ~45% of the main height,
-            # clamped, keeps both panes usable and scrollable.
-            main_h = self._main.winfo_height()
-            if main_h > 1:
-                target = max(230, min(340, int(main_h * 0.45)))
-                if abs(target - getattr(self, '_stack_hist_h', 0)) > 4:
-                    self._stack_hist_h = target
-                    self._history_panel.configure(height=target)
-                    # The panel's content is PACKED, so it is pack
-                    # propagation that must stop for the height to hold.
-                    self._history_panel.pack_propagate(False)
-        elif getattr(self, '_stack_hist_h', 0):
-            self._stack_hist_h = 0
-            self._history_panel.pack_propagate(True)
-        if mode == self._main_mode:
+        width_l = width / scaling
+        left_req_l = self._history_panel.winfo_reqwidth() / scaling
+        if left_req_l < 60:
             return
-        self._main_mode = mode
-        self._history_panel.grid_forget()
-        self._detail_panel.grid_forget()
-        if mode == 'side':
-            self._history_panel.grid(row=0, column=0, sticky='ns')
-            self._detail_panel.grid(row=0, column=1, sticky='nsew',
-                                    padx=(12, 0))
-            self._main.grid_columnconfigure(0, weight=0)
-            self._main.grid_columnconfigure(1, weight=1)
-            self._main.grid_rowconfigure(0, weight=1)
-            self._main.grid_rowconfigure(1, weight=0)
-        else:
-            self._history_panel.grid(row=0, column=0, sticky='ew')
-            self._detail_panel.grid(row=1, column=0, sticky='nsew',
-                                    pady=(12, 0))
-            self._main.grid_columnconfigure(0, weight=1)
-            self._main.grid_columnconfigure(1, weight=0)
-            self._main.grid_rowconfigure(0, weight=0)
-            self._main.grid_rowconfigure(1, weight=1)
+        # The history panel's design width is ~430 logical units;
+        # its full request (filter row) may exceed that, but the
+        # controls compress slightly, so cap its contribution. The
+        # detail pane needs ~520 logical units for the KPI cards
+        # and graphs to stay readable.
+        need = min(left_req_l, 430) + 520 + 24
+        mode = self._main_mode
+        if mode == 'side' and width_l < need - 24:
+            mode = 'stack'
+        elif mode == 'stack' and width_l >= need + 48:
+            mode = 'side'
+        if mode != self._main_mode:
+            self._main_mode = mode
+            self._history_panel.grid_forget()
+            self._detail_panel.grid_forget()
+            if mode == 'side':
+                self._history_panel.grid(row=0, column=0, sticky='ns')
+                self._detail_panel.grid(row=0, column=1, sticky='nsew',
+                                        padx=(12, 0))
+                self._main.grid_columnconfigure(0, weight=0)
+                self._main.grid_columnconfigure(1, weight=1)
+                self._main.grid_rowconfigure(0, weight=1, minsize=0)
+                self._main.grid_rowconfigure(1, weight=0)
+                self._stack_hist_h = 0
+                self._history_panel.pack_propagate(True)
+            else:
+                self._history_panel.grid(row=0, column=0, sticky='nsew')
+                self._detail_panel.grid(row=1, column=0, sticky='nsew',
+                                        pady=(12, 0))
+                self._main.grid_columnconfigure(0, weight=1)
+                self._main.grid_columnconfigure(1, weight=0)
+                self._main.grid_rowconfigure(0, weight=0)
+                self._main.grid_rowconfigure(1, weight=1)
+                self._stack_hist_h = None  # set by the branch below
+        if self._main_mode == 'stack':
+            # Distribute the main height deterministically: the
+            # history panel's height is pinned to a target (its own
+            # content would otherwise request the whole area — the
+            # card list alone asks for every card's height), the
+            # detail row takes the rest through its grid weight.
+            # The panel's fixed chrome (title, search, buttons,
+            # pager) needs ~232 logical units, so the target keeps
+            # at least one card of list viewport above it; ~50% of
+            # the main height, and never at the cost of the detail
+            # floor (~240 logical units).
+            main_h_l = self._main.winfo_height() / scaling
+            if main_h_l > 1:
+                target_l = max(330, min(440, int(main_h_l * 0.55)))
+                if main_h_l - target_l < 190:
+                    target_l = int(main_h_l) - 190
+                if target_l < 250:
+                    target_l = min(250, int(main_h_l) - 140)
+                if (self._stack_hist_h is None
+                        or abs(target_l - self._stack_hist_h) > 4):
+                    self._stack_hist_h = target_l
+                    self._history_panel.pack_propagate(False)
+                    self._history_panel.configure(height=target_l)
+        # Height-starved stack mode hides the history panel's purely
+        # informational rows so the card list keeps the space (the
+        # note row only while it is empty — an error or notice text
+        # brings it back on the next pump tick).
+        try:
+            if self._main_mode == 'stack':
+                if self._history_caption.winfo_ismapped():
+                    self._history_caption.pack_forget()
+                if (not self.history_note.cget('text')
+                        and self.history_note.winfo_ismapped()):
+                    self.history_note.pack_forget()
+            else:
+                if not self._history_caption.winfo_ismapped():
+                    self._history_caption.pack(
+                        fill='x', pady=(0, 4),
+                        before=self.history_filter_entry)
+                if not self.history_note.winfo_ismapped():
+                    self.history_note.pack(
+                        fill='x', pady=(1, 0),
+                        before=self.history_list._parent_frame)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------ plumbing
     def _schedule(self):
