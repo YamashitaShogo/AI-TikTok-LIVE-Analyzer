@@ -239,7 +239,7 @@ class SessionStore:
                           {"state": str(state), **(detail or {})}, now=now)
 
     # ------------------------------------------------------------- reads
-    def _row_to_session(self, db, row):
+    def _row_to_session(self, db, row, with_events=True):
         session = dict(row)
         try:
             session["targets"] = json.loads(session.pop("targets_json") or "[]")
@@ -255,20 +255,23 @@ class SessionStore:
         # target_switch events are always kept in full (reports list
         # them and they are user-driven, hence few), other kinds are
         # capped at the most recent 1000.
-        sid = session["session_id"]
-        event_rows = db.execute(
-            "SELECT at, kind, detail_json FROM session_events"
-            " WHERE session_id=? AND kind='target_switch'"
-            " ORDER BY at, id", (sid,)).fetchall()
-        event_rows += db.execute(
-            "SELECT at, kind, detail_json FROM session_events"
-            " WHERE session_id=? AND kind<>'target_switch'"
-            " ORDER BY id DESC LIMIT 1000", (sid,)).fetchall()
-        event_rows.sort(key=lambda r: r["at"])
-        session["events"] = [
-            {"at": r["at"], "kind": r["kind"],
-             "detail": json.loads(r["detail_json"] or "{}")}
-            for r in event_rows]
+        if with_events:
+            sid = session["session_id"]
+            event_rows = db.execute(
+                "SELECT at, kind, detail_json FROM session_events"
+                " WHERE session_id=? AND kind='target_switch'"
+                " ORDER BY at, id", (sid,)).fetchall()
+            event_rows += db.execute(
+                "SELECT at, kind, detail_json FROM session_events"
+                " WHERE session_id=? AND kind<>'target_switch'"
+                " ORDER BY id DESC LIMIT 1000", (sid,)).fetchall()
+            event_rows.sort(key=lambda r: r["at"])
+            session["events"] = [
+                {"at": r["at"], "kind": r["kind"],
+                 "detail": json.loads(r["detail_json"] or "{}")}
+                for r in event_rows]
+        else:
+            session["events"] = []
         session["started_jst"] = format_jst(session["started_at"])
         session["ended_jst"] = format_jst(session["ended_at"])
         session["elapsed_seconds"] = (
@@ -288,6 +291,19 @@ class SessionStore:
                 "SELECT * FROM sessions ORDER BY started_at DESC LIMIT ?",
                 (max(1, int(limit)),)).fetchall()
             return [self._row_to_session(db, row) for row in rows]
+
+    def list_sessions_basic(self, limit=1000):
+        """Session rows WITHOUT their event lists, newest first.
+
+        For the history overview: event lists are the expensive part
+        of a session read and the overview never shows them, so a
+        long history stays cheap to load."""
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM sessions ORDER BY started_at DESC LIMIT ?",
+                (max(1, int(limit)),)).fetchall()
+            return [self._row_to_session(db, row, with_events=False)
+                    for row in rows]
 
     def latest_session(self):
         sessions = self.list_sessions(limit=1)
