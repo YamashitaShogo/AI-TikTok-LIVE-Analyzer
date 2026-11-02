@@ -216,6 +216,12 @@ class UnattendedReportPage(ctk.CTkFrame):
         self._report = None
         self._ai_text = None
         self._selected_battle = None
+        # Battle detail view (inside the バトル履歴 tab): the
+        # (unique_id, battle_id) currently open there, or None when
+        # the tab shows the list. Kept across display refreshes by
+        # identity, never by row position.
+        self._battle_detail_key = None
+        self._battles_return_fraction = None
         self._poll = None
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
@@ -426,15 +432,69 @@ class UnattendedReportPage(ctk.CTkFrame):
         self.summary_box.configure(state='disabled')
 
     def _build_battles(self, tab):
-        ctk.CTkLabel(tab, text_color=MUTED, anchor='w', justify='left', wraplength=850,
-                     text='観測できたバトルの一覧です。「詳細」を押すと概要タブでグラフを確認できます。'
+        self._battles_list_view = ctk.CTkFrame(tab, fg_color='transparent')
+        self._battles_list_view.pack(fill='both', expand=True)
+        ctk.CTkLabel(self._battles_list_view, text_color=MUTED, anchor='w',
+                     justify='left', wraplength=850,
+                     text='観測できたバトルの一覧です。「詳細」を押すとこのタブでバトルの詳細を確認できます。'
                           '終了が確認できていないバトルのスコアは「参考」と表示し、確定スコアには含めません。'
                      ).pack(fill='x', padx=10, pady=(10, 4))
-        self.battles_scroll = ctk.CTkScrollableFrame(tab, fg_color='transparent')
+        self.battles_scroll = ctk.CTkScrollableFrame(self._battles_list_view,
+                                                     fg_color='transparent')
         self.battles_scroll.pack(fill='both', expand=True, padx=6, pady=4)
         self.battles_empty = ctk.CTkLabel(self.battles_scroll, text='バトル履歴はまだありません。',
                                           text_color=MUTED)
         self.battles_empty.pack(pady=16)
+        self._build_battle_detail_view(tab)
+
+    def _build_battle_detail_view(self, tab):
+        view = ctk.CTkScrollableFrame(tab, fg_color='transparent')
+        self._battle_detail_view = view
+        self.battle_back_button = ctk.CTkButton(
+            view, text='← バトル一覧に戻る', width=180,
+            fg_color='#EAF1FE', hover_color='#D6E4FC', text_color=theme.PRIMARY,
+            command=self._close_battle_detail)
+        self.battle_back_button.pack(anchor='w', padx=6, pady=(8, 2))
+        card = SectionCard(view, 'バトル詳細')
+        card.pack(fill='x', padx=6, pady=5)
+        self.bd_title = ctk.CTkLabel(
+            card.body, text='', text_color=TEXT, anchor='w', justify='left',
+            wraplength=700, font=(theme.FONT_FAMILY, 16, 'bold'))
+        self.bd_title.pack(fill='x')
+        self.bd_meta = ctk.CTkLabel(card.body, text='', text_color=MUTED,
+                                    anchor='w', justify='left', wraplength=700)
+        self.bd_meta.pack(fill='x', pady=(2, 0))
+        self.bd_score = ctk.CTkLabel(
+            card.body, text='', text_color=TEXT, anchor='w', justify='left',
+            wraplength=700, font=(theme.FONT_FAMILY, 15, 'bold'))
+        self.bd_score.pack(fill='x', pady=(6, 0))
+        self.bd_stats = ctk.CTkLabel(card.body, text='', text_color=MUTED,
+                                     anchor='w', justify='left', wraplength=700)
+        self.bd_stats.pack(fill='x', pady=(2, 0))
+        self.bd_notes = ctk.CTkLabel(card.body, text='', text_color='#9A6206',
+                                     anchor='w', justify='left', wraplength=700)
+        self.bd_notes.pack(fill='x', pady=(4, 0))
+        # The wrap lengths follow the card's ACTUAL width (a fixed
+        # value clips on narrow/high-DPI windows: CTk scales the
+        # wrap by the widget scaling, so the pin must be computed
+        # from the measured body width, like the status card's).
+        self._bd_wrap_labels = [self.bd_title, self.bd_meta, self.bd_score,
+                                self.bd_stats, self.bd_notes]
+        card.body.bind('<Configure>', self._update_detail_wraps)
+        score_card = SectionCard(view, 'バトルスコア推移')
+        score_card.pack(fill='x', padx=6, pady=5)
+        self.bd_score_chart = tk.Canvas(score_card.body, highlightthickness=0,
+                                        height=180)
+        self.bd_score_chart.pack(fill='x', expand=True)
+        self.bd_score_chart.bind('<Configure>',
+                                 lambda _: self.draw_detail_charts())
+        viewer_card = SectionCard(view, '同時視聴者数推移')
+        viewer_card.pack(fill='x', padx=6, pady=5)
+        self.bd_viewer_chart = tk.Canvas(viewer_card.body, highlightthickness=0,
+                                         height=180)
+        self.bd_viewer_chart.pack(fill='x', expand=True)
+        self.bd_viewer_chart.bind('<Configure>',
+                                  lambda _: self.draw_detail_charts())
 
     HISTORY_PAGE_SIZE = 20
 
@@ -2054,6 +2114,27 @@ class UnattendedReportPage(ctk.CTkFrame):
             self._selected_battle = None
         self._render_battle_detail()
         self.draw_charts()
+        if self._battle_detail_key is not None:
+            # A display refresh (or a session switch) re-rendered
+            # the report while a battle detail is open: follow the
+            # SAME battle by identity when it still exists in this
+            # report (auto refresh never yanks the user back), and
+            # return to the list when it does not (the displayed
+            # session changed — its battles are what the tab shows).
+            match = next(
+                (b for b in report['battles']
+                 if (b.get('unique_id'), b.get('battle_id'))
+                 == self._battle_detail_key), None)
+            if match is None:
+                self._close_battle_detail()
+            else:
+                self._selected_battle = match
+                self.battle_menu.set(
+                    f"{match['nickname']} / {match['first_seen_jst']}")
+                self._render_battle_detail()
+                self._render_battle_detail_view()
+                self.draw_charts()
+                self.draw_detail_charts()
         try:
             self._set_text(self.ai_preview, evidence_preview(report))
         except Exception:
@@ -2124,9 +2205,84 @@ class UnattendedReportPage(ctk.CTkFrame):
                 if item is battle:
                     self.battle_menu.set(text)
                     break
-        self.tabs.set('概要')
+        # The detail opens INSIDE the バトル履歴 tab (the tab no
+        # longer jumps to 概要): remember where the list was
+        # scrolled to, swap the views, and fill the detail from
+        # this battle only.
+        self._battles_return_fraction = self._scroll_fraction(self.battles_scroll)
+        self._battle_detail_key = (battle.get('unique_id'),
+                                   battle.get('battle_id'))
+        self._battles_list_view.pack_forget()
+        self._battle_detail_view.pack(fill='both', expand=True, padx=6, pady=4)
+        self._restore_scroll(self._battle_detail_view, 0.0)
         self._render_battle_detail()
+        self._render_battle_detail_view()
         self.draw_charts()
+        self.draw_detail_charts()
+
+    def _close_battle_detail(self):
+        if self._battle_detail_key is None:
+            return
+        self._battle_detail_key = None
+        self._battle_detail_view.pack_forget()
+        self._battles_list_view.pack(fill='both', expand=True)
+        if self._battles_return_fraction is not None:
+            fraction = self._battles_return_fraction
+            self.after_idle(lambda f=fraction:
+                            self._restore_scroll(self.battles_scroll, f))
+
+    def _update_detail_wraps(self, event):
+        try:
+            scaling = ctk.ScalingTracker.get_widget_scaling(self) or 1.0
+            wrap = max(180, int(event.width / scaling) - 16)
+            for label in self._bd_wrap_labels:
+                if label.cget('wraplength') != wrap:
+                    label.configure(wraplength=wrap)
+        except Exception:
+            pass
+
+    def _render_battle_detail_view(self):
+        battle = self._selected_battle
+        if not battle:
+            return
+        self.bd_title.configure(
+            text=f"{short_name(battle['nickname'])}（@{battle['unique_id']}）")
+        self.bd_meta.configure(
+            text=f"開始観測 {battle['first_seen_jst']} ／ "
+                 f"終了観測 {format_jst(battle['last_seen'])} ／ "
+                 f"{format_mode(battle['mode'])} ／ 状態: {battle['status_label']}")
+        if battle.get('score_known'):
+            score_line = f"最終確定スコア： {number(battle.get('final_score'))}"
+        elif battle.get('last_known_score') is not None:
+            score_line = (f"参考スコア： {number(battle['last_known_score'])}"
+                          '（終了未確認のため参考値です）')
+        else:
+            score_line = 'スコア： 未取得'
+        self.bd_score.configure(text=score_line)
+        self.bd_stats.configure(
+            text=f"視聴者数 中央値 {number(battle['viewer_median'])}・最大 {number(battle['viewer_peak'])} ／ "
+                 f"スコア記録 {battle['score_sample_count']} 回・視聴者記録 {battle['viewer_sample_count']} 回")
+        notes = []
+        if battle['partial_state'] == 'partial':
+            notes.append('途中から観測しています（開始直後のデータはありません）')
+        elif battle['partial_state'] == 'unknown':
+            notes.append('観測の完全性は判定できません')
+        if battle['window_clipped']:
+            notes.append('集計期間をまたぐため、期間内サンプルのみで集計しています')
+        if battle['gaps']:
+            notes.append(f"未取得区間が {len(battle['gaps'])} 件あります"
+                         '（グラフは区間を結ばず、途切れて表示されます）')
+        if not battle.get('score_known') \
+                and battle.get('last_known_score') is not None:
+            notes.append('終了が確認できていないため、確定スコアには含めていません')
+        self.bd_notes.configure(
+            text='注意： ' + '／'.join(notes) if notes else '')
+
+    def draw_detail_charts(self):
+        if getattr(self, '_battle_detail_key', None) is None:
+            return
+        self._draw_series(self.bd_score_chart, 'score')
+        self._draw_series(self.bd_viewer_chart, 'viewer')
 
     def _render_battle_detail(self):
         battle = self._selected_battle
