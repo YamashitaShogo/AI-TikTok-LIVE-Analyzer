@@ -45,6 +45,8 @@ from core.unattended_report import (available_sources, build_report,
 from core.workspace_config import MODE_DEVELOPER
 from core.workspace_manager import WorkspaceManager
 from core.battle_clock import BattleClock
+from core.battle_timeline import hatch_segments
+from core.battle_timeline import load as load_battle_timeline
 from core.fixed_score_graph import resolve_labels as participant_series_labels
 from core.fixed_score_graph import scores as participant_scores
 from core.participant_label import participant_label
@@ -99,6 +101,69 @@ def battle_score_text(battle):
 
 
 DETAIL_SERIES_COLORS = ['#3B82F6', '#EF4444', '#22C55E', '#A855F7', '#F59E0B']
+
+
+def detail_event_color(event):
+    """Event colours, matching the collected-history chart."""
+    if event.get('kind') == 'item':
+        return '#F59E0B'
+    if event.get('phase') == 'mission':
+        return '#94A3B8'
+    if event.get('phase') == 'settle':
+        return '#22C55E'
+    if 'スピード' in (event.get('label') or ''):
+        return '#14B8A6'
+    return '#A855F7'
+
+
+def detail_event_tag(index, event):
+    if event.get('kind') == 'item':
+        return f'{index + 1}物'
+    if event.get('phase') == 'mission':
+        return f'{index + 1}始'
+    if event.get('phase') == 'settle':
+        return f'{index + 1}達' if event.get('succeeded') else f'{index + 1}判'
+    if event.get('phase') == 'reward':
+        return f'{index + 1}倍'
+    return f'{index + 1}'
+
+
+def battle_event_lines(events, labels, host_anchor_id=''):
+    """One text row per recorded event for the detail view's event
+    list. Every row states its time basis (確定度): planned times,
+    receipt times and effect times are never blended silently —
+    the loader's basis strings say which is which."""
+    lines = []
+    for i, event in enumerate(events):
+        parts = [f"{i + 1}. {format_jst(event['at'])}", event.get('label', '')]
+        if event.get('end'):
+            parts.append(f"〜{format_jst(event['end'])}"
+                         f"（{event.get('end_basis', '')}）")
+        if event.get('phase') == 'mission' and event.get('mission'):
+            parts.append(event['mission'])
+        if event.get('phase') == 'reward':
+            multiple = event.get('multiple_raw')
+            if isinstance(multiple, (int, float)) \
+                    and not isinstance(multiple, bool):
+                parts.append(f"倍率 ×{multiple:g}（通知で確認）")
+            elif event.get('reward_text'):
+                parts.append(event['reward_text'])
+            else:
+                parts.append('倍率未取得')
+            if event.get('mission'):
+                parts.append(event['mission'])
+        if event.get('kind') == 'item' and event.get('target'):
+            target = event['target']
+            if host_anchor_id and target == host_anchor_id:
+                who = '自枠'
+            elif labels.get('相手 ' + target):
+                who = labels['相手 ' + target]
+            else:
+                who = f"ID …{target[-4:]}"
+            parts.append(f"対象： {who}")
+        parts.append(f"根拠： {event.get('basis', '')}")
+        lines.append(' ／ '.join(part for part in parts if part))
+    return lines
 DETAIL_CONNECT_GAP_SEC = 30
 
 
@@ -134,10 +199,34 @@ def load_battle_participant_series(database, unique_id, battle_id,
                 ' WHERE unique_id=? AND battle_id=?' + clause +
                 ' ORDER BY received_at',
                 (unique_id, battle_id, *args)).fetchall()
+            # Challenge / item events recorded by the collector live
+            # in the same database (battle_timeline table, written
+            # by battle_monitor for every profile — including the
+            # fixed one). Loaded with the collected-history screen's
+            # own loader so both screens read events identically.
+            tables = {r[0] for r in db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+            events = load_battle_timeline(
+                db, tables, unique_id, battle_id,
+                legacy_path=Path(database).parent.parent / 'battle_items.json')
     except Exception:
         return None
     if row is None:
         return None
+    if window_start is not None or window_end is not None:
+        # Same in-window discipline as the samples: an event belongs
+        # to this report when its interval overlaps the window.
+        def _in_window(event):
+            at = event.get('at')
+            if at is None:
+                return False
+            end = event.get('end') or at
+            if window_start is not None and end < window_start:
+                return False
+            if window_end is not None and at > window_end:
+                return False
+            return True
+        events = [e for e in events if _in_window(e)]
     try:
         battle_payload = json.loads(row[0])
     except (TypeError, ValueError):
@@ -188,7 +277,8 @@ def load_battle_participant_series(database, unique_id, battle_id,
             for _, series in points
             for key, value in series.items() if key not in host_keys)
     return {'points': points, 'labels': labels, 'payload': battle_payload,
-            'payloads': payloads, 'opponent_missing': opponent_missing}
+            'payloads': payloads, 'opponent_missing': opponent_missing,
+            'events': events}
 
 
 def kpi_items(report):
@@ -585,6 +675,13 @@ class UnattendedReportPage(ctk.CTkFrame):
             score_card.body, text='', text_color='#9A6206', anchor='w',
             justify='left', wraplength=700)
         self.bd_score_note.pack(fill='x', pady=(2, 0))
+        events_card = SectionCard(view, 'イベント（スピチャ・アイテム）')
+        events_card.pack(fill='x', padx=6, pady=5)
+        self.bd_events = ctk.CTkLabel(
+            events_card.body, text='', text_color=MUTED, anchor='w',
+            justify='left', wraplength=700)
+        self.bd_events.pack(fill='x')
+        self._bd_events_body = events_card.body
         viewer_card = SectionCard(view, '視聴者数推移')
         viewer_card.pack(fill='x', padx=6, pady=5)
         self.bd_viewer_chart = tk.Canvas(viewer_card.body, highlightthickness=0,
@@ -602,8 +699,9 @@ class UnattendedReportPage(ctk.CTkFrame):
         self.bd_notes.pack(fill='x', pady=(4, 0))
         # (Wrap lengths follow the cards' measured widths — see
         # _update_detail_wraps; both bodies drive the same update.)
-        self._bd_wrap_labels += [self.bd_stats, self.bd_notes]
+        self._bd_wrap_labels += [self.bd_stats, self.bd_notes, self.bd_events]
         notes_card.body.bind('<Configure>', self._update_detail_wraps)
+        self._bd_events_body.bind('<Configure>', self._update_detail_wraps)
 
     HISTORY_PAGE_SIZE = 20
 
@@ -2409,7 +2507,8 @@ class UnattendedReportPage(ctk.CTkFrame):
         return {'key': (battle.get('unique_id'), battle.get('battle_id')),
                 'points': points,
                 'labels': {'自枠': f"自枠：{battle['nickname']}（@{battle['unique_id']}）"},
-                'payload': None, 'payloads': [], 'opponent_missing': False}
+                'payload': None, 'payloads': [], 'opponent_missing': False,
+                'events': None}
 
     def _request_detail_series(self, battle):
         database = self._source['database'] if self._source else None
@@ -2437,6 +2536,18 @@ class UnattendedReportPage(ctk.CTkFrame):
                 text='相手側スコアは取得できませんでした（対戦相手の記録はありますが、スコアが未取得です）')
         else:
             self.bd_score_note.configure(text='')
+        events = data.get('events')
+        if events is None:
+            self.bd_events.configure(
+                text='イベント記録を確認できませんでした（データベースを読み取れませんでした）')
+        elif not events:
+            self.bd_events.configure(
+                text='スピチャ・アイテムのイベント記録なし')
+        else:
+            host_anchor = str((data.get('payload') or {}).get(
+                'host_user_id') or '')
+            self.bd_events.configure(text='\n'.join(battle_event_lines(
+                events, data.get('labels') or {}, host_anchor)))
 
     def draw_detail_charts(self):
         """Detail graphs, modelled on the 収集履歴 screen: one colour
@@ -2463,6 +2574,11 @@ class UnattendedReportPage(ctk.CTkFrame):
         # to the session rather than this battle's timeframe and
         # are not drawn here.
         times = [t for t, _ in data['points']]
+        for event in data.get('events') or []:
+            if event.get('at') is not None:
+                times.append(event['at'])
+            if event.get('end') is not None:
+                times.append(event['end'])
         start, end = clock.bounds(times) if times else (0, 1)
         self._draw_detail_score_chart(clock, start, end, data, battle)
         self._draw_detail_viewer_chart(clock, start, end, battle)
@@ -2517,6 +2633,8 @@ class UnattendedReportPage(ctk.CTkFrame):
         keys = list(dict.fromkeys(k for _, series in points for k in series))
         legend_rows = max(1, (len(keys) + 1) // 2)
         left, right, top = 70, width - 16, 26
+        if data.get('events'):
+            top = 46
         bottom = max(top + 60, height - 52 - legend_rows * 18)
         values = [v for _, series in points
                   for v in series.values() if v is not None]
@@ -2532,6 +2650,25 @@ class UnattendedReportPage(ctk.CTkFrame):
         self._draw_detail_gap_bands(canvas, battle, 'score', start, end,
                                     left, right, top, bottom)
         span = max(1.0, end - start)
+        for i, event in enumerate(data.get('events') or []):
+            at = event.get('at')
+            if at is None or not (start <= at <= end):
+                continue
+            color = detail_event_color(event)
+            x = left + (right - left) * (at - start) / span
+            dashed = (4, 3) if event.get('phase') == 'mission' else ()
+            finish = event.get('end')
+            if finish and finish > at and finish <= end:
+                x_end = left + (right - left) * (finish - start) / span
+                if event.get('phase') != 'mission':
+                    for segment in hatch_segments(x, top, x_end, bottom):
+                        canvas.create_line(*segment, fill=color, width=1)
+                canvas.create_line(x_end, top, x_end, bottom, fill=color,
+                                   width=2, dash=dashed)
+            canvas.create_line(x, top, x, bottom, fill=color, width=2,
+                               dash=dashed)
+            canvas.create_text(x, top - 24 + (i % 2) * 12, anchor='s',
+                               text=detail_event_tag(i, event), fill=color)
         maximum = max(1, max(values)) * 1.05
         for fraction in (0, 0.25, 0.5, 0.75, 1.0):
             y = bottom - (bottom - top) * fraction
