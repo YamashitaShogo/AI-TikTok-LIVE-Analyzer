@@ -41,6 +41,8 @@ from core.report_ai import analyze as ai_analyze, evidence_preview
 from core.report_export import export_csv, export_json, export_pdf
 from core.unattended_report import (available_sources, build_report,
                                     compare_reports, session_summaries)
+from core.workspace_config import MODE_DEVELOPER
+from core.workspace_manager import WorkspaceManager
 from ui import theme
 from ui.components.section_card import SectionCard
 from ui.components.stat_card import StatCard
@@ -162,13 +164,25 @@ class UnattendedReportPage(ctk.CTkFrame):
         self._busy = False
         self._refresh_pending = False
         self._tick = 0
+        self._workspace = WorkspaceManager()
         self._sources = available_sources()
         # Pulse Pro default: fixed observation (capture_fixed) of the
-        # streamer's own registered account. Other sources stay
-        # available on the 詳細設定 tab and never mix into this profile.
+        # streamer's own registered account. In the streamer
+        # workspace this is not just the default but the ONLY source:
+        # the streamer product analyses the streamer's own LIVE, so
+        # normal observation and TopWatch data must never be read
+        # here (developer workspace keeps all three, see
+        # change_source). The lock is enforced in logic, not only by
+        # hiding the selector.
         self._source = next(
             (s for s in self._sources if s.get('key') == 'capture_fixed'),
             self._sources[0] if self._sources else None)
+        # Generation of the asynchronous loads (session list,
+        # history, generated reports, AI). Bumped on every source
+        # change; results stamped with an older generation are
+        # dropped by the pump so a slow load from the previous
+        # source can never overwrite the new source's screen.
+        self._load_gen = 0
         # Session lifetime belongs to the process-wide runtime, not to
         # this page: leaving the page never stops session recording.
         self._runtime = get_runtime(self._source['capture_dir']) if self._source else None
@@ -550,13 +564,16 @@ class UnattendedReportPage(ctk.CTkFrame):
     def _build_details(self, tab):
         scroll = ctk.CTkScrollableFrame(tab, fg_color='transparent')
         scroll.pack(fill='both', expand=True)
+        intro = ('観測方式は固定観測（自分のTikTok LIVE）です。'
+                 'セッション・期間を指定した集計はここから行います。') \
+            if self._streamer_locked() else (
+                '観測データの管理用設定です。通常の利用では変更する必要はありません。'
+                '既存の観測方式（Battle Hunter / 固定観測 / TopWatch）の選択や、'
+                'セッション・期間を指定した集計はここから行います。'
+                'TopWatchの子プロセスデータは読み取り専用で扱います。')
         ctk.CTkLabel(
             scroll, text_color=MUTED, wraplength=850, justify='left', anchor='w',
-            text='観測データの管理用設定です。通常の利用では変更する必要はありません。'
-                 '既存の観測方式（Battle Hunter / 固定観測 / TopWatch）の選択や、'
-                 'セッション・期間を指定した集計はここから行います。'
-                 'TopWatchの子プロセスデータは読み取り専用で扱います。').pack(
-                     fill='x', padx=10, pady=(10, 6))
+            text=intro).pack(fill='x', padx=10, pady=(10, 6))
 
         source_card = SectionCard(scroll, 'データと観測方式')
         source_card.pack(fill='x', padx=6, pady=5)
@@ -569,6 +586,18 @@ class UnattendedReportPage(ctk.CTkFrame):
         if self._source:
             self.source_menu.set(self._source['label'])
         self.source_menu.pack(side='left', padx=8)
+        self.source_note = None
+        if self._streamer_locked():
+            # Streamer workspace: fixed observation only. The
+            # selectors stay visible as read-only information (the
+            # logic guard in change_source enforces the same rule
+            # even if they were reached programmatically).
+            self.source_menu.configure(values=['固定観測'], state='disabled')
+            self.source_menu.set('固定観測')
+            self.source_note = ctk.CTkLabel(
+                source_card.body, text='観測方式：固定観測（自分のTikTok LIVE）',
+                text_color=MUTED, anchor='w')
+            self.source_note.pack(fill='x', pady=(4, 0))
         row = ctk.CTkFrame(source_card.body, fg_color='transparent')
         row.pack(fill='x', pady=3)
         ctk.CTkLabel(row, text='観測モード', text_color=MUTED).pack(side='left')
@@ -576,6 +605,8 @@ class UnattendedReportPage(ctk.CTkFrame):
             row, values=['Battle Hunter', '固定観測', 'TopWatch', '手動観測'], width=160)
         self.mode_menu.set('固定観測')
         self.mode_menu.pack(side='left', padx=8)
+        if self._streamer_locked():
+            self.mode_menu.configure(state='disabled')
         ctk.CTkLabel(row, text='対象（@ID、カンマ区切り）', text_color=MUTED).pack(side='left', padx=(16, 0))
         self.target_entry = ctk.CTkEntry(row, width=230)
         self.target_entry.pack(side='left', padx=8)
@@ -828,11 +859,15 @@ class UnattendedReportPage(ctk.CTkFrame):
                 item = self._queue.get_nowait()
                 kind = item[0]
                 if kind == 'sessions':
-                    _, sessions, recovered = item
+                    _, gen, sessions, recovered = item
+                    if gen != self._load_gen:
+                        continue  # stale: from the previous source
                     self._sessions = sessions
                     self._render_sessions(recovered)
                 elif kind == 'report':
-                    _, report, previous_path = item
+                    _, gen, report, previous_path = item
+                    if gen != self._load_gen:
+                        continue  # stale: generated for the old source
                     self._report = report
                     self._render_report(previous_path)
                 elif kind == 'display_report':
@@ -858,19 +893,25 @@ class UnattendedReportPage(ctk.CTkFrame):
                     elif was_inflight:
                         self._start_display_refresh()
                 elif kind == 'history':
-                    _, sessions, summaries, error = item
+                    _, gen, sessions, summaries, error = item
+                    if gen != self._load_gen:
+                        continue  # stale: from the previous source
                     self._history_sessions = sessions
                     self._history_summaries = summaries
                     self._history_error = error
                     self._render_history()
                 elif kind == 'ai':
-                    _, payload, path, warning = item
+                    _, gen, payload, path, warning = item
+                    if gen != self._load_gen:
+                        continue  # stale: analysed the old source
                     self._ai_text = payload['answer']
                     self._render_ai(payload['answer'])
                     self.ai_status.configure(text=f'完了（保存: {path or "失敗"}）{warning}')
                     self.ai_button.configure(state='normal')
                 elif kind == 'error':
-                    _, message = item
+                    _, gen, message = item
+                    if gen != self._load_gen:
+                        continue  # stale: raised against the old source
                     self.status.configure(text=message)
                     self.ai_button.configure(state='normal')
                     self._set_generating(False)
@@ -1065,19 +1106,50 @@ class UnattendedReportPage(ctk.CTkFrame):
         else:
             self.observing_label.configure(text='—')
 
+    def _streamer_locked(self):
+        """True while the streamer workspace is active.
+
+        Read fresh from settings on every call, so a page that
+        outlives a workspace switch still enforces the current
+        workspace's rule. Only the developer workspace may leave
+        the fixed-observation source.
+        """
+        return self._workspace.get_mode() != MODE_DEVELOPER
+
     def change_source(self):
         label = self.source_menu.get()
-        for source in self._sources:
-            if source['label'] == label:
-                self._source = source
-                break
+        target = next((s for s in self._sources if s['label'] == label),
+                      None)
+        if (target is not None and target.get('key') != 'capture_fixed'
+                and self._streamer_locked()):
+            # Streamer workspace: fixed observation only. Refuse the
+            # switch even when change_source is invoked
+            # programmatically, and snap the selector back so the UI
+            # never claims another source is in use.
+            fixed = next((s for s in self._sources
+                          if s.get('key') == 'capture_fixed'), None)
+            if fixed is not None:
+                self.source_menu.set(fixed['label'])
+                if self._source is not fixed:
+                    self._source = fixed
+                    self._runtime = get_runtime(fixed['capture_dir'])
+                    self._load_gen += 1
+                    self._display_gen += 1
+                    self._display_request = None
+                    self._report = None
+                    self.refresh()
+            return
+        if target is not None:
+            self._source = target
         self._runtime = get_runtime(self._source['capture_dir']) if self._source else None
         self._active_session_id = None
         self._running_started_at = None
         # The old source's report/refresh state must not leak into the
         # new source: invalidate in-flight display results and let the
         # auto display retarget to this source's latest session.
+        self._load_gen += 1
         self._display_gen += 1
+        self._set_generating(False)
         self._display_request = None
         self._report = None
         self._selected_battle = None
@@ -1100,6 +1172,7 @@ class UnattendedReportPage(ctk.CTkFrame):
         self._busy = True
         runtime = self._runtime
         database = self._source['database'] if self._source else None
+        gen = self._load_gen
 
         def worker():
             try:
@@ -1123,12 +1196,13 @@ class UnattendedReportPage(ctk.CTkFrame):
                         logging.exception('history load failed')
                         history_sessions, summaries = [], {}
                         history_error = str(exc)
-                self._queue.put(('sessions', sessions, recovered))
-                self._queue.put(('history', history_sessions, summaries,
-                                 history_error))
+                self._queue.put(('sessions', gen, sessions, recovered))
+                self._queue.put(('history', gen, history_sessions,
+                                 summaries, history_error))
             except Exception as exc:  # never break the page on store errors
                 logging.exception('session load failed')
-                self._queue.put(('error', f'セッションの読み込みに失敗しました: {exc}'))
+                self._queue.put(('error', gen,
+                                 f'セッションの読み込みに失敗しました: {exc}'))
             finally:
                 self._busy = False
 
@@ -1764,6 +1838,7 @@ class UnattendedReportPage(ctk.CTkFrame):
         self.status.configure(text='集計中…（収集は継続しています）')
         source = self._source
 
+        gen = self._load_gen
         def worker():
             try:
                 began = time.time()
@@ -1777,10 +1852,11 @@ class UnattendedReportPage(ctk.CTkFrame):
                 if session is not None:
                     get_runtime(source['capture_dir']).store.mark_report(
                         session['session_id'], 'generated')
-                self._queue.put(('report', report, previous_path))
+                self._queue.put(('report', gen, report, previous_path))
             except Exception as exc:
                 logging.exception('report build failed')
-                self._queue.put(('error', f'レポート生成に失敗しました: {exc}'))
+                self._queue.put(('error', gen,
+                                 f'レポート生成に失敗しました: {exc}'))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -2032,14 +2108,16 @@ class UnattendedReportPage(ctk.CTkFrame):
         self.ai_button.configure(state='disabled')
         self.ai_status.configure(text='AI分析中…')
         report = self._report
+        gen = self._load_gen
 
         def worker():
             try:
                 payload, path, warning = ai_analyze(report)
-                self._queue.put(('ai', payload, path, warning))
+                self._queue.put(('ai', gen, payload, path, warning))
             except Exception as exc:
                 logging.exception('report AI failed')
-                self._queue.put(('error', f'AI分析に失敗しました（統計レポートは利用できます）: {exc}'))
+                self._queue.put(('error', gen,
+                                 f'AI分析に失敗しました（統計レポートは利用できます）: {exc}'))
 
         threading.Thread(target=worker, daemon=True).start()
 
