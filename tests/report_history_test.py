@@ -252,13 +252,28 @@ check('H11d clearing restores the full list',
 # ------------------------------------------------------------- paging
 for i in range(25):
     make_session(['mio'], NOW - 90000 - i * 100, NOW - 89900 - i * 100)
+# Wait for the async load to actually land, re-asking whenever the
+# loader is idle: refresh() during an in-flight load is recorded as
+# pending by the page, and this loop must not mistake "still
+# loading" for "loaded" on a slow machine.
+db_total = len(store.list_sessions_basic(limit=1000))
 page.refresh()
-deadline = time.time() + 15
-while time.time() < deadline and len(page._history_sessions) < 29:
+deadline = time.time() + 60
+while time.time() < deadline and len(page._history_sessions) < db_total:
     root.update()
+    if not page._busy:
+        page.refresh()
     time.sleep(0.02)
+pump(0.3)
 page._history_signature = None
 page._render_history()
+_diag_rows = [c for c in page.history_list.winfo_children()
+              if isinstance(c, ctk.CTkButton)]
+print(f'  [diag H12] db_sessions={db_total} '
+      f'page_history={len(page._history_sessions)} '
+      f'filtered={len(page._filtered_history())} '
+      f'buttons={len(_diag_rows)} page_index={page._history_page} '
+      f'label={page.history_page_label.cget("text")!r} busy={page._busy}')
 rows = [c for c in page.history_list.winfo_children()
         if isinstance(c, ctk.CTkButton)]
 check('H12a the first page shows 20 rows with a page indicator',
