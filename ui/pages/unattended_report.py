@@ -39,7 +39,8 @@ from core.settings import SettingsLoadError, SettingsSaveError
 from core.observation_sessions import JST, format_jst, get_runtime
 from core.report_ai import analyze as ai_analyze, evidence_preview
 from core.report_export import export_csv, export_json, export_pdf
-from core.unattended_report import available_sources, build_report, compare_reports
+from core.unattended_report import (available_sources, build_report,
+                                    compare_reports, session_summaries)
 from ui import theme
 from ui.components.section_card import SectionCard
 from ui.components.stat_card import StatCard
@@ -185,6 +186,17 @@ class UnattendedReportPage(ctk.CTkFrame):
         self._display_inflight = None  # gen of the running display worker
         self._display_request = None   # {'scope', 'session_id', 'auto'}
         self._sessions = []
+        # History tab state: basic session rows (no event lists) for
+        # the current source plus their light aggregates. Kept apart
+        # from _sessions (the detail tab's list) so a long history
+        # never slows the detail path down.
+        self._history_sessions = []
+        self._history_summaries = {}
+        self._history_error = None
+        self._history_filter_text = ''
+        self._history_filter_date = ''
+        self._history_page = 0
+        self._history_signature = None
         self._report = None
         self._ai_text = None
         self._selected_battle = None
@@ -298,6 +310,7 @@ class UnattendedReportPage(ctk.CTkFrame):
         self.tabs = ctk.CTkTabview(self, fg_color=CARD)
         self.tabs.grid(row=2, column=0, sticky='nsew', padx=24, pady=(4, 8))
         self._build_overview(self.tabs.add('概要'))
+        self._build_history(self.tabs.add('配信履歴'))
         self._build_battles(self.tabs.add('バトル履歴'))
         self._build_ai(self.tabs.add('AI改善提案'))
         self._build_export(self.tabs.add('レポート出力'))
@@ -374,6 +387,59 @@ class UnattendedReportPage(ctk.CTkFrame):
         self.battles_empty = ctk.CTkLabel(self.battles_scroll, text='バトル履歴はまだありません。',
                                           text_color=MUTED)
         self.battles_empty.pack(pady=16)
+
+    HISTORY_PAGE_SIZE = 20
+
+    def _build_history(self, tab):
+        head = ctk.CTkFrame(tab, fg_color='transparent')
+        head.pack(fill='x', padx=10, pady=(10, 2))
+        self.history_viewing_label = ctk.CTkLabel(
+            head, text='現在、最新の観測を表示しています。', anchor='w',
+            justify='left', wraplength=760)
+        self.history_viewing_label.pack(side='left', fill='x', expand=True)
+        self.history_latest_button = ctk.CTkButton(
+            head, text='最新の観測を表示', width=150,
+            command=self.show_latest_display)
+        self.history_latest_button.pack(side='right')
+        filters = ctk.CTkFrame(tab, fg_color='transparent')
+        filters.pack(fill='x', padx=10, pady=(4, 2))
+        ctk.CTkLabel(filters, text='配信者:', text_color=MUTED, width=52,
+                     anchor='w').pack(side='left')
+        self.history_filter_entry = ctk.CTkEntry(
+            filters, width=170, placeholder_text='@IDの一部')
+        self.history_filter_entry.pack(side='left')
+        self.history_filter_entry.bind('<Return>', lambda _e: self.apply_history_filter())
+        ctk.CTkLabel(filters, text='日付:', text_color=MUTED, width=40,
+                     anchor='w').pack(side='left', padx=(12, 0))
+        self.history_date_entry = ctk.CTkEntry(
+            filters, width=120, placeholder_text='YYYY-MM-DD')
+        self.history_date_entry.pack(side='left')
+        self.history_date_entry.bind('<Return>', lambda _e: self.apply_history_filter())
+        ctk.CTkButton(filters, text='絞り込み', width=84,
+                      command=self.apply_history_filter).pack(side='left', padx=(10, 0))
+        ctk.CTkButton(filters, text='クリア', width=70,
+                      command=self.clear_history_filter).pack(side='left', padx=(6, 0))
+        ctk.CTkLabel(
+            tab, text_color=MUTED, anchor='w', justify='left', wraplength=900,
+            font=(theme.FONT_FAMILY, theme.FONT_SMALL),
+            text='過去の観測セッションの一覧です。行を押すと、その配信の概要・バトル履歴・'
+                 'グラフが表示されます（表示だけではファイルは生成されません）。'
+                 '中断したセッションも、取得できたバトルはそのまま残ります。'
+        ).pack(fill='x', padx=10, pady=(2, 2))
+        self.history_note = ctk.CTkLabel(tab, text='', text_color=MUTED, anchor='w')
+        self.history_note.pack(fill='x', padx=12, pady=(2, 0))
+        self.history_list = ctk.CTkScrollableFrame(tab, fg_color='transparent')
+        self.history_list.pack(fill='both', expand=True, padx=6, pady=4)
+        pager = ctk.CTkFrame(tab, fg_color='transparent')
+        pager.pack(fill='x', padx=10, pady=(2, 8))
+        self.history_prev_button = ctk.CTkButton(
+            pager, text='前のページ', width=100, command=self.history_prev_page)
+        self.history_prev_button.pack(side='left')
+        self.history_page_label = ctk.CTkLabel(pager, text='', text_color=MUTED)
+        self.history_page_label.pack(side='left', padx=10)
+        self.history_next_button = ctk.CTkButton(
+            pager, text='次のページ', width=100, command=self.history_next_page)
+        self.history_next_button.pack(side='left')
 
     def _build_ai(self, tab):
         scroll = ctk.CTkScrollableFrame(tab, fg_color='transparent')
@@ -630,17 +696,32 @@ class UnattendedReportPage(ctk.CTkFrame):
                     self._render_report(previous_path)
                 elif kind == 'display_report':
                     _, gen, report = item
-                    if gen == self._display_inflight:
+                    was_inflight = gen == self._display_inflight
+                    if was_inflight:
                         self._display_inflight = None
                     if gen == self._display_gen:
                         self._report = report
                         self._render_report(None, display_only=True)
+                    elif was_inflight:
+                        # A newer request (e.g. a history click) is
+                        # already waiting: chase it now instead of at
+                        # the next auto-refresh tick.
+                        self._start_display_refresh()
                 elif kind == 'display_error':
                     _, gen, message = item
-                    if gen == self._display_inflight:
+                    was_inflight = gen == self._display_inflight
+                    if was_inflight:
                         self._display_inflight = None
                     if gen == self._display_gen:
                         self.status.configure(text=message)
+                    elif was_inflight:
+                        self._start_display_refresh()
+                elif kind == 'history':
+                    _, sessions, summaries, error = item
+                    self._history_sessions = sessions
+                    self._history_summaries = summaries
+                    self._history_error = error
+                    self._render_history()
                 elif kind == 'ai':
                     _, payload, path, warning = item
                     self._ai_text = payload['answer']
@@ -850,6 +931,11 @@ class UnattendedReportPage(ctk.CTkFrame):
         self._display_request = None
         self._report = None
         self._selected_battle = None
+        self._history_sessions = []
+        self._history_summaries = {}
+        self._history_error = None
+        self._history_page = 0
+        self._history_signature = None
         self.refresh()
 
     def refresh(self):
@@ -857,17 +943,33 @@ class UnattendedReportPage(ctk.CTkFrame):
             return
         self._busy = True
         runtime = self._runtime
+        database = self._source['database'] if self._source else None
 
         def worker():
             try:
                 sessions, recovered = [], []
+                history_sessions, summaries, history_error = [], {}, None
                 if runtime is not None:
                     # Guarded recovery: sessions owned by this process,
                     # or with a fresh heartbeat, are never interrupted.
                     recovered = runtime.store.recover_interrupted()
                     runtime.ensure_all_sampling()
                     sessions = runtime.store.list_sessions(limit=50)
+                    try:
+                        history_sessions = runtime.store.list_sessions_basic(
+                            limit=1000)
+                        if database is not None:
+                            summaries = session_summaries(database,
+                                                          history_sessions)
+                    except Exception as exc:
+                        # The history tab distinguishes "no history
+                        # yet" from "history failed to load".
+                        logging.exception('history load failed')
+                        history_sessions, summaries = [], {}
+                        history_error = str(exc)
                 self._queue.put(('sessions', sessions, recovered))
+                self._queue.put(('history', history_sessions, summaries,
+                                 history_error))
             except Exception as exc:  # never break the page on store errors
                 logging.exception('session load failed')
                 self._queue.put(('error', f'セッションの読み込みに失敗しました: {exc}'))
@@ -929,6 +1031,13 @@ class UnattendedReportPage(ctk.CTkFrame):
         if scope.get('kind') == 'session':
             session = next((s for s in self._sessions
                             if s['session_id'] == req.get('session_id')), None)
+            if session is None and self._runtime is not None:
+                # A history entry older than the detail list's window:
+                # load that one session on demand.
+                try:
+                    session = self._runtime.store.get_session(req.get('session_id'))
+                except Exception:
+                    session = None
             if session is None:
                 if req.get('auto'):
                     self._display_request = None
@@ -949,6 +1058,160 @@ class UnattendedReportPage(ctk.CTkFrame):
                                  f'表示の自動更新に失敗しました: {exc}'))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    # ------------------------------------------------ history tab
+    def _filtered_history(self):
+        text = self._history_filter_text.strip().lstrip('@').lower()
+        date = self._history_filter_date.strip().replace('/', '-')
+        out = []
+        for session in self._history_sessions:
+            if text:
+                targets = ' '.join(session.get('targets') or []).lower()
+                if (text not in targets
+                        and text not in (session.get('mode') or '').lower()):
+                    continue
+            if date and not str(session.get('started_jst') or '').startswith(date):
+                continue
+            out.append(session)
+        return out
+
+    def _history_row_text(self, session):
+        summary = self._history_summaries.get(session['session_id'])
+        targets = session.get('targets') or []
+        targets_text = '、'.join(f'@{t}' for t in targets) if targets else '対象指定なし'
+        state = END_LABELS.get(session['end_kind'], session['end_kind'])
+        line1 = f"{session['started_jst']}  ／  {targets_text}  ／  {state}"
+        duration = duration_clock(session.get('elapsed_seconds'))
+        if summary is None:
+            line2 = f'観測時間 {duration}  ／  バトル集計は未取得'
+        else:
+            best = summary['final_score_max']
+            best_text = f'{best:,}' if best is not None else '未取得'
+            line2 = (f"観測時間 {duration}  ／  記録バトル {summary['record_count']}件  ／  "
+                     f"確定 {summary['score_known_battles']}件  ／  最大確認スコア {best_text}")
+        return f'{line1}\n{line2}'
+
+    def _update_viewing_label(self):
+        if not hasattr(self, 'history_viewing_label'):
+            return
+        req = self._display_request
+        if req is None or req.get('auto'):
+            text = '現在、最新の観測（または観測中の配信）を表示しています。'
+        elif req.get('session_id'):
+            session = next((s for s in self._history_sessions + self._sessions
+                            if s['session_id'] == req['session_id']), None)
+            if session is not None:
+                targets = session.get('targets') or []
+                targets_text = ('、'.join(f'@{t}' for t in targets)
+                                if targets else '対象指定なし')
+                text = (f"過去の履歴を表示中: {session['started_jst']} ／ {targets_text}"
+                        '（自動更新はこの履歴に対して行われます）')
+            else:
+                text = '過去の履歴を表示中です。'
+        else:
+            text = '詳細設定で指定した条件の集計を表示しています。'
+        self.history_viewing_label.configure(text=text)
+
+    def _render_history(self):
+        if not hasattr(self, 'history_list'):
+            return
+        self._update_viewing_label()
+        filtered = self._filtered_history()
+        pages = max(1, (len(filtered) + self.HISTORY_PAGE_SIZE - 1)
+                    // self.HISTORY_PAGE_SIZE)
+        self._history_page = min(self._history_page, pages - 1)
+        start = self._history_page * self.HISTORY_PAGE_SIZE
+        visible = filtered[start:start + self.HISTORY_PAGE_SIZE]
+        displayed = (self._report or {}).get('session') or {}
+        displayed_id = displayed.get('session_id')
+        if self._history_error:
+            note = f'履歴の読み込みに失敗しました: {self._history_error}'
+        elif not self._history_sessions:
+            note = ('まだ観測履歴がありません。配信分析を開始すると、'
+                    'ここに履歴が残ります。')
+        elif not filtered:
+            note = '条件に一致する履歴がありません。'
+        else:
+            note = ''
+        signature = (
+            tuple((s['session_id'], s['end_kind'],
+                   (self._history_summaries.get(s['session_id']) or {}).get('record_count'),
+                   (self._history_summaries.get(s['session_id']) or {}).get('score_known_battles'),
+                   (self._history_summaries.get(s['session_id']) or {}).get('final_score_max'))
+                  for s in visible),
+            displayed_id, note, self._history_page, pages, len(filtered))
+        if signature == self._history_signature:
+            return
+        self._history_signature = signature
+        fraction = self._scroll_fraction(self.history_list)
+        for child in self.history_list.winfo_children():
+            child.destroy()
+        for session in visible:
+            selected = session['session_id'] == displayed_id
+            button = ctk.CTkButton(
+                self.history_list, text=self._history_row_text(session),
+                anchor='w', height=56,
+                fg_color='#DCE9FD' if selected else '#FFFFFF',
+                hover_color='#C9DDFB' if selected else '#EFF4FC',
+                text_color=TEXT, border_width=1,
+                border_color=theme.PRIMARY if selected else '#D5DCE8',
+                command=lambda sid=session['session_id']: self.show_history_session(sid))
+            button.pack(fill='x', padx=4, pady=3)
+        self.history_note.configure(
+            text=note, text_color=theme.DANGER if self._history_error else MUTED)
+        self.history_page_label.configure(
+            text=f'{self._history_page + 1} / {pages} ページ（全{len(filtered)}件）')
+        self.history_prev_button.configure(
+            state='normal' if self._history_page > 0 else 'disabled')
+        self.history_next_button.configure(
+            state='normal' if self._history_page < pages - 1 else 'disabled')
+        self._restore_scroll(self.history_list, fraction)
+
+    def show_history_session(self, session_id):
+        """Show one past session, read-only (history tab click).
+
+        Sticky like a manual generate() — the auto refresh keeps
+        re-aggregating THIS session and never jumps back to the
+        latest — but viewing never writes a report file."""
+        self._display_gen += 1
+        self._display_request = {'scope': {'kind': 'session'},
+                                 'session_id': session_id, 'auto': False}
+        self.tabs.set('概要')
+        self._render_history()
+        self._start_display_refresh()
+
+    def show_latest_display(self):
+        """Back to following the latest / running session (read-only)."""
+        self._display_gen += 1
+        self._display_request = None
+        self._retarget_display()
+        self._render_history()
+        self._start_display_refresh()
+
+    def apply_history_filter(self):
+        self._history_filter_text = self.history_filter_entry.get()
+        self._history_filter_date = self.history_date_entry.get()
+        self._history_page = 0
+        self._history_signature = None
+        self._render_history()
+
+    def clear_history_filter(self):
+        self.history_filter_entry.delete(0, 'end')
+        self.history_date_entry.delete(0, 'end')
+        self._history_filter_text = ''
+        self._history_filter_date = ''
+        self._history_page = 0
+        self._history_signature = None
+        self._render_history()
+
+    def history_prev_page(self):
+        if self._history_page > 0:
+            self._history_page -= 1
+            self._render_history()
+
+    def history_next_page(self):
+        self._history_page += 1
+        self._render_history()
 
     def _render_sessions(self, recovered):
         previous = self._selected_session()
@@ -1369,6 +1632,7 @@ class UnattendedReportPage(ctk.CTkFrame):
             # exactly as it was.
             self.status.configure(
                 text='表示を最新の観測データに更新しました（この更新ではファイルは保存していません）。')
+            self._render_history()
             return
 
         comparison_text = '比較できる前回レポートがありません。'
@@ -1386,6 +1650,7 @@ class UnattendedReportPage(ctk.CTkFrame):
                 comparison_text = f'前回レポートを読み込めませんでした: {exc}'
         self._set_text(self.compare_box, comparison_text)
         self.status.configure(text='レポートを表示しました。JSONは observation_report/reports に保存済みです。')
+        self._render_history()
 
     # ------------------------------------------------------------ battles / charts
     def _render_battle_list(self, battles):
