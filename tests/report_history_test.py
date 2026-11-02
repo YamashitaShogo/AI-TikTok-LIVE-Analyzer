@@ -200,11 +200,36 @@ check('H7a one card per session, newest first', len(cards) == 4
       and S_LATEST in page._history_sessions[0]['session_id'])
 first_text = card_text(cards[0]) if cards else ''
 check('H7b cards show date, target, counts and the confirmed max',
-      '記録バトル 1件' in first_text and '最大確認スコア 未取得' in first_text)
+      'バトル：' in first_text and '1件' in first_text
+      and '最大スコア：' in first_text and '未取得' in first_text)
 old_text = card_text(cards[3]) if len(cards) > 3 else ''
 check('H7c the old card shows its confirmed score, not the clipped one',
-      '最大確認スコア 500' in old_text and '確定 1件' in old_text
-      and '正常終了' in old_text)
+      '最大スコア：' in old_text and '500' in old_text
+      and '確定：' in old_text and '正常終了' in old_text)
+
+
+def _labels_within(card):
+    x0, y0 = card.winfo_rootx(), card.winfo_rooty()
+    x1, y1 = x0 + card.winfo_width(), y0 + card.winfo_height()
+    ok = True
+
+    def walk(widget):
+        nonlocal ok
+        if isinstance(widget, ctk.CTkLabel):
+            if not (widget.winfo_rootx() >= x0 - 2
+                    and widget.winfo_rooty() >= y0 - 2
+                    and widget.winfo_rootx() + widget.winfo_width() <= x1 + 2
+                    and widget.winfo_rooty() + widget.winfo_height() <= y1 + 2):
+                ok = False
+        for child in widget.winfo_children():
+            walk(child)
+
+    walk(card)
+    return ok
+
+
+check('H7f every label of every card sits inside its card',
+      all(_labels_within(c) for c in cards))
 
 # ---------------------------------------------------------------- click
 reports_dir = CAP_FIXED / 'observation_report' / 'reports'

@@ -168,7 +168,12 @@ check('G1e the status fields are actually placed (gridded + mapped)',
       and page.target_label.winfo_ismapped()
       and page.account_entry.winfo_ismapped())
 check('G1f history cards keep a natural card height (no inflation)',
-      all(c.winfo_height() < 130 for c in page._history_cards.values()))
+      # ~105 logical px of content; the bound scales with the DPI
+      # factor — what it guards against is the 200px phantom height
+      # an empty CTkFrame requests by default.
+      all(c.winfo_height()
+          < 130 * (ctk.ScalingTracker.get_widget_scaling(root) or 1.0)
+          for c in page._history_cards.values()))
 
 # ---------------------------------------------------------------- G2
 set_width(780)
@@ -230,6 +235,51 @@ check('G6a report auto-refresh still displays after relayouts',
       and page._report['summary']['record_count'] == 1)
 check('G6b the action buttons kept their commands',
       all(b.cget('command') for b in buttons))
+# ---------------------------------------------------------------- G7
+# Repro of the Windows 125% report: the badge and the ID save
+# button were starved by equal grid columns, and the long
+# collection status was crushed into a third of the card. At a
+# realistic app width all three must keep their full geometry.
+set_width(1300)
+_LONG2 = ('固定観測コレクタが正常に収集できていません（接続エラーが発生したため再試行しています）。'
+          'セッションだけが「観測中」の状態になっています。 ／ 最終データ 2026-11-02 01:47:42')
+page.collector_label.configure(text=_LONG2)
+pump(0.3)
+if '正常に収集できていません' not in page.collector_label.cget('text'):
+    page.collector_label.configure(text=_LONG2)
+    root.update_idletasks()
+
+
+def _full(widget):
+    return (widget.winfo_ismapped()
+            and widget.winfo_width() >= widget.winfo_reqwidth() - 2
+            and widget.winfo_rootx() >= page.winfo_rootx() - 1
+            and widget.winfo_rootx() + widget.winfo_width()
+            <= page.winfo_rootx() + page.winfo_width() + 1)
+
+
+check('G7a the status badge keeps its full width at app width',
+      _full(page.badge))
+check('G7b the ID save button keeps its full width and stays inside',
+      _full(page._id_save_button))
+check('G7c the long collection status is fully laid out (no clipping)',
+      page.collector_label.winfo_height()
+      >= page.collector_label.winfo_reqheight() - 4
+      and page.collector_label.winfo_rootx()
+      + page.collector_label.winfo_width()
+      <= page.winfo_rootx() + page.winfo_width() + 1
+      and '2026-11-02 01:47:42' in page.collector_label.cget('text'))
+
+# ---------------------------------------------------------------- G8
+from core.fixed_observation import get_pro_tiktok_id
+
+page.account_entry.delete(0, 'end')
+page.account_entry.insert(0, 'qa_save_user')
+page._id_save_button.invoke()
+pump(0.3)
+check('G8 the ID save button actually saves the entered ID',
+      get_pro_tiktok_id() == 'qa_save_user')
+
 page.destroy()
 pump(0.2)
 
