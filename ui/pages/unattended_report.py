@@ -24,6 +24,7 @@ import json
 import logging
 import queue
 import re
+import sqlite3
 import threading
 import time
 import tkinter as tk
@@ -43,6 +44,10 @@ from core.unattended_report import (available_sources, build_report,
                                     compare_reports, session_summaries)
 from core.workspace_config import MODE_DEVELOPER
 from core.workspace_manager import WorkspaceManager
+from core.battle_clock import BattleClock
+from core.fixed_score_graph import resolve_labels as participant_series_labels
+from core.fixed_score_graph import scores as participant_scores
+from core.participant_label import participant_label
 from ui import theme
 from ui.components.section_card import SectionCard
 from ui.components.stat_card import StatCard
@@ -91,6 +96,99 @@ def battle_score_text(battle):
     if battle.get('last_known_score') is not None:
         return f"{battle['last_known_score']:,.0f}（参考・終了未確認）"
     return '未取得'
+
+
+DETAIL_SERIES_COLORS = ['#3B82F6', '#EF4444', '#22C55E', '#A855F7', '#F59E0B']
+DETAIL_CONNECT_GAP_SEC = 30
+
+
+def load_battle_participant_series(database, unique_id, battle_id,
+                                   window_start=None, window_end=None):
+    """One battle's per-participant score series, read-only.
+
+    Reads the battle's snapshot payloads from the CURRENT source's
+    database (the same rows the report aggregated) and keys every
+    series by stable identity via core.fixed_score_graph — display
+    names are labels only, unknown scores stay None, and nothing is
+    interpolated. Snapshots are clipped to the report window so the
+    graph never shows samples the report itself excluded. Returns
+    None when the database or battle cannot be read; the caller
+    then falls back to the report's own (host-only) series."""
+    if not database:
+        return None
+    try:
+        uri = Path(database).resolve().as_uri() + '?mode=ro'
+        clause, args = '', []
+        if window_start is not None:
+            clause += ' AND received_at>=?'
+            args.append(float(window_start))
+        if window_end is not None:
+            clause += ' AND received_at<=?'
+            args.append(float(window_end))
+        with sqlite3.connect(uri, uri=True, timeout=2) as db:
+            row = db.execute(
+                'SELECT payload FROM battles WHERE unique_id=? AND battle_id=?',
+                (unique_id, battle_id)).fetchone()
+            snaps = db.execute(
+                'SELECT received_at, payload FROM snapshots'
+                ' WHERE unique_id=? AND battle_id=?' + clause +
+                ' ORDER BY received_at',
+                (unique_id, battle_id, *args)).fetchall()
+    except Exception:
+        return None
+    if row is None:
+        return None
+    try:
+        battle_payload = json.loads(row[0])
+    except (TypeError, ValueError):
+        battle_payload = {}
+    points, payloads = [], []
+    for received, raw in snaps:
+        try:
+            payload = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        payloads.append(payload)
+        points.append((received, participant_scores(payload)))
+    labels = participant_series_labels(payloads)
+    host = str(battle_payload.get('host_user_id')
+               or (payloads[0].get('host_user_id') if payloads else '') or '')
+    host_label = None
+    for payload in payloads:
+        entries = list(payload.get('participants') or [])
+        for team in payload.get('teams') or []:
+            entries += list(team.get('users') or [])
+        for entry in entries:
+            if host and str(entry.get('anchor_id') or entry.get('user_id')
+                            or '') == host:
+                host_label = participant_label(entry)
+                break
+        if host_label:
+            break
+    if host_label:
+        labels['自枠'] = f'自枠：{host_label}'
+    # Did an opponent/team exist in the data but never yield a
+    # single known score? Then say so instead of silently drawing
+    # one series.
+    participant_count = 0
+    for payload in payloads:
+        if payload.get('mode') == 'team':
+            participant_count = max(
+                participant_count,
+                sum(len(t.get('users') or [])
+                    for t in payload.get('teams') or []))
+        else:
+            participant_count = max(
+                participant_count, len(payload.get('participants') or []))
+    opponent_missing = False
+    if participant_count > 1:
+        host_keys = {'自枠', '自枠（個人）'}
+        opponent_missing = not any(
+            value is not None
+            for _, series in points
+            for key, value in series.items() if key not in host_keys)
+    return {'points': points, 'labels': labels, 'payload': battle_payload,
+            'payloads': payloads, 'opponent_missing': opponent_missing}
 
 
 def kpi_items(report):
@@ -222,6 +320,11 @@ class UnattendedReportPage(ctk.CTkFrame):
         # identity, never by row position.
         self._battle_detail_key = None
         self._battles_return_fraction = None
+        # Per-participant series for the detail graph: starts as the
+        # report's own host series, replaced by the snapshot-derived
+        # series when the async load lands (sequence-guarded).
+        self._detail_data = None
+        self._detail_seq = 0
         self._poll = None
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
@@ -468,33 +571,39 @@ class UnattendedReportPage(ctk.CTkFrame):
             card.body, text='', text_color=TEXT, anchor='w', justify='left',
             wraplength=700, font=(theme.FONT_FAMILY, 15, 'bold'))
         self.bd_score.pack(fill='x', pady=(6, 0))
-        self.bd_stats = ctk.CTkLabel(card.body, text='', text_color=MUTED,
-                                     anchor='w', justify='left', wraplength=700)
-        self.bd_stats.pack(fill='x', pady=(2, 0))
-        self.bd_notes = ctk.CTkLabel(card.body, text='', text_color='#9A6206',
-                                     anchor='w', justify='left', wraplength=700)
-        self.bd_notes.pack(fill='x', pady=(4, 0))
-        # The wrap lengths follow the card's ACTUAL width (a fixed
-        # value clips on narrow/high-DPI windows: CTk scales the
-        # wrap by the widget scaling, so the pin must be computed
-        # from the measured body width, like the status card's).
-        self._bd_wrap_labels = [self.bd_title, self.bd_meta, self.bd_score,
-                                self.bd_stats, self.bd_notes]
-        card.body.bind('<Configure>', self._update_detail_wraps)
+        self._bd_info_body = card.body
+        self._bd_wrap_labels = [self.bd_title, self.bd_meta, self.bd_score]
+        self._bd_info_body.bind('<Configure>', self._update_detail_wraps)
         score_card = SectionCard(view, 'バトルスコア推移')
         score_card.pack(fill='x', padx=6, pady=5)
         self.bd_score_chart = tk.Canvas(score_card.body, highlightthickness=0,
-                                        height=180)
+                                        height=250)
         self.bd_score_chart.pack(fill='x', expand=True)
         self.bd_score_chart.bind('<Configure>',
                                  lambda _: self.draw_detail_charts())
-        viewer_card = SectionCard(view, '同時視聴者数推移')
+        self.bd_score_note = ctk.CTkLabel(
+            score_card.body, text='', text_color='#9A6206', anchor='w',
+            justify='left', wraplength=700)
+        self.bd_score_note.pack(fill='x', pady=(2, 0))
+        viewer_card = SectionCard(view, '視聴者数推移')
         viewer_card.pack(fill='x', padx=6, pady=5)
         self.bd_viewer_chart = tk.Canvas(viewer_card.body, highlightthickness=0,
-                                         height=180)
+                                         height=200)
         self.bd_viewer_chart.pack(fill='x', expand=True)
         self.bd_viewer_chart.bind('<Configure>',
                                   lambda _: self.draw_detail_charts())
+        notes_card = SectionCard(view, '記録と注意')
+        notes_card.pack(fill='x', padx=6, pady=5)
+        self.bd_stats = ctk.CTkLabel(notes_card.body, text='', text_color=MUTED,
+                                     anchor='w', justify='left', wraplength=700)
+        self.bd_stats.pack(fill='x')
+        self.bd_notes = ctk.CTkLabel(notes_card.body, text='', text_color='#9A6206',
+                                     anchor='w', justify='left', wraplength=700)
+        self.bd_notes.pack(fill='x', pady=(4, 0))
+        # (Wrap lengths follow the cards' measured widths — see
+        # _update_detail_wraps; both bodies drive the same update.)
+        self._bd_wrap_labels += [self.bd_stats, self.bd_notes]
+        notes_card.body.bind('<Configure>', self._update_detail_wraps)
 
     HISTORY_PAGE_SIZE = 20
 
@@ -1072,6 +1181,13 @@ class UnattendedReportPage(ctk.CTkFrame):
                     self._history_summaries = summaries
                     self._history_error = error
                     self._render_history()
+                elif kind == 'detail_series':
+                    _, seq, key, data = item
+                    if (seq == self._detail_seq
+                            and self._battle_detail_key == key):
+                        self._detail_data = data
+                        self._render_detail_notes()
+                        self.draw_detail_charts()
                 elif kind == 'ai':
                     _, gen, payload, path, warning = item
                     if gen != self._load_gen:
@@ -2277,12 +2393,225 @@ class UnattendedReportPage(ctk.CTkFrame):
             notes.append('終了が確認できていないため、確定スコアには含めていません')
         self.bd_notes.configure(
             text='注意： ' + '／'.join(notes) if notes else '')
+        key = (battle.get('unique_id'), battle.get('battle_id'))
+        if not self._detail_data or self._detail_data.get('key') != key:
+            self._detail_data = self._fallback_detail_data(battle)
+        self._render_detail_notes()
+        self._request_detail_series(battle)
+
+    def _fallback_detail_data(self, battle):
+        """Detail-graph data from the report dict alone (host series
+        only) — used until the snapshot-derived series lands, and
+        kept when the database cannot be read. Correct, just less
+        detailed; never a placeholder."""
+        points = [(point['t'], {'自枠': point.get('v')})
+                  for point in battle.get('score_series') or []]
+        return {'key': (battle.get('unique_id'), battle.get('battle_id')),
+                'points': points,
+                'labels': {'自枠': f"自枠：{battle['nickname']}（@{battle['unique_id']}）"},
+                'payload': None, 'payloads': [], 'opponent_missing': False}
+
+    def _request_detail_series(self, battle):
+        database = self._source['database'] if self._source else None
+        if not database:
+            return
+        self._detail_seq += 1
+        seq = self._detail_seq
+        key = (battle.get('unique_id'), battle.get('battle_id'))
+        summary = (self._report or {}).get('summary') or {}
+
+        def worker():
+            data = load_battle_participant_series(
+                database, key[0], key[1],
+                summary.get('window_start'), summary.get('window_end'))
+            if data is not None:
+                data['key'] = key
+                self._queue.put(('detail_series', seq, key, data))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _render_detail_notes(self):
+        data = self._detail_data or {}
+        if data.get('opponent_missing'):
+            self.bd_score_note.configure(
+                text='相手側スコアは取得できませんでした（対戦相手の記録はありますが、スコアが未取得です）')
+        else:
+            self.bd_score_note.configure(text='')
 
     def draw_detail_charts(self):
+        """Detail graphs, modelled on the 収集履歴 screen: one colour
+        per participant (stable identity keys, names are legend
+        labels only), a remaining-time axis when the payloads carry
+        consistent timing (BattleClock — missing timing is stated,
+        never guessed), lines that break over missing intervals,
+        and the finish marker when the end was confirmed."""
         if getattr(self, '_battle_detail_key', None) is None:
             return
-        self._draw_series(self.bd_score_chart, 'score')
-        self._draw_series(self.bd_viewer_chart, 'viewer')
+        battle = self._selected_battle
+        if not battle:
+            return
+        data = self._detail_data
+        if not data or data.get('key') != self._battle_detail_key:
+            data = self._fallback_detail_data(battle)
+        clock = BattleClock({'result': data.get('payload') or {},
+                             'score_snapshots': [
+                                 {'result': p}
+                                 for p in data.get('payloads') or []]})
+        # The shared axis follows the SCORE series and the battle
+        # clock (the same inputs the 収集履歴 chart uses). Viewer
+        # samples are drawn onto this axis; ones outside it belong
+        # to the session rather than this battle's timeframe and
+        # are not drawn here.
+        times = [t for t, _ in data['points']]
+        start, end = clock.bounds(times) if times else (0, 1)
+        self._draw_detail_score_chart(clock, start, end, data, battle)
+        self._draw_detail_viewer_chart(clock, start, end, battle)
+
+    def _detail_axis(self, canvas, height_hint):
+        width = max(canvas.winfo_width(), 400)
+        height = max(canvas.winfo_height(), height_hint)
+        dark = ctk.get_appearance_mode() == 'Dark'
+        bg = '#111C30' if dark else '#FFFFFF'
+        grid = '#334155' if dark else '#E2E8F0'
+        fg = '#F8FAFC' if dark else '#0F172A'
+        canvas.configure(bg=bg)
+        canvas.delete('all')
+        return width, height, grid, fg
+
+    def _draw_detail_gap_bands(self, canvas, battle, kind, start, end,
+                               left, right, top, bottom):
+        span = max(1.0, end - start)
+        for gap in battle.get('gaps') or []:
+            if gap.get('kind') != kind:
+                continue
+            x1 = left + (right - left) * (gap['from'] - start) / span
+            x2 = left + (right - left) * (gap['to'] - start) / span
+            canvas.create_rectangle(x1, top, x2, bottom, fill='#F59E0B',
+                                    stipple='gray25', outline='')
+
+    def _draw_detail_ticks(self, canvas, clock, start, end, left, right,
+                           bottom, fg, caption=True):
+        span = max(1.0, end - start)
+        ticks = clock.ticks(start, end)
+        if len(ticks) > 8:
+            # A long observation span makes the clock produce more
+            # ticks than this width can label; thin them for display
+            # only (first and last always stay).
+            step = -(-len(ticks) // 8)
+            ticks = ticks[::step] + ([ticks[-1]] if ticks[-1] not in ticks[::step] else [])
+        for ts in ticks:
+            x = left + (right - left) * (ts - start) / span
+            canvas.create_text(
+                x, bottom + 14,
+                text=clock.label(
+                    ts, lambda t: format_jst(t).split(' ')[-1]),
+                fill=fg)
+        if caption:
+            canvas.create_text((left + right) / 2, bottom + 30,
+                               text=clock.caption, fill=fg)
+
+    def _draw_detail_score_chart(self, clock, start, end, data, battle):
+        canvas = self.bd_score_chart
+        width, height, grid, fg = self._detail_axis(canvas, 240)
+        points = data['points']
+        keys = list(dict.fromkeys(k for _, series in points for k in series))
+        legend_rows = max(1, (len(keys) + 1) // 2)
+        left, right, top = 70, width - 16, 26
+        bottom = max(top + 60, height - 52 - legend_rows * 18)
+        values = [v for _, series in points
+                  for v in series.values() if v is not None]
+        if not points:
+            canvas.create_text(width / 2, height / 2, anchor='center',
+                               text='スコア推移の記録がありません', fill=fg)
+            return
+        if not values:
+            canvas.create_text(width / 2, height / 2, anchor='center',
+                               text='スコア未取得（不明を0点として描画しません）',
+                               fill=fg)
+            return
+        self._draw_detail_gap_bands(canvas, battle, 'score', start, end,
+                                    left, right, top, bottom)
+        span = max(1.0, end - start)
+        maximum = max(1, max(values)) * 1.05
+        for fraction in (0, 0.25, 0.5, 0.75, 1.0):
+            y = bottom - (bottom - top) * fraction
+            canvas.create_line(left, y, right, y, fill=grid)
+            canvas.create_text(left - 8, y, anchor='e',
+                               text=f'{maximum * fraction:,.0f}', fill=fg)
+        for idx, key in enumerate(keys):
+            color = DETAIL_SERIES_COLORS[idx % len(DETAIL_SERIES_COLORS)]
+            previous = None
+            for timestamp, series in points:
+                value = series.get(key)
+                if value is None:
+                    previous = None
+                    continue
+                x = left + (right - left) * (timestamp - start) / span
+                y = bottom - (bottom - top) * value / maximum
+                if (previous is not None
+                        and timestamp - previous[2] <= DETAIL_CONNECT_GAP_SEC):
+                    canvas.create_line(previous[0], previous[1], x, y,
+                                       fill=color, width=2)
+                canvas.create_oval(x - 2, y - 2, x + 2, y + 2,
+                                   fill=color, outline='')
+                previous = (x, y, timestamp)
+            canvas.create_text(
+                left + (idx % 2) * (right - left) / 2,
+                bottom + 48 + (idx // 2) * 18, anchor='w', fill=color,
+                font=(theme.FONT_FAMILY, 10),
+                text=(data.get('labels') or {}).get(key, key))
+        if battle.get('status') == 'finished':
+            end_t = clock.end if clock.end is not None \
+                else battle.get('last_seen')
+            if end_t is not None and start <= end_t <= end:
+                x = left + (right - left) * (end_t - start) / span
+                canvas.create_line(x, top, x, bottom, fill='#22C55E',
+                                   width=2, dash=(4, 3))
+                canvas.create_text(x, top - 8, anchor='s',
+                                   text='終了通知', fill='#22C55E')
+        if not battle.get('score_known'):
+            canvas.create_text(right, 8, anchor='e', fill='#9A6206',
+                               text='参考スコア（終了未確認）')
+        self._draw_detail_ticks(canvas, clock, start, end, left, right,
+                                bottom, fg)
+
+    def _draw_detail_viewer_chart(self, clock, start, end, battle):
+        canvas = self.bd_viewer_chart
+        width, height, grid, fg = self._detail_axis(canvas, 190)
+        points = battle.get('viewer_series') or []
+        left, right, top = 70, width - 16, 16
+        bottom = max(top + 60, height - 48)
+        known = [p for p in points if p.get('v') is not None]
+        if not known:
+            canvas.create_text(width / 2, height / 2, anchor='center',
+                               text='視聴者数の記録がありません', fill=fg)
+            return
+        self._draw_detail_gap_bands(canvas, battle, 'viewer', start, end,
+                                    left, right, top, bottom)
+        span = max(1.0, end - start)
+        maximum = max(1, max(p['v'] for p in known)) * 1.05
+        for fraction in (0, 0.25, 0.5, 0.75, 1.0):
+            y = bottom - (bottom - top) * fraction
+            canvas.create_line(left, y, right, y, fill=grid)
+            canvas.create_text(left - 8, y, anchor='e',
+                               text=f'{maximum * fraction:,.0f}', fill=fg)
+        color = '#3B82F6'
+        previous = None
+        for point in points:
+            if point.get('v') is None or not (start <= point['t'] <= end):
+                previous = None
+                continue
+            x = left + (right - left) * (point['t'] - start) / span
+            y = bottom - (bottom - top) * point['v'] / maximum
+            if (previous is not None
+                    and point['t'] - previous[2] <= DETAIL_CONNECT_GAP_SEC):
+                canvas.create_line(previous[0], previous[1], x, y,
+                                   fill=color, width=2)
+            canvas.create_oval(x - 2, y - 2, x + 2, y + 2,
+                               fill=color, outline='')
+            previous = (x, y, point['t'])
+        self._draw_detail_ticks(canvas, clock, start, end, left, right,
+                                bottom, fg)
 
     def _render_battle_detail(self):
         battle = self._selected_battle
