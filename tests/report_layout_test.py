@@ -264,6 +264,22 @@ while time.time() < _deadline and not (
     pump(0.1)
 _canvas = page.history_list._parent_canvas
 set_size(900, 1000)
+_body = page._history_panel.body
+_chrome = []
+for _ch in _body.winfo_children():
+    if _ch is page.history_list._parent_frame:
+        continue
+    _chrome.append(f'{type(_ch).__name__}:{_logical(_ch.winfo_reqheight()):.0f}'
+                   f'{"" if _ch.winfo_ismapped() else "(hidden)"}')
+print(f'[diag G9] scaling={_SCALING} root={root.winfo_width()}x{root.winfo_height()} '
+      f'mode={page._main_mode} main={_logical(page._main.winfo_width()):.0f}x'
+      f'{_logical(page._main.winfo_height()):.0f} '
+      f'panel={_logical(page._history_panel.winfo_width()):.0f}x'
+      f'{_logical(page._history_panel.winfo_height()):.0f} '
+      f'detail={_logical(page._detail_panel.winfo_height()):.0f} '
+      f'stack_hist_h={page._stack_hist_h} '
+      f'canvas={_canvas.winfo_height()}px/{_logical(_canvas.winfo_height()):.0f} '
+      f'chrome=[{", ".join(_chrome)}]')
 check('G9a a narrow window stacks the main area', page._main_mode == 'stack')
 check('G9b the stacked history list keeps a usable viewport',
       _logical(_canvas.winfo_height()) >= 80)
