@@ -235,6 +235,64 @@ check('G6a report auto-refresh still displays after relayouts',
       and page._report['summary']['record_count'] == 1)
 check('G6b the action buttons kept their commands',
       all(b.cget('command') for b in buttons))
+# ---------------------------------------------------------------- G9
+# Stack mode must keep BOTH panes usable — not merely on screen:
+# the history list needs a real viewport (>= ~80 logical px, about
+# two thirds of a card, scrollable for the rest) and the detail
+# pane a real area, fully inside the page. (At 150% the side/stack
+# decision and the stack split used to mix physical and logical
+# units: a maximised window stacked, the history panel took a
+# floor value in the wrong unit and the detail row collapsed.)
+_SCALING = ctk.ScalingTracker.get_widget_scaling(root) or 1.0
+
+
+def _logical(px):
+    return px / _SCALING
+
+
+def set_size(width, height):
+    root.geometry(f'{width}x{height}')
+    pump(0.5)
+
+
+_first_sid = next(iter(page._history_cards))
+page.show_history_session(_first_sid)
+_deadline = time.time() + 30
+while time.time() < _deadline and not (
+        page._report is not None
+        and page._report['session']['session_id'] == _first_sid):
+    pump(0.1)
+_canvas = page.history_list._parent_canvas
+set_size(900, 1000)
+check('G9a a narrow window stacks the main area', page._main_mode == 'stack')
+check('G9b the stacked history list keeps a usable viewport',
+      _logical(_canvas.winfo_height()) >= 80)
+check('G9c the stacked detail pane keeps a usable area inside the page',
+      _logical(page._detail_panel.winfo_height()) >= 150
+      and page._detail_panel.winfo_rooty()
+      + page._detail_panel.winfo_height()
+      <= page.winfo_rooty() + page.winfo_height() + 2)
+_card0 = page._history_cards[_first_sid]
+_rel_top = _card0.winfo_rooty() - _canvas.winfo_rooty()
+check('G9d the first history card is (at least partly) in the viewport',
+      -2 <= _rel_top < _canvas.winfo_height())
+# A deliberately undersized window (850 tall, long status text):
+# the split degrades gracefully — neither pane collapses to zero
+# and the detail pane stays inside the page.
+set_size(900, 850)
+check('G9e a short stack still gives both panes a visible share',
+      page._main_mode == 'stack'
+      and _logical(_canvas.winfo_height()) >= 50
+      and _logical(page._detail_panel.winfo_height()) >= 110
+      and page._detail_panel.winfo_rooty()
+      + page._detail_panel.winfo_height()
+      <= page.winfo_rooty() + page.winfo_height() + 2)
+set_size(1500, 950)
+check('G9f widening restores side-by-side and keeps the selection',
+      page._main_mode == 'side'
+      and page._report is not None
+      and page._report['session']['session_id'] == _first_sid)
+
 # ---------------------------------------------------------------- G7
 # Repro of the Windows 125% report: the badge and the ID save
 # button were starved by equal grid columns, and the long
