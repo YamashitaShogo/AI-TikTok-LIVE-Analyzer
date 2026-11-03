@@ -199,6 +199,38 @@ def pump(seconds=0.5):
         time.sleep(0.02)
 
 
+# Instrument the controller's start outcomes: on Windows the full
+# regression once failed W5/W6 while standalone runs passed, and
+# the suspected cause is the second start silently not binding a
+# session (start_ex returning conflict/error when the previous
+# collector's OS lock release lags process exit). Every outcome is
+# recorded so a failure prints its own evidence.
+start_outcomes = []
+real_start_ex = controller.start_ex
+
+
+def recording_start_ex(tiktok_id, **kwargs):
+    result = real_start_ex(tiktok_id, **kwargs)
+    start_outcomes.append(result.get('outcome'))
+    return result
+
+
+controller.start_ex = recording_start_ex
+
+
+def diag_w(tag):
+    sessions_now = page._runtime.store.list_sessions(limit=5)
+    process = controller._process
+    print(f'[diag W {tag}] sessions='
+          f'{[(x["session_id"][:8], x["end_kind"]) for x in sessions_now]} '
+          f'active={page._active_session_id} '
+          f'start_outcomes={start_outcomes} '
+          f'child_pid={process.pid if process else None} '
+          f'child_poll={process.poll() if process else None} '
+          f'lock_held={fixed_lock.probe_locked()} '
+          f'status={page.status.cget("text")[:80]!r}')
+
+
 pump()
 page.account_entry.delete(0, 'end')
 page.account_entry.insert(0, 'alice')
@@ -240,22 +272,67 @@ check('W4 final JSON is generated after the ordered stop',
 # Stop failure: the session must NOT be ended.
 controller.stop = real_controller_stop
 page._runtime.stop_session = real_session_stop
+first_session_id = ended['session_id']
+
+# Precondition for the restart: the first collector must be FULLY
+# released — child gone and the OS profile lock actually free —
+# before a fresh start is attempted. This waits on the real state
+# (no fixed sleep): on Windows the lock release can lag the
+# child's exit confirmation, and starting into that window makes
+# start_ex correctly refuse with 'conflict' and bind no session.
+released = wait_for(
+    lambda: controller._process is None
+    and fixed_lock.probe_locked() is False, timeout=15)
+if not released:
+    diag_w('release-timeout')
+check('W4b previous collector and profile lock fully released', released)
+
 page.start_session()
 pump()
-controller.stop = lambda: False  # collector cannot be confirmed stopped
+sessions_now = page._runtime.store.list_sessions(limit=5)
+second = next((x for x in sessions_now
+               if x['session_id'] != first_session_id), None)
+second_started = bool(
+    second and second['end_kind'] == 'running'
+    and page._active_session_id == second['session_id']
+    and controller._process is not None
+    and controller._process.poll() is None
+    and start_outcomes and start_outcomes[-1] in ('started', 'already_same'))
+if not second_started:
+    diag_w('second-start')
+check('W4c second session started and is running', second_started)
+second_session_id = second['session_id'] if second else None
+
+# Stop failure: the session must NOT be ended. The stub records
+# that it really was consulted.
+stop_calls = {'count': 0}
+
+
+def failing_stop():
+    stop_calls['count'] += 1
+    return False
+
+
+controller.stop = failing_stop  # collector cannot be confirmed stopped
 page.stop_session()
 pump()
-latest = page._runtime.store.list_sessions(limit=3)[0]
+second_now = (page._runtime.store.get_session(second_session_id)
+              if second_session_id else None)
 check('W5 failed collector stop leaves the session running (no normal end)',
-      latest['end_kind'] == 'running')
+      bool(second_now) and second_now['end_kind'] == 'running'
+      and stop_calls['count'] >= 1)
 check('W6 the page says the stop was not confirmed',
       '停止を確認できなかったため' in page.status.cget('text'))
 controller.stop = real_controller_stop
+before_retry = (page._runtime.store.get_session(second_session_id)
+                if second_session_id else None)
 page.stop_session()
 pump()
-latest = page._runtime.store.list_sessions(limit=3)[0]
+second_after = (page._runtime.store.get_session(second_session_id)
+                if second_session_id else None)
 check('W7 retrying after recovery ends the session normally',
-      latest['end_kind'] == 'normal')
+      bool(before_retry) and before_retry['end_kind'] == 'running'
+      and bool(second_after) and second_after['end_kind'] == 'normal')
 
 page.destroy()
 root.destroy()
