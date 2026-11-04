@@ -347,47 +347,112 @@ def split_ai_sections(answer):
 _AI_SECTION_TITLES = {'観測結果の要約', '良かった点', '良かった傾向',
                       '改善ポイント', '改善を検討したい点', '次回の配信で試すこと'}
 
+# Each card's own titles: a line repeating one of these inside its
+# own card is a duplicate heading. '今回の観測結果' is the AI's
+# heading for the summary section. The ③ sub-headings
+# (配信について言える点 / 観測・データ取得上の制約) are NOT card
+# titles: they carry the streamer-vs-system distinction and are
+# always kept.
+_AI_OWN_TITLES = {
+    'summary': {'観測結果の要約', '今回の観測結果'},
+    'good': {'良かった点', '良かった傾向'},
+    'improve': {'改善ポイント', '改善を検討したい点'},
+    'next': {'次回の配信で試すこと'},
+}
+_AI_ALL_TITLES = set().union(*_AI_OWN_TITLES.values())
+
 # Internal evidence field names the AI sometimes parrots back.
 # Display-only translation to plain Japanese labels — the values
-# and the analysis meaning are never altered.
+# and the analysis meaning are never altered. Longer patterns come
+# first so a specific form (computable=false) is converted before
+# the bare field name (computable) can touch it, and no converted
+# output contains a source token, so nothing converts twice.
 _AI_INTERNAL_LABELS = (
     ('score_increase_during', '期間中のスコア増加'),
     ('score_change_before', '使用前のスコア変化'),
     ('score_change_after', '使用後のスコア変化'),
     ('multiple_confirmed', '確認できた倍率'),
+    ('disconnected_seconds', '監視未接続時間'),
+    ('monitored_seconds', '監視できた時間'),
+    ('observed_seconds', '観測セッションの経過時間'),
+    ('partial_battles', '途中から観測したバトル数'),
     ('target_role', '対象'),
     ('total_events', 'イベント総数'),
+    ('gap_count', '検出された欠損区間数'),
     ('computable=false', '算出不可'),
     ('computable: false', '算出不可'),
     ('computable=true', '算出可'),
     ('computable: true', '算出可'),
-    ('status=available', 'イベント記録あり'),
-    ('status: available', 'イベント記録あり'),
+    ('computable', '算出可否'),
+    ('status=available', 'イベント記録を取得済み'),
+    ('status: available', 'イベント記録を取得済み'),
     ('status=unavailable', 'イベント記録を取得できませんでした'),
     ('status: unavailable', 'イベント記録を取得できませんでした'),
 )
 
-_LONE_SYMBOL_LINES = {'-', '‐', '—', '・', '*', '•', '‥'}
+_LONE_SYMBOL_LINES = {'-', '‐', '—', '–', '・', '*', '•', '‥'}
 
 
-def format_ai_section(text):
+def _ai_heading_key(line):
+    """Normalise a possible heading line: strip decorations
+    (①-④, #, bullets), a trailing '：' and a trailing '（…）'
+    suffix such as （最大3件）, and return what remains."""
+    value = line.strip().lstrip('①②③④').strip()
+    value = value.strip('#*・- 　').rstrip('：:').strip()
+    if value.endswith('）') and '（' in value:
+        value = value[:value.index('（')].rstrip('：:').strip()
+    if value.endswith(')') and '(' in value:
+        value = value[:value.index('(')].rstrip('：:').strip()
+    return value
+
+
+def format_ai_section(text, key=None):
     """Tidy one AI section for card display (display-only cleanup).
 
-    - a line that merely repeats a card heading is dropped wherever
-      it appears (the card already shows the heading);
-    - a line containing only a symbol such as '-' is dropped;
-    - internal evidence field names are shown as plain labels;
-    - excess blank lines collapse.
-    The AI's wording and numbers are never altered beyond this.
+    - A heading line duplicating the card's own title is dropped
+      wherever it appears; a title heading in the leading block is
+      dropped too; a heading prefix on a content line
+      (「今回の観測結果：…」) is removed and the content kept.
+      Mid-section sub-headings — above all 配信について言える点 /
+      観測・データ取得上の制約 — are structure, never dropped.
+    - A line containing only a symbol such as '-' is dropped.
+    - Internal evidence field names are shown as plain labels.
+    - Excess blank lines collapse; nested bullets keep their
+      indentation. Wording, numbers, times and units are never
+      altered beyond this, and unrecognised text is left alone.
     """
+    own = _AI_OWN_TITLES.get(key, set())
     out = []
+    seen_content = False
     for raw in str(text or '').strip().splitlines():
         line = raw.rstrip()
-        stripped = line.strip().strip('#*・ 　').rstrip('：:')
-        if stripped in _AI_SECTION_TITLES:
+        stripped = line.strip()
+        if stripped in _LONE_SYMBOL_LINES:
             continue
-        if line.strip() in _LONE_SYMBOL_LINES:
-            continue
+        heading = _ai_heading_key(line)
+        if heading not in _AI_ALL_TITLES:
+            # '今回の観測結果：…' — the heading is the segment
+            # before the first colon (times like 14:23:05 split to
+            # '14', which is never a title, so this is safe).
+            first = line.split('：', 1)[0].split(':', 1)[0]
+            candidate = _ai_heading_key(first)
+            if candidate in _AI_ALL_TITLES:
+                heading = candidate
+        if heading in _AI_ALL_TITLES and (heading in own or not seen_content):
+            # A duplicated heading: drop the heading, but keep any
+            # content that followed it on the same line.
+            rest = line[line.index(heading) + len(heading):] \
+                if heading and heading in line else ''
+            rest = rest.lstrip('：: 　').strip()
+            if rest.startswith('（') and '）' in rest:
+                rest = rest[rest.index('）') + 1:].lstrip('：: 　').strip()
+            if rest.startswith('(') and ')' in rest:
+                rest = rest[rest.index(')') + 1:].lstrip('：: 　').strip()
+            if not rest:
+                continue
+            line = rest
+        if stripped:
+            seen_content = True
         for source, label in _AI_INTERNAL_LABELS:
             line = line.replace(source, label)
         if line or (out and out[-1]):
@@ -3018,7 +3083,7 @@ class UnattendedReportPage(ctk.CTkFrame):
         if found:
             for key, label in self.ai_labels.items():
                 label.configure(
-                    text=format_ai_section(sections.get(key))
+                    text=format_ai_section(sections.get(key), key)
                     or '（この区分の記載はありませんでした）')
         else:
             self.ai_labels['good'].configure(text=str(answer))
