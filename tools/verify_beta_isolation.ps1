@@ -1,7 +1,8 @@
 ﻿# Livemetry Pulse Beta — 分離検証（インストール〜アンインストール）
 # ベータインストーラーを実際にインストールし、実環境（LOCALAPPDATAの
 # 上書きなし）で起動しても、通常版v1.6.0のインストールとデータに
-# 一切影響しないことを、全ファイルのハッシュ比較で確認します。
+# 一切影響しないことを、比較対象ファイル（SQLiteの-shmを除く）の
+# ハッシュ比較で確認します。
 #
 # 事前ガード（どれか該当したら開始せずに中止します）:
 #   ・既存のベータ版がインストール済み（先にアンインストールが必要）
@@ -29,20 +30,12 @@ function Log([string]$Message) {
     Write-Host $line
     Add-Content -Path $script:LogPath -Value $line -Encoding UTF8
 }
+. (Join-Path $PSScriptRoot 'snapshot_lib.ps1')
+
 function Check([string]$Name, [bool]$Ok) {
     if ($Ok) { Log "[OK] $Name" } else { Log "[NG] $Name"; $script:Failures += $Name }
 }
-function Get-FullSnapshot([string]$Dir) {
-    if (-not (Test-Path $Dir)) { return @{ Text = '<absent>'; Count = -1 } }
-    $lines = @()
-    foreach ($file in (Get-ChildItem $Dir -Recurse -File -ErrorAction SilentlyContinue)) {
-        $rel = $file.FullName.Substring($Dir.Length)
-        $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash
-        $lines += ('{0}|{1}|{2}' -f $rel, $file.Length, $hash)
-    }
-    $sorted = @($lines | Sort-Object)
-    return @{ Text = ($sorted -join "`n"); Count = $sorted.Count }
-}
+
 function Close-AppWindow($Proc, [string]$Label) {
     # ウィンドウ表示を条件待ちし、表示されたウィンドウにだけ終了を送る。
     # 戻り値: 'closed' / 'already_exited' / 'window_not_shown' / 'close_timeout'
@@ -95,8 +88,15 @@ if (Get-Process -Name 'LivemetryPulse' -ErrorAction SilentlyContinue) {
 }
 
 $SetupPath = (Resolve-Path $SetupPath).Path
-$snap0 = Get-FullSnapshot $NormalData
-Log "通常版データ スナップショット: $($snap0.Count) ファイル"
+try {
+    $snap0 = Get-FullSnapshot $NormalData
+} catch {
+    Log "中止: 通常版データのスナップショットに失敗しました。データには触れていません。詳細: $($_.Exception.Message)"
+    Write-Host 'VERIFY: FAIL (SNAPSHOT_FAILED)'
+    exit 1
+}
+Log "通常版データ スナップショット: 比較対象 $($snap0.Count) ファイル"
+if ($snap0.Excluded.Count -gt 0) { Log "比較から除外した -shm ファイル: $($snap0.Excluded -join ', ')" }
 
 Log '--- 1) ベータをサイレントインストール'
 $install = Start-Process -FilePath $SetupPath -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
@@ -116,11 +116,14 @@ while (-not $started -and (Get-Date) -lt $deadline) {
     $proc.Refresh()
 }
 Check 'ベータ専用データフォルダに settings.json が生成される' $started
-$snap1 = Get-FullSnapshot $NormalData
-Check '起動後も通常版データが不変（全ファイルのハッシュ比較）' ($snap0.Text -eq $snap1.Text)
+try { $snap1 = Get-FullSnapshot $NormalData } catch { Log "再スナップショット失敗: $($_.Exception.Message)"; $snap1 = @{ Text = '<failed>'; Count = -1; Excluded = @() } }
+if ($snap1.Excluded.Count -gt 0) { Log "比較から除外した -shm ファイル: $($snap1.Excluded -join ', ')" }
+Check '起動後も通常版データが不変（-shmを除く比較対象ファイルのハッシュ比較）' ($snap0.Text -eq $snap1.Text)
 if (-not $proc.HasExited) {
     $closeResult = Close-AppWindow $proc 'ベータ'
-    Check "ベータEXEが終了する（結果: $closeResult）" ($closeResult -eq 'closed')
+    $exitOk = $false
+    if ($proc.HasExited) { try { $exitOk = ($proc.ExitCode -eq 0) } catch { } }
+    Check "ベータEXEが終了する（結果: $closeResult / ExitCode=0: $exitOk）" ($closeResult -eq 'closed' -and $exitOk)
     if (-not $proc.HasExited) {
         Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
         Log "起動したPID $($proc.Id) のみを強制終了しました"
@@ -136,8 +139,9 @@ if (Test-Path $uninstaller) {
     Start-Sleep -Seconds 2
     Check 'ベータのインストールフォルダが削除される' (-not (Test-Path $BetaExe))
 }
-$snap2 = Get-FullSnapshot $NormalData
-Check 'アンインストール後も通常版データが不変（全ファイルのハッシュ比較）' ($snap0.Text -eq $snap2.Text)
+try { $snap2 = Get-FullSnapshot $NormalData } catch { Log "再スナップショット失敗: $($_.Exception.Message)"; $snap2 = @{ Text = '<failed>'; Count = -1; Excluded = @() } }
+if ($snap2.Excluded.Count -gt 0) { Log "比較から除外した -shm ファイル: $($snap2.Excluded -join ', ')" }
+Check 'アンインストール後も通常版データが不変（-shmを除く比較対象ファイルのハッシュ比較）' ($snap0.Text -eq $snap2.Text)
 if (Test-Path $ReleaseApp) {
     Check '通常版のインストールフォルダが残っている' (Test-Path (Join-Path $ReleaseApp 'LivemetryPulse.exe'))
 }

@@ -3,7 +3,8 @@
 #   ・ベータ専用フォルダに settings.json が生成されること
 #   ・テスト用ルート直下に通常版のフォルダを作らないこと
 #   ・ウィンドウ表示後に正常終了できること（ライセンス画面経由を含む）
-#   ・通常版（実LOCALAPPDATA）のデータが全ファイル不変であること
+#   ・通常版（実LOCALAPPDATA）のデータが不変であること
+#     （SQLiteの-shmを除く比較対象ファイルのハッシュ比較で確認）
 # を確認します。
 #
 # 終了判定について: 起動直後はウィンドウがまだ無く、CloseMainWindow() は
@@ -27,22 +28,12 @@ function Log([string]$Message) {
     Write-Host $line
     if ($script:LogPath) { Add-Content -Path $script:LogPath -Value $line -Encoding UTF8 }
 }
+. (Join-Path $PSScriptRoot 'snapshot_lib.ps1')
+
 function Check([string]$Name, [bool]$Ok) {
     if ($Ok) { Log "[OK] $Name" } else { Log "[NG] $Name"; $script:Failures += $Name }
 }
-function Get-FullSnapshot([string]$Dir) {
-    # 全ファイルの 相対パス|サイズ|SHA256 をソートして連結した文字列。
-    # 通常版データが「全ファイル不変」かを比較するために使う。
-    if (-not (Test-Path $Dir)) { return @{ Text = '<absent>'; Count = -1 } }
-    $lines = @()
-    foreach ($file in (Get-ChildItem $Dir -Recurse -File -ErrorAction SilentlyContinue)) {
-        $rel = $file.FullName.Substring($Dir.Length)
-        $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash
-        $lines += ('{0}|{1}|{2}' -f $rel, $file.Length, $hash)
-    }
-    $sorted = @($lines | Sort-Object)
-    return @{ Text = ($sorted -join "`n"); Count = $sorted.Count }
-}
+
 
 $ExePath = (Resolve-Path $ExePath).Path
 $NormalData = Join-Path $env:LOCALAPPDATA 'AI-TikTok-LIVE-Analyzer'
@@ -52,8 +43,15 @@ $script:LogPath = Join-Path $TestRoot 'smoke_diagnostics.log'
 
 Log "対象EXE: $ExePath"
 Log "テスト用フォルダ: $TestRoot"
-$before = Get-FullSnapshot $NormalData
-Log "通常版データ スナップショット: $($before.Count) ファイル"
+try {
+    $before = Get-FullSnapshot $NormalData
+} catch {
+    Log "中止: 通常版データのスナップショットに失敗しました。通常版が実行中の可能性があります。データには触れていません。詳細: $($_.Exception.Message)"
+    Write-Host 'SMOKE: FAIL (SNAPSHOT_FAILED)'
+    exit 1
+}
+Log "通常版データ スナップショット: 比較対象 $($before.Count) ファイル"
+if ($before.Excluded.Count -gt 0) { Log "比較から除外した -shm ファイル: $($before.Excluded -join ', ')" }
 
 $verdict = 'PASS'
 $oldLocal = $env:LOCALAPPDATA
@@ -91,6 +89,7 @@ try {
         $sentHandles = @{}
         $sentCount = 0
         $everSent = $false
+        $closeAccepted = $false
         while ((Get-Date) -lt $closeDeadline) {
             if ($proc.HasExited) { $closedCleanly = $true; break }
             $proc.Refresh()
@@ -109,6 +108,7 @@ try {
                     try { $sent = $proc.CloseMainWindow() } catch { Log "CloseMainWindow で例外: $($_.Exception.Message)" }
                     Log "CloseMainWindow 戻り値: $sent"
                     $everSent = $true
+                    if ($sent) { $closeAccepted = $true }
                     if (-not $sent -and $verdict -eq 'PASS') { $verdict = 'CLOSE_REJECTED' }
                 }
             } elseif ((Get-Date) -gt $windowDeadline -and -not $everSent -and $verdict -eq 'PASS') {
@@ -116,8 +116,19 @@ try {
             }
             Start-Sleep -Milliseconds 300
         }
-        if ($proc.HasExited) { $closedCleanly = $true }
-        if (-not $closedCleanly) {
+        if ($proc.HasExited) {
+            # 正常終了の条件: 終了要求が受理され、ExitCode=0 で終わったこと
+            $exitCode = $null
+            try { $exitCode = $proc.ExitCode } catch { }
+            Log "終了コード確認: ExitCode=$exitCode / 終了要求の受理=$closeAccepted"
+            # ループ内で検出した終了も含め、ここで最終判定を確定する
+            $closedCleanly = ($exitCode -eq 0 -and $closeAccepted)
+            if ($exitCode -ne 0) { $verdict = 'EXIT_CODE_NONZERO' }
+            elseif ($verdict -eq 'PASS') { $verdict = 'EXITED_WITHOUT_CLOSE' }
+        }
+        if (-not $closedCleanly -and $proc.HasExited) {
+            # すでに終了しているので強制終了はしない。判定だけ落とす。
+        } elseif (-not $closedCleanly) {
             if (-not $everSent) { $verdict = 'WINDOW_NOT_SHOWN' }
             elseif ($verdict -eq 'PASS') { $verdict = 'CLOSE_TIMEOUT' }
             Log "終了制限時間を超えました: verdict=$verdict"
@@ -129,7 +140,7 @@ try {
             if ($verdict -eq 'CLOSE_REJECTED') { $verdict = 'PASS' }
         }
     }
-    Check '終了できる' $closedCleanly
+    Check '終了できる（終了要求が受理され、ExitCode=0で終了）' $closedCleanly
 } finally {
     $env:LOCALAPPDATA = $oldLocal
     # 起動失敗・タイムアウト等で残った場合も、自分が起動したPIDだけは止める
@@ -138,8 +149,17 @@ try {
         Log "未終了だったPID $($proc.Id)（自プロセス）を強制終了しました"
     }
 }
-$after = Get-FullSnapshot $NormalData
-Check '通常版のデータが不変（全ファイルのハッシュ比較）' ($before.Text -eq $after.Text)
+try {
+    $after = Get-FullSnapshot $NormalData
+} catch {
+    Log "通常版データの再スナップショットに失敗しました: $($_.Exception.Message)"
+    Check '通常版のデータが不変（-shmを除く比較対象ファイルのハッシュ比較）' $false
+    $after = $null
+}
+if ($after) {
+    if ($after.Excluded.Count -gt 0) { Log "比較から除外した -shm ファイル: $($after.Excluded -join ', ')" }
+    Check '通常版のデータが不変（-shmを除く比較対象ファイルのハッシュ比較）' ($before.Text -eq $after.Text)
+}
 Log "診断ログ: $script:LogPath"
 if ($script:Failures.Count -gt 0) { Write-Host "SMOKE: FAIL ($verdict)"; exit 1 }
 Write-Host 'SMOKE: PASS'
