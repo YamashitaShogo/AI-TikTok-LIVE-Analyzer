@@ -6,6 +6,10 @@ import traceback
 from pathlib import Path
 from tkinter import messagebox
 
+from core.app_edition import bootstrap as _edition_bootstrap
+
+_edition_bootstrap()  # beta edition: separate the data root FIRST
+
 from core.license_client import LicenseClient
 from ui.license_window import LicenseWindow
 from ui.main_window import MainWindow

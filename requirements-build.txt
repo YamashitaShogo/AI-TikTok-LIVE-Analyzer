@@ -8,3 +8,10 @@ pywebview
 
 pyaudiowpatch
 TikTokLive==7.0.1
+
+# Runtime imports that are not pulled in transitively:
+# cv2 (viewer capture / evidence), numpy (image arrays),
+# keyring (core/secure_storage.py — OpenAI API key storage).
+opencv-python
+numpy
+keyring

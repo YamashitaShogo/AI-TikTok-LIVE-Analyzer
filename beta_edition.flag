@@ -1,0 +1,8 @@
+Livemetry Pulse — BETA edition marker.
+The mere presence of this file next to the executable (or in the
+PyInstaller bundle) switches the app to the beta edition: data is
+stored under <LOCALAPPDATA>/LivemetryPulseBeta and the keyring
+service gains a -Beta suffix, so the beta build never touches the
+release build's settings, licence, databases or stored keys.
+See core/app_edition.py and BETA_INSTALLER.md.
+version=1.6.0-beta.1
