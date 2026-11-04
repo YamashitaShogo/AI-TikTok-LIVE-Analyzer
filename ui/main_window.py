@@ -10,6 +10,7 @@ from PIL import Image
 from core.auto_analyzer import AutoAnalyzer
 from core.license_manager import LicenseManager
 from core.settings import Settings
+from core.app_edition import display_version
 from core.viewer_collector_manager import ViewerCollectorManager
 from core.workspace_config import (AGENCY_UNAVAILABLE_NOTE, MODE_STREAMER,
                                    SELECTOR_LABELS, nav_items)
@@ -211,7 +212,7 @@ class MainWindow(ctk.CTk):
 
         ctk.CTkLabel(
             brand_text,
-            text="v1.6.0",
+            text=display_version(),
             font=(theme.FONT_FAMILY, 10),
             text_color=("#94A3B8", "#94A3B8"),
         ).pack(
