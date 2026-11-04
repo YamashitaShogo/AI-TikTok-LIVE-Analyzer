@@ -123,7 +123,7 @@ check('C5 the three coverage seconds stay distinct in the evidence',
 # --- prompt pins ---------------------------------------------------------------
 P = report_ai.PROMPT
 check('P1 prompt version bumped for the changed contract',
-      report_ai.PROMPT_VERSION == 'unattended-report-v2')
+      report_ai.PROMPT_VERSION == 'unattended-report-v3')
 check('P2 prompt explains observed/monitored/disconnected distinctly',
       'monitored_seconds' in P and 'disconnected_seconds' in P
       and '記録自体が存在しない時間' in P)
