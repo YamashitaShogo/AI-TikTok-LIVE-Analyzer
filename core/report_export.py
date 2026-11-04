@@ -15,8 +15,10 @@ from pathlib import Path
 
 try:
     from .observation_sessions import format_jst
+    from .settings import replace_with_retry
 except ImportError:
     from observation_sessions import format_jst
+    from settings import replace_with_retry
 
 
 def export_json(report, destination):
@@ -29,7 +31,10 @@ def export_json(report, destination):
         fd, fd_path = tempfile.mkstemp(dir=destination.parent, suffix=".tmp")
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(text)
-        os.replace(fd_path, destination)
+        # Same transient-lock retry as settings writes: a report file
+        # momentarily open in another app must not silently lose the
+        # (best-effort) auto-generated JSON on Windows.
+        replace_with_retry(fd_path, destination)
         fd_path = None
     finally:
         if fd_path and Path(fd_path).exists():
@@ -60,7 +65,23 @@ _PARTIAL_LABELS = {"full": "開始から観測", "partial": "途中から観測"
 def export_csv(report, destination):
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with destination.open("w", encoding="utf-8-sig", newline="") as handle:
+    # Write to a temp file and replace, like export_json: a failure
+    # mid-write must not leave a truncated CSV at the destination.
+    import os
+    fd, fd_path = tempfile.mkstemp(dir=destination.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8-sig", newline="") as handle:
+            _write_csv(report, handle)
+        replace_with_retry(fd_path, destination)
+        fd_path = None
+    finally:
+        if fd_path and Path(fd_path).exists():
+            Path(fd_path).unlink()
+    return destination
+
+
+def _write_csv(report, handle):
+    if True:
         writer = csv.writer(handle)
         writer.writerow([label for _, label in CSV_COLUMNS])
         for battle in report.get("battles", []):
@@ -85,7 +106,6 @@ def export_csv(report, destination):
                     value = battle.get(key)
                     row.append("" if value is None else value)
             writer.writerow(row)
-    return destination
 
 
 # ------------------------------------------------------------------ charts
@@ -307,9 +327,21 @@ def export_pdf(report, destination, ai_text=None):
         "本レポートは Livemetry Pulse が観測できた範囲の記録に基づきます。"
         "TikTok 公式サービスとの提携・認可を示すものではありません。", small))
 
-    doc = SimpleDocTemplate(str(destination), pagesize=A4,
-                            leftMargin=20 * mm, rightMargin=20 * mm,
-                            topMargin=18 * mm, bottomMargin=18 * mm,
-                            title="Livemetry Pulse 無人観測レポート")
-    doc.build(story)
+    # Build into a temp file and replace, like the other exports: a
+    # failure mid-build must not leave a truncated PDF behind.
+    import os
+    destination = Path(destination)
+    fd, fd_path = tempfile.mkstemp(dir=destination.parent, suffix=".tmp")
+    os.close(fd)
+    try:
+        doc = SimpleDocTemplate(str(fd_path), pagesize=A4,
+                                leftMargin=20 * mm, rightMargin=20 * mm,
+                                topMargin=18 * mm, bottomMargin=18 * mm,
+                                title="Livemetry Pulse 無人観測レポート")
+        doc.build(story)
+        replace_with_retry(fd_path, destination)
+        fd_path = None
+    finally:
+        if fd_path and Path(fd_path).exists():
+            Path(fd_path).unlink()
     return destination

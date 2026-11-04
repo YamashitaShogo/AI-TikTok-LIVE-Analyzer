@@ -6,6 +6,10 @@ import traceback
 from pathlib import Path
 from tkinter import messagebox
 
+from core.app_edition import bootstrap as _edition_bootstrap
+
+_edition_bootstrap()  # beta edition: separate the data root FIRST
+
 from core.license_client import LicenseClient
 from ui.license_window import LicenseWindow
 from ui.main_window import MainWindow
@@ -265,6 +269,13 @@ def ensure_viewer_started(app) -> None:
     """Reuse the main window's manager so its buttons and shutdown still work."""
     if getattr(app, "_closing", False):
         return
+    try:
+        from core.settings import Settings
+        if Settings.load().get("normal_viewer_autostart", True) is False:
+            logging.info("通常Viewerの自動起動は設定でOFFのため起動しません")
+            return
+    except Exception:
+        pass
     try:
         manager = getattr(app, "viewer_collector", None)
         if manager is None:

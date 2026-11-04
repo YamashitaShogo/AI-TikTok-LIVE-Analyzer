@@ -239,7 +239,7 @@ class SessionStore:
                           {"state": str(state), **(detail or {})}, now=now)
 
     # ------------------------------------------------------------- reads
-    def _row_to_session(self, db, row):
+    def _row_to_session(self, db, row, with_events=True):
         session = dict(row)
         try:
             session["targets"] = json.loads(session.pop("targets_json") or "[]")
@@ -249,12 +249,29 @@ class SessionStore:
             session["evidence_refs"] = json.loads(session.pop("evidence_refs_json") or "[]")
         except ValueError:
             session["evidence_refs"] = []
-        session["events"] = [
-            {"at": r["at"], "kind": r["kind"],
-             "detail": json.loads(r["detail_json"] or "{}")}
-            for r in db.execute(
+        # Events are loaded on every session read (the report page
+        # refreshes constantly), so a long session with a flapping
+        # connection must not grow this read without bound:
+        # target_switch events are always kept in full (reports list
+        # them and they are user-driven, hence few), other kinds are
+        # capped at the most recent 1000.
+        if with_events:
+            sid = session["session_id"]
+            event_rows = db.execute(
                 "SELECT at, kind, detail_json FROM session_events"
-                " WHERE session_id=? ORDER BY at, id", (session["session_id"],))]
+                " WHERE session_id=? AND kind='target_switch'"
+                " ORDER BY at, id", (sid,)).fetchall()
+            event_rows += db.execute(
+                "SELECT at, kind, detail_json FROM session_events"
+                " WHERE session_id=? AND kind<>'target_switch'"
+                " ORDER BY id DESC LIMIT 1000", (sid,)).fetchall()
+            event_rows.sort(key=lambda r: r["at"])
+            session["events"] = [
+                {"at": r["at"], "kind": r["kind"],
+                 "detail": json.loads(r["detail_json"] or "{}")}
+                for r in event_rows]
+        else:
+            session["events"] = []
         session["started_jst"] = format_jst(session["started_at"])
         session["ended_jst"] = format_jst(session["ended_at"])
         session["elapsed_seconds"] = (
@@ -274,6 +291,19 @@ class SessionStore:
                 "SELECT * FROM sessions ORDER BY started_at DESC LIMIT ?",
                 (max(1, int(limit)),)).fetchall()
             return [self._row_to_session(db, row) for row in rows]
+
+    def list_sessions_basic(self, limit=1000):
+        """Session rows WITHOUT their event lists, newest first.
+
+        For the history overview: event lists are the expensive part
+        of a session read and the overview never shows them, so a
+        long history stays cheap to load."""
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM sessions ORDER BY started_at DESC LIMIT ?",
+                (max(1, int(limit)),)).fetchall()
+            return [self._row_to_session(db, row, with_events=False)
+                    for row in rows]
 
     def latest_session(self):
         sessions = self.list_sessions(limit=1)
@@ -297,6 +327,7 @@ class SessionSampler:
         self._stop = threading.Event()
         self._thread = None
         self._was_connected = None
+        self._last_error_kind = ''
 
     def start(self):
         if self._thread and self._thread.is_alive():
@@ -320,6 +351,19 @@ class SessionSampler:
             from collection_health import read_health
         health = read_health(self.capture_dir, now=now)
         connected = str(health.get("status") or "").startswith("接続中")
+        # Record WHY collection is failing when the collector knows:
+        # without this, a session whose target did not exist (or was
+        # rate-limited) is indistinguishable from plain offline
+        # waiting in the stored record. One event per transition;
+        # the tracker re-arms when the error clears.
+        error_kind = str(health.get("error_kind") or "")
+        if error_kind in ("not_found", "rate_limit") \
+                and error_kind != self._last_error_kind:
+            self.store.record_event(
+                self.session_id, "connection_error",
+                {"kind": error_kind, "status": health.get("status")},
+                now=now)
+        self._last_error_kind = error_kind
         if self._was_connected is not None and connected != self._was_connected:
             self.store.record_event(
                 self.session_id,

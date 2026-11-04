@@ -16,9 +16,12 @@ CAPTURE = BASE / 'capture_fixed'
 DB = CAPTURE / 'battle_dataset' / 'battles.sqlite3'
 
 def main():
-    # Hold a per-fixed-viewer lock for this controller's lifetime.
+    # GUI singleton lock (this window only). The fixed PROFILE itself
+    # is excluded by the collector process via core/fixed_lock.py
+    # (BASE/fixed_viewer.lock): the writer holds the lock, not a
+    # launcher, so this window no longer holds the profile lock.
     BASE.mkdir(parents=True, exist_ok=True)
-    lock = (BASE / 'fixed_viewer.lock').open('a+b')
+    lock = (BASE / 'fixed_viewer_ui.lock').open('a+b')
     try:
         if os.name == 'nt':
             import msvcrt
@@ -50,6 +53,18 @@ def main():
         nonlocal process, log
         if process and process.poll() is None:
             messagebox.showinfo('固定観測','切替時は先に停止してください'); return
+        try:
+            from core.fixed_lock import probe_locked, read_status
+            if probe_locked():
+                held = read_status() or {}
+                tid = str(held.get('target_id') or '')
+                messagebox.showerror('固定観測',
+                    '別の固定観測が既に動作しています'
+                    + (f'（対象 @{tid}）' if tid else '')
+                    + '。Pulse Proの固定観測や別の固定観測を停止してから開始してください')
+                return
+        except Exception:
+            pass  # the collector itself enforces the lock at startup
         try:
             url = live_url(value.get())
             env = os.environ.copy()

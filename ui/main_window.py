@@ -10,6 +10,7 @@ from PIL import Image
 from core.auto_analyzer import AutoAnalyzer
 from core.license_manager import LicenseManager
 from core.settings import Settings
+from core.app_edition import display_version
 from core.viewer_collector_manager import ViewerCollectorManager
 from core.workspace_config import (AGENCY_UNAVAILABLE_NOTE, MODE_STREAMER,
                                    SELECTOR_LABELS, nav_items)
@@ -211,7 +212,7 @@ class MainWindow(ctk.CTk):
 
         ctk.CTkLabel(
             brand_text,
-            text="v1.6.0",
+            text=display_version(),
             font=(theme.FONT_FAMILY, 10),
             text_color=("#94A3B8", "#94A3B8"),
         ).pack(
@@ -445,6 +446,17 @@ class MainWindow(ctk.CTk):
         """Livemetry Pulseと一緒にTikTok Viewerを自動起動する。"""
         if self._closing:
             return
+
+        # Explicit user setting (Settings > Viewer). Default ON keeps
+        # the historical behaviour; OFF reduces idle load for Pulse
+        # Pro users who only need fixed observation. This never stops
+        # an already-running viewer.
+        try:
+            if Settings.load().get("normal_viewer_autostart", True) is False:
+                print("通常Viewerの自動起動は設定でOFFのため起動しません。")
+                return
+        except Exception:
+            pass
 
         try:
             self.viewer_collector.start()

@@ -1,6 +1,65 @@
 import json
 import os
 import tempfile
+import threading
+import time
+
+
+class SettingsSaveError(OSError):
+    """Raised when settings.json could not be saved even after
+    retries. The previously saved settings file is left untouched."""
+
+
+class SettingsLoadError(Exception):
+    """Raised when settings.json EXISTS but cannot be read or parsed.
+
+    Kept distinct from "file does not exist" (a normal first run):
+    an existing-but-unreadable file must never be treated as empty
+    settings, because saving on that basis would wipe the license
+    key, the registered ID, workspace settings and more.
+    """
+
+
+# Serializes read-modify-write cycles inside this process so two
+# writers cannot lose each other's keys (lost update).
+_UPDATE_LOCK = threading.Lock()
+
+
+# Windows transient replace failures worth retrying: the destination
+# is briefly held by another reader (another Pulse process, the
+# collector, antivirus, sync tools). WinError 5 (access denied) and
+# WinError 32 (sharing violation) usually clear within a second.
+_REPLACE_RETRY_WINERRORS = (5, 32)
+_REPLACE_DELAYS = (0.05, 0.1, 0.2, 0.4, 0.8, 1.2)
+
+
+def _is_transient_replace_error(exc):
+    if isinstance(exc, PermissionError):
+        return True
+    winerror = getattr(exc, 'winerror', None)
+    return winerror in _REPLACE_RETRY_WINERRORS
+
+
+def replace_with_retry(src, dst):
+    """os.replace with retries for transient Windows sharing errors.
+
+    Returns True on success. Raises the last OSError when the error
+    is not transient or the retries are exhausted; in that case dst
+    (the existing settings file) is guaranteed untouched, because a
+    failed replace never modifies the destination.
+    """
+    last_error = None
+    for attempt in range(len(_REPLACE_DELAYS) + 1):
+        try:
+            os.replace(src, dst)
+            return True
+        except OSError as exc:
+            last_error = exc
+            if not _is_transient_replace_error(exc):
+                raise
+            if attempt < len(_REPLACE_DELAYS):
+                time.sleep(_REPLACE_DELAYS[attempt])
+    raise last_error
 
 
 class Settings:
@@ -49,36 +108,101 @@ class Settings:
         )
 
     @staticmethod
-    def load():
+    def file_state():
+        """'missing' (first run) | 'ok' | 'unreadable' (exists but
+        cannot be read or parsed right now)."""
         file_path = Settings.get_file_path()
+        if not os.path.exists(file_path):
+            return 'missing'
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return 'ok' if isinstance(data, dict) else 'unreadable'
+        except (OSError, ValueError):
+            return 'unreadable'
 
+    @staticmethod
+    def load_strict():
+        """Settings for read-modify-write use.
+
+        Returns {} ONLY when the file does not exist. Raises
+        SettingsLoadError when the file exists but cannot be read or
+        parsed, so callers abort instead of overwriting real settings
+        with defaults/empty values.
+        """
+        file_path = Settings.get_file_path()
         if not os.path.exists(file_path):
             return {}
-
         try:
-            with open(
-                file_path,
-                "r",
-                encoding="utf-8"
-            ) as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
+        except (OSError, ValueError) as exc:
+            raise SettingsLoadError(
+                f"既存のsettings.jsonを読み込めませんでした: {exc}") from exc
+        if not isinstance(data, dict):
+            raise SettingsLoadError(
+                "既存のsettings.jsonの形式が不正です（辞書ではありません）")
+        return data
 
-            if isinstance(data, dict):
-                return data
+    @staticmethod
+    def load():
+        """Lenient read for display/status purposes.
 
+        Returns {} whenever the file is missing OR unreadable. Never
+        use the result as the basis of a save: save() itself refuses
+        to overwrite an existing-but-unreadable file, and update()
+        reads strictly.
+        """
+        try:
+            return Settings.load_strict()
+        except SettingsLoadError:
             return {}
 
-        except (
-            json.JSONDecodeError,
-            OSError,
-            PermissionError
-        ):
-            return {}
+    @staticmethod
+    def update(changes, remove=()):
+        """Merge `changes` into the stored settings, safely.
+
+        Reads the current file strictly (aborting with
+        SettingsLoadError when it exists but is unreadable), applies
+        the changes and the `remove` key deletions (used for legacy
+        cleanups such as dropping a plaintext API key), and saves —
+        all under a process-wide lock so concurrent in-process
+        writers cannot lose each other's keys, and so keys written
+        by other writers after a caller read its (stale) snapshot
+        survive: only the named keys are touched. When nothing
+        effectively changes, the file is NOT rewritten. Returns True
+        when the file was written.
+        """
+        if not isinstance(changes, dict):
+            raise TypeError("changes must be a dict")
+        with _UPDATE_LOCK:
+            current = Settings.load_strict()
+            merged = dict(current)
+            for key in remove:
+                merged.pop(key, None)
+            merged.update(changes)
+            if merged == current:
+                return False
+            Settings.save(merged)
+            return True
 
     @staticmethod
     def save(data):
         settings_dir = Settings.get_settings_dir()
         file_path = Settings.get_file_path()
+
+        # Protection: never overwrite an existing settings file that
+        # cannot currently be read — its contents (license key,
+        # registered ID, workspace settings) would be lost. A missing
+        # file (first run) or a readable one is fine to replace.
+        if os.path.exists(file_path):
+            try:
+                Settings.load_strict()
+            except SettingsLoadError as exc:
+                raise SettingsSaveError(
+                    "既存の設定を読み込めなかったため、保護のため保存を中止しました"
+                    f"（既存の設定は変更されていません）: {exc}"
+                ) from exc
 
         temp_path = None
 
@@ -106,11 +230,16 @@ class Settings:
                 f.flush()
                 os.fsync(f.fileno())
 
-            # 完成したファイルと安全に置き換える
-            os.replace(
-                temp_path,
-                file_path
-            )
+            # 完成したファイルと安全に置き換える。一時的な占有
+            # (WinError 5 等) では再試行し、それでも置換できない
+            # 場合は既存の設定ファイルを一切変更せず
+            # SettingsSaveError を送出する。
+            try:
+                replace_with_retry(temp_path, file_path)
+            except OSError as exc:
+                raise SettingsSaveError(
+                    f"設定を保存できませんでした（既存の設定は変更されていません）: {exc}"
+                ) from exc
 
             return True
 

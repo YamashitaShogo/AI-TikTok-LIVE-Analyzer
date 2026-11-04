@@ -6,6 +6,7 @@ from tkinter import messagebox
 import customtkinter as ctk
 
 from core.license_client import LicenseClient
+from core.settings import Settings, SettingsLoadError, SettingsSaveError
 
 
 class LicenseWindow(ctk.CTk):
@@ -118,44 +119,24 @@ class LicenseWindow(ctk.CTk):
             pass
 
     def _save_license(self, key, status):
-        """認証結果をsettings.jsonへ保存する。"""
-        path = self._get_settings_path()
+        """認証結果をsettings.jsonへ保存する。
 
-        settings = {}
-
-        if path.exists():
-            try:
-                with path.open(
-                    "r",
-                    encoding="utf-8",
-                ) as file:
-                    loaded = json.load(file)
-
-                if isinstance(loaded, dict):
-                    settings = loaded
-
-            except (OSError, json.JSONDecodeError):
-                settings = {}
-
-        settings["license_key"] = key
-        settings["license_status"] = status
-
-        temp_path = path.with_suffix(
-            ".json.tmp"
-        )
-
-        with temp_path.open(
-            "w",
-            encoding="utf-8",
-        ) as file:
-            json.dump(
-                settings,
-                file,
-                ensure_ascii=False,
-                indent=4,
+        Goes through core.settings.Settings.update like every other
+        writer (strict read + process-wide locked merge + retried
+        atomic replace). The previous bespoke path fell back to {}
+        whenever the file was temporarily unreadable and then wrote
+        back only the two license keys — silently deleting every
+        other setting (registered TikTok ID, workspace mode, ...).
+        An unreadable existing file now ABORTS the save, surfaced as
+        an OSError so the existing caller error handling applies,
+        and the file is left byte-identical.
+        """
+        try:
+            Settings.update(
+                {"license_key": key, "license_status": status}
             )
-
-        temp_path.replace(path)
+        except SettingsLoadError as exc:
+            raise SettingsSaveError(str(exc)) from exc
 
     def verify_license(self):
         key = "".join(

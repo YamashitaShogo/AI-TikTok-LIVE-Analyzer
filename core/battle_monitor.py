@@ -56,6 +56,26 @@ def configure_sign_api_key() -> bool:
     return bool(key)
 
 
+_CONNECTION_ERROR_KINDS = {
+    "UserOfflineError": "offline",
+    "UserNotFoundError": "not_found",
+    "SignatureRateLimitError": "rate_limit",
+}
+
+
+def classify_connection_error(exc_name):
+    """Map a TikTokLive exception class name to a coarse kind.
+
+    Only the three kinds with a distinct meaning are named; every
+    other failure (authentication, network, timeout, ...) stays the
+    generic 'error' so the UI never presents a guess as a diagnosis.
+    '' (no error) maps to ''.
+    """
+    if not exc_name:
+        return ""
+    return _CONNECTION_ERROR_KINDS.get(str(exc_name), "error")
+
+
 class BattleMonitor:
     def __init__(self) -> None:
         self._thread: Optional[threading.Thread] = None
@@ -70,6 +90,7 @@ class BattleMonitor:
         self._generation = 0
         self._connection_blocked = False
         self._offline_unique_id = None
+        self._last_connection_error: dict = {}
         self._connected = False
         self._collab_seen = False
         self._collab_state_known = False
@@ -128,6 +149,27 @@ class BattleMonitor:
         with self._lock:
             return self._offline_unique_id
 
+    def note_connection_error(self, exc_name, unique_id) -> None:
+        """Record why the latest connection attempt for a target ended.
+
+        Stored as {'kind', 'name', 'unique_id'}; kind comes from
+        classify_connection_error so only confirmed meanings are
+        distinguished. Cleared on start/stop and on a successful
+        connect. Consumed by core.collection_health.heartbeat so the
+        distinction survives into the UI and session records —
+        without it, offline / nonexistent ID / login-required all
+        look like the same 'waiting'.
+        """
+        kind = classify_connection_error(exc_name)
+        with self._lock:
+            self._last_connection_error = (
+                {"kind": kind, "name": str(exc_name or ""),
+                 "unique_id": unique_id} if kind else {})
+
+    def last_connection_error(self) -> dict:
+        with self._lock:
+            return dict(self._last_connection_error)
+
     def collab_state(self, unique_id: str) -> str:
         """Protocol evidence for the current room; a connection alone proves nothing."""
         with self._lock:
@@ -165,6 +207,7 @@ class BattleMonitor:
             generation = self._generation
             self._unique_id = unique_id
             self._offline_unique_id = None
+            self._last_connection_error = {}
             self._battle_id = None
             self._last_update_time = 0
             self._finished_battle_ids.clear()
@@ -197,6 +240,7 @@ class BattleMonitor:
             self._thread = None
             self._unique_id = None
             self._offline_unique_id = None
+            self._last_connection_error = {}
             self._battle_id = None
             self._last_update_time = 0
             self._finished_battle_ids.clear()
@@ -251,6 +295,7 @@ class BattleMonitor:
                 if generation != self._generation:
                     return
                 self._connected = True
+                self._last_connection_error = {}
                 if isinstance(client.room_info, dict):
                     (CAPTURE_DIR / "latest_room_info.json").write_text(
                         json.dumps(
@@ -439,6 +484,12 @@ class BattleMonitor:
         try:
             loop.run_until_complete(listen(client))
         except Exception as exc:
+            with self._lock:
+                if generation == self._generation:
+                    kind = classify_connection_error(type(exc).__name__)
+                    self._last_connection_error = (
+                        {"kind": kind, "name": type(exc).__name__,
+                         "unique_id": unique_id} if kind else {})
             if type(exc).__name__ == "UserOfflineError":
                 with self._lock:
                     if generation == self._generation:

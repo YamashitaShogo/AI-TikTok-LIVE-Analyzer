@@ -213,13 +213,23 @@ class AIPage(ctk.CTkFrame):
         prompt_text = self.DEFAULT_PROMPT
 
         try:
-            if os.path.exists("settings.json"):
+            # Canonical settings (the same file the Settings page and
+            # the auto analyzer use). This page previously read a
+            # CWD-relative ./settings.json, so a prompt saved here
+            # never reached the analysis that consumes it.
+            saved_prompt = Settings.load().get("ai_prompt")
+            if isinstance(saved_prompt, str) and saved_prompt.strip():
+                prompt_text = saved_prompt.strip()
+            elif os.path.exists("settings.json"):
+                # Legacy fallback: show a prompt stored by an older
+                # build in ./settings.json rather than losing it; the
+                # next save moves it into the canonical settings.
                 with open("settings.json", "r", encoding="utf-8") as file:
-                    settings = json.load(file)
+                    legacy = json.load(file)
 
-                saved_prompt = settings.get("ai_prompt")
-                if isinstance(saved_prompt, str) and saved_prompt.strip():
-                    prompt_text = saved_prompt.strip()
+                legacy_prompt = legacy.get("ai_prompt")
+                if isinstance(legacy_prompt, str) and legacy_prompt.strip():
+                    prompt_text = legacy_prompt.strip()
 
         except Exception as exc:
             print("プロンプト読込エラー:", repr(exc))
@@ -235,21 +245,7 @@ class AIPage(ctk.CTkFrame):
             return
 
         try:
-            settings = {}
-
-            if os.path.exists("settings.json"):
-                try:
-                    with open("settings.json", "r", encoding="utf-8") as file:
-                        loaded = json.load(file)
-                    if isinstance(loaded, dict):
-                        settings = loaded
-                except json.JSONDecodeError:
-                    settings = {}
-
-            settings["ai_prompt"] = prompt_text
-
-            with open("settings.json", "w", encoding="utf-8") as file:
-                json.dump(settings, file, ensure_ascii=False, indent=4)
+            Settings.update({"ai_prompt": prompt_text})
 
             self.status_label.configure(text="✅ プロンプトを保存しました")
 
