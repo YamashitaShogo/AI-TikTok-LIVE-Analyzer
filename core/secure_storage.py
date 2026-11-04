@@ -1,8 +1,12 @@
 import keyring
 
+from core.app_edition import keyring_service_name
+
 
 class SecureStorage:
-    SERVICE_NAME = "AI-TikTok-LIVE-Analyzer"
+    # Beta edition uses a separate keyring service (…-Beta) so the
+    # beta build never reads/overwrites the release build's key.
+    SERVICE_NAME = keyring_service_name("AI-TikTok-LIVE-Analyzer")
     OPENAI_API_KEY_NAME = "openai_api_key"
 
     @classmethod
