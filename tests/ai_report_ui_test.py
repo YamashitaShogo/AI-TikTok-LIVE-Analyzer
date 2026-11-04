@@ -113,11 +113,44 @@ check('F3 empty stays empty', format_ai_section('') == ''
       and format_ai_section(None) == '')
 check('F4 internal field names are shown as plain labels',
       format_ai_section('status=available のため、score_increase_during は computable=false でした。')
-      == 'イベント記録あり のため、期間中のスコア増加 は 算出不可 でした。')
+      == 'イベント記録を取得済み のため、期間中のスコア増加 は 算出不可 でした。')
 check('F5 a lone symbol line is dropped',
       format_ai_section('一行目。\n-\n二行目。') == '一行目。\n二行目。')
 check('F6 a repeated heading line mid-text is dropped',
-      format_ai_section('本文です。\n改善ポイント\n続きです。') == '本文です。\n続きです。')
+      format_ai_section('本文です。\n改善ポイント\n続きです。', 'improve')
+      == '本文です。\n続きです。')
+check('F7 coverage field names become plain Japanese, values kept',
+      format_ai_section(
+          'monitored_seconds は 3600 秒、observed_seconds は 3700 秒、'
+          'disconnected_seconds は 100 秒、gap_count は 0、partial_battles は 1 でした。')
+      == '監視できた時間 は 3600 秒、観測セッションの経過時間 は 3700 秒、'
+         '監視未接続時間 は 100 秒、検出された欠損区間数 は 0、'
+         '途中から観測したバトル数 は 1 でした。')
+check('F8 no double conversion of computable forms',
+      format_ai_section('computable=false / computable=true / computable')
+      == '算出不可 / 算出可 / 算出可否'
+      and format_ai_section('算出不可でした') == '算出不可でした')
+check('F9 summary heading variants are dropped, content kept',
+      format_ai_section('① 今回の観測結果\nR0001 の記録バトルは2件でした。', 'summary')
+      == 'R0001 の記録バトルは2件でした。'
+      and format_ai_section('今回の観測結果：R0001 の記録です。', 'summary')
+      == 'R0001 の記録です。')
+check('F10 the next-actions heading with （最大3件） is dropped',
+      format_ai_section('次回の配信で試すこと（最大3件）\n・開始直後に確認する', 'next')
+      == '・開始直後に確認する')
+check('F11 the streamer/system sub-headings inside ③ are preserved',
+      format_ai_section('配信について言える点\n・課題Aです。\n'
+                        '観測・データ取得上の制約\n・制約Bです。', 'improve')
+      == '配信について言える点\n・課題Aです。\n観測・データ取得上の制約\n・制約Bです。')
+check('F12 numbers, times and units survive formatting',
+      format_ai_section('最大スコアは 123,456、時刻は 14:23:05、倍率は ×2、区間は 60 秒でした。')
+      == '最大スコアは 123,456、時刻は 14:23:05、倍率は ×2、区間は 60 秒でした。')
+check('F13 meaningful English and unknown strings are left alone',
+      format_ai_section('Boosting Glove の効果は record にありません。OK です。')
+      == 'Boosting Glove の効果は record にありません。OK です。')
+check('F14 nested bullets keep their structure and content',
+      format_ai_section('・親項目\n  ・子項目です\n・次の項目', 'next')
+      == '・親項目\n  ・子項目です\n・次の項目')
 
 # --- page ------------------------------------------------------------------
 NOW = time.time()
