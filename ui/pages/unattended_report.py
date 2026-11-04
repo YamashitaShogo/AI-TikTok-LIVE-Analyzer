@@ -347,23 +347,49 @@ def split_ai_sections(answer):
 _AI_SECTION_TITLES = {'観測結果の要約', '良かった点', '良かった傾向',
                       '改善ポイント', '改善を検討したい点', '次回の配信で試すこと'}
 
+# Internal evidence field names the AI sometimes parrots back.
+# Display-only translation to plain Japanese labels — the values
+# and the analysis meaning are never altered.
+_AI_INTERNAL_LABELS = (
+    ('score_increase_during', '期間中のスコア増加'),
+    ('score_change_before', '使用前のスコア変化'),
+    ('score_change_after', '使用後のスコア変化'),
+    ('multiple_confirmed', '確認できた倍率'),
+    ('target_role', '対象'),
+    ('total_events', 'イベント総数'),
+    ('computable=false', '算出不可'),
+    ('computable: false', '算出不可'),
+    ('computable=true', '算出可'),
+    ('computable: true', '算出可'),
+    ('status=available', 'イベント記録あり'),
+    ('status: available', 'イベント記録あり'),
+    ('status=unavailable', 'イベント記録を取得できませんでした'),
+    ('status: unavailable', 'イベント記録を取得できませんでした'),
+)
+
+_LONE_SYMBOL_LINES = {'-', '‐', '—', '・', '*', '•', '‥'}
+
 
 def format_ai_section(text):
     """Tidy one AI section for card display (display-only cleanup).
 
-    Collapses excess blank lines and drops a first line that merely
-    repeats the card's own heading. The AI's wording and numbers are
-    never altered beyond whitespace.
+    - a line that merely repeats a card heading is dropped wherever
+      it appears (the card already shows the heading);
+    - a line containing only a symbol such as '-' is dropped;
+    - internal evidence field names are shown as plain labels;
+    - excess blank lines collapse.
+    The AI's wording and numbers are never altered beyond this.
     """
-    lines = [line.rstrip() for line in str(text or '').strip().splitlines()]
-    if lines:
-        head = lines[0].strip().strip('#*・ 　').rstrip('：:')
-        if head in _AI_SECTION_TITLES:
-            lines = lines[1:]
-            while lines and not lines[0]:
-                lines = lines[1:]
     out = []
-    for line in lines:
+    for raw in str(text or '').strip().splitlines():
+        line = raw.rstrip()
+        stripped = line.strip().strip('#*・ 　').rstrip('：:')
+        if stripped in _AI_SECTION_TITLES:
+            continue
+        if line.strip() in _LONE_SYMBOL_LINES:
+            continue
+        for source, label in _AI_INTERNAL_LABELS:
+            line = line.replace(source, label)
         if line or (out and out[-1]):
             out.append(line)
     return '\n'.join(out).strip()
