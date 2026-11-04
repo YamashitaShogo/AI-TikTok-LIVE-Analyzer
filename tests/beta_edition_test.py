@@ -149,7 +149,26 @@ try:
     check('B8 verify guards existing beta / running apps, full-hash compare',
           '既存のベータ版がインストール済みです' in verify
           and "Get-Process -Name 'LivemetryPulse'" in verify
-          and 'Get-FullSnapshot' in verify and 'Get-FileHash' in verify)
+          and 'Get-FullSnapshot' in verify
+          and 'Get-FileHash' in (ROOT / 'tools' / 'snapshot_lib.ps1').read_text(encoding='utf-8-sig'))
+    # --- B9: snapshot -shm policy + strengthened close verdict ---
+    lib = (ROOT / 'tools' / 'snapshot_lib.ps1').read_text(encoding='utf-8-sig')
+    smoke_src = (ROOT / 'tools' / 'smoke_test_beta.ps1').read_text(encoding='utf-8-sig')
+    verify_src = (ROOT / 'tools' / 'verify_beta_isolation.ps1').read_text(encoding='utf-8-sig')
+    snap_test = (ROOT / 'tools' / 'test_snapshot_logic.ps1').read_text(encoding='utf-8-sig')
+    check('B9 -shm excluded in the shared lib; DB/WAL stay strict',
+          "'*-shm'" in lib and 'Excluded' in lib
+          and 'スナップショット失敗' in lib
+          and 'snapshot_lib.ps1' in smoke_src and 'snapshot_lib.ps1' in verify_src)
+    check('B9 honest wording: no unqualified all-files claim remains',
+          '全ファイルのハッシュ比較' not in smoke_src
+          and '全ファイルのハッシュ比較' not in verify_src
+          and '-shmを除く比較対象ファイルのハッシュ比較' in smoke_src)
+    check('B9 smoke PASS needs an accepted close and ExitCode 0',
+          'closeAccepted' in smoke_src and 'EXIT_CODE_NONZERO' in smoke_src)
+    check('B9 snapshot logic test covers locked -shm and DB/WAL changes',
+          'Case1' in snap_test and 'Case3' in snap_test
+          and 'Case4' in snap_test and 'Case6' in snap_test)
 finally:
     set_env(**{k: _saved_env[k] for k in _ENV_KEYS})
 
