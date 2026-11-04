@@ -137,6 +137,19 @@ try:
           and 'licenses' not in beta_spec
           and ('".env"' not in beta_spec and "'.env'" not in beta_spec)
           and '.env.example' in beta_spec)
+    # --- B8: smoke / verify scripts carry the safety design -----
+    smoke = (ROOT / 'tools' / 'smoke_test_beta.ps1').read_text(encoding='utf-8-sig')
+    verify = (ROOT / 'tools' / 'verify_beta_isolation.ps1').read_text(encoding='utf-8-sig')
+    check('B8 smoke waits for the window before closing, with diagnostics',
+          'MainWindowHandle' in smoke and 'CloseMainWindow' in smoke
+          and 'smoke_diagnostics.log' in smoke
+          and 'START_FAILED_EARLY_EXIT' in smoke
+          and 'WINDOW_NOT_SHOWN' in smoke and 'CLOSE_TIMEOUT' in smoke
+          and 'Get-FullSnapshot' in smoke)
+    check('B8 verify guards existing beta / running apps, full-hash compare',
+          '既存のベータ版がインストール済みです' in verify
+          and "Get-Process -Name 'LivemetryPulse'" in verify
+          and 'Get-FullSnapshot' in verify and 'Get-FileHash' in verify)
 finally:
     set_env(**{k: _saved_env[k] for k in _ENV_KEYS})
 
