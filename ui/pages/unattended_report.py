@@ -2504,7 +2504,8 @@ class UnattendedReportPage(ctk.CTkFrame):
                 self.draw_charts()
                 self.draw_detail_charts()
         try:
-            self._set_text(self.ai_preview, evidence_preview(report))
+            self._set_text(self.ai_preview, evidence_preview(
+                report, self._source['database'] if self._source else None))
         except Exception:
             self._set_text(self.ai_preview, 'プレビューを生成できませんでした。')
 
@@ -3010,11 +3011,12 @@ class UnattendedReportPage(ctk.CTkFrame):
         self.ai_status.configure(text='AI分析中…')
         report = self._report
         self._ai_pending_token = self._report_token(report)
+        database = self._source['database'] if self._source else None
         gen = self._load_gen
 
         def worker():
             try:
-                payload, path, warning = ai_analyze(report)
+                payload, path, warning = ai_analyze(report, database=database)
                 self._queue.put(('ai', gen, payload, path, warning))
             except Exception as exc:
                 logging.exception('report AI failed')
