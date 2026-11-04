@@ -139,7 +139,8 @@ def battle_row(bid, finished, first, last, samples=31):
 
 REPORT = {
     'profile': 'capture_fixed',
-    'summary': {'window_start_jst': format_jst(T0),
+    'summary': {'window_start': T0, 'window_end': T0 + 3600,
+                'window_start_jst': format_jst(T0),
                 'window_end_jst': format_jst(T0 + 3600),
                 'observed_seconds': 3600, 'monitored_seconds': 3600,
                 'disconnected_seconds': 0, 'record_count': 2,
@@ -248,9 +249,90 @@ check('V19 analyze still works when events are unavailable',
                         folder=Path(_TMP) / 'ai2',
                         database=Path(_TMP) / 'nope.sqlite3')[0]['answer'])
 
+
+# --- W: window intersection, multi-session, identifier-tainted text --------
+def e_score(at):
+    if at < T0 + 180:
+        return 500
+    if at <= T0 + 240:
+        return 500 + int((at - (T0 + 180)) // 10) * 10
+    return 560
+
+
+for i in range(61):
+    at = T0 - 100 + i * 10
+    snap('alice', 105, at, e_score(at))
+start_e, settle_e = challenge_payloads(T0 + 180, reward_duration=60,
+                                       mission_start=T0 - 50, mission_duration=30)
+battle_timeline.record(DB, 'alice', 105, 'challenge', start_e, T0 - 60)
+battle_timeline.record(DB, 'alice', 105, 'challenge', settle_e, T0 + 150)
+battle_timeline.record(DB, 'alice', 105, 'item', {
+    'useGlove': {'cardInfo': {'effectTimeSec': T0 + 450, 'effectLastDuration': 30,
+                              'sendTimeSec': T0 + 449, 'toAnchorIdStr': '222'},
+                 'displayContent': {'defaultPattern': 'Alice sent 1 Boosting Glove'}},
+    'common': {'msgId': 'e-glove'}}, T0 + 450)
+
+for i in range(13):
+    snap('alice', 106, T0 + i * 10, 100)
+battle_timeline.record(DB, 'alice', 106, 'challenge', {
+    'start': {'config': {
+        'targetConfig': {'targetStartTimestamp': int((T0 + 10) * 1000),
+                         'duration': 30,
+                         'promptKey': 'pm_mt_match_sp_team_gifter_target_host',
+                         'defaultPattern': 'aliceさんのチャレンジ'},
+        'rewardConfig': {}}},
+    'common': {'msgId': 'f-start'}}, T0 + 5)
+battle_timeline.record(DB, 'alice', 106, 'item', {
+    'useSpecial': {'cardInfo': {'sendTimeSec': T0 + 60, 'toAnchorIdStr': '222'},
+                   'displayContent': {'defaultPattern': 'Bob sent 1 aliceトークン'}},
+    'common': {'msgId': 'f-item'}}, T0 + 60)
+
+
+def report_for(bid, first, last, win_first, win_last):
+    rep = dict(REPORT)
+    rep['summary'] = dict(REPORT['summary'],
+                          window_start=win_first, window_end=win_last,
+                          window_start_jst=format_jst(win_first),
+                          window_end_jst=format_jst(win_last))
+    rep['battles'] = [battle_row(bid, True, first, last, samples=61)]
+    return rep
+
+
+ev_w1, _ = report_ai.build_evidence(report_for(105, T0 - 100, T0 + 500, T0, T0 + 200), DB)
+w1_events = ev_w1['events']['battles'][0]['events'] if ev_w1['events']['battles'] else []
+w1_reward = next((e for e in w1_events if e['type'] == 'challenge_reward'), None)
+check('W1 window intersection keeps only in-window events',
+      ev_w1['events']['total_events'] == 2 and w1_reward is not None)
+check('W2 a reward crossing the window end cannot use out-of-window samples',
+      w1_reward is not None
+      and w1_reward['score_increase_during']['computable'] is False)
+
+ev_w2, _ = report_ai.build_evidence(
+    report_for(105, T0 - 100, T0 + 500, T0 + 200, T0 + 600), DB)
+w2_events = ev_w2['events']['battles'][0]['events'] if ev_w2['events']['battles'] else []
+w2_reward = next((e for e in w2_events if e['type'] == 'challenge_reward'), None)
+check('W3 the next session sees its own slice (reward + item, no mission/settle)',
+      sorted(e['type'] for e in w2_events) == ['challenge_reward', 'item_use'])
+check('W4 the same reward computes from in-window samples only (increase 40)',
+      w2_reward is not None
+      and w2_reward['score_increase_during'].get('increase') == 40)
+
+ev_f, _ = report_ai.build_evidence(report_for(106, T0, T0 + 120, T0, T0 + 3600), DB)
+f_events = ev_f['events']['battles'][0]['events'] if ev_f['events']['battles'] else []
+f_mission = next((e for e in f_events if e['type'] == 'challenge_mission'), None)
+f_item = next((e for e in f_events if e['type'] == 'item_use'), None)
+f_blob = json.dumps(ev_f, ensure_ascii=False)
+check('W5 a mission text containing a streamer name is withheld as 未判定',
+      f_mission is not None and f_mission['mission'] == '未判定'
+      and 'aliceさん' not in f_blob)
+check('W6 an item name containing an identifier is withheld as unjudged',
+      f_item is not None and f_item['item_name_known'] is False
+      and f_item['item'] == 'アイテム（名称未判定）'
+      and 'aliceトークン' not in f_blob)
+
 # --- prompt v3 ------------------------------------------------------------------
 P = report_ai.PROMPT
-check('V20 prompt version is v3', report_ai.PROMPT_VERSION == 'unattended-report-v3')
+check('V20 prompt version is v3', report_ai.PROMPT_VERSION == 'unattended-report-v3.1')
 check('V21 v2 coverage rules are retained',
       '記録自体が存在しない時間' in P and 'gap_count=0' in P
       and 'increase_from_jst' in P and '観測方法やデータ取得の改善は④に書かない' in P)

@@ -111,6 +111,13 @@ check('F2 excess blank lines collapse, wording untouched',
       format_ai_section('一行目。\n\n\n\n二行目。') == '一行目。\n\n二行目。')
 check('F3 empty stays empty', format_ai_section('') == ''
       and format_ai_section(None) == '')
+check('F4 internal field names are shown as plain labels',
+      format_ai_section('status=available のため、score_increase_during は computable=false でした。')
+      == 'イベント記録あり のため、期間中のスコア増加 は 算出不可 でした。')
+check('F5 a lone symbol line is dropped',
+      format_ai_section('一行目。\n-\n二行目。') == '一行目。\n二行目。')
+check('F6 a repeated heading line mid-text is dropped',
+      format_ai_section('本文です。\n改善ポイント\n続きです。') == '本文です。\n続きです。')
 
 # --- page ------------------------------------------------------------------
 NOW = time.time()
