@@ -344,6 +344,31 @@ def split_ai_sections(answer):
     return sections, True
 
 
+_AI_SECTION_TITLES = {'観測結果の要約', '良かった点', '良かった傾向',
+                      '改善ポイント', '改善を検討したい点', '次回の配信で試すこと'}
+
+
+def format_ai_section(text):
+    """Tidy one AI section for card display (display-only cleanup).
+
+    Collapses excess blank lines and drops a first line that merely
+    repeats the card's own heading. The AI's wording and numbers are
+    never altered beyond whitespace.
+    """
+    lines = [line.rstrip() for line in str(text or '').strip().splitlines()]
+    if lines:
+        head = lines[0].strip().strip('#*・ 　').rstrip('：:')
+        if head in _AI_SECTION_TITLES:
+            lines = lines[1:]
+            while lines and not lines[0]:
+                lines = lines[1:]
+    out = []
+    for line in lines:
+        if line or (out and out[-1]):
+            out.append(line)
+    return '\n'.join(out).strip()
+
+
 class UnattendedReportPage(ctk.CTkFrame):
     def __init__(self, parent):
         super().__init__(parent, fg_color='transparent', corner_radius=0)
@@ -778,10 +803,32 @@ class UnattendedReportPage(ctk.CTkFrame):
         ctk.CTkLabel(
             scroll, text_color=MUTED, wraplength=850, justify='left', anchor='w',
             text='AI改善分析は、ボタンを押したときだけ実行します（自動では実行しません）。'
-                 '送信するのは下のプレビューにある集計値だけです。配信者は匿名コード化され、'
+                 '送信するのは集計値だけです。配信者は匿名コード化され、'
                  'コメント本文・Cookie・LIVE映像・名前や@IDは送りません。'
                  '未取得のデータを補完したり、因果関係を断定したりはしません。'
                  '既存AIサービスの利用枠・料金が適用されます。').pack(fill='x', padx=10, pady=(10, 4))
+        # Headline KPIs of the DISPLAYED report. Values come only
+        # from the Python-side aggregates of the current report; the
+        # AI never recomputes them, and unknown stays 未取得.
+        self.ai_kpi_frame = ctk.CTkFrame(scroll, fg_color='transparent')
+        self.ai_kpi_frame.pack(fill='x', padx=6, pady=(2, 4))
+        self.ai_kpi_cards = {
+            'battles': StatCard(self.ai_kpi_frame, 'バトル数', '未取得',
+                                accent=theme.PRIMARY),
+            'score_max': StatCard(self.ai_kpi_frame, '最大確定スコア', '未取得',
+                                  accent=theme.PURPLE),
+            'viewer_peak': StatCard(self.ai_kpi_frame, '最大同時視聴者数', '未取得',
+                                    accent=theme.SUCCESS),
+        }
+        self._ai_kpi_mode = None
+        self._ai_scroll = scroll
+        # Reflow decisions use the scroll VIEWPORT (canvas) width:
+        # the scrollable content's own width follows its widest
+        # child and would never report a narrow window.
+        try:
+            scroll._parent_canvas.bind('<Configure>', self._layout_ai_kpis)
+        except Exception:
+            self.ai_kpi_frame.bind('<Configure>', self._layout_ai_kpis)
         controls = ctk.CTkFrame(scroll, fg_color='transparent')
         controls.pack(fill='x', padx=10, pady=4)
         self.ai_button = ctk.CTkButton(controls, text='AI改善分析を実行', width=170, height=38,
@@ -790,26 +837,132 @@ class UnattendedReportPage(ctk.CTkFrame):
         self.ai_button.pack(side='left', padx=4)
         self.ai_status = ctk.CTkLabel(controls, text='未実行', text_color=MUTED)
         self.ai_status.pack(side='left', padx=10)
-        ctk.CTkLabel(scroll, text='送信データのプレビュー（この内容がそのまま送信されます）',
+        # Result cards: wrapping labels sized by the card itself, so
+        # text grows the card and the TAB scrolls — no fixed-height
+        # inner scrollboxes.
+        self.ai_labels = {}
+        self._ai_result_token = None
+        self._ai_pending_token = None
+        for key, title in (
+                ('summary', '観測結果の要約'),
+                ('good', '良かった点'),
+                ('improve', '改善ポイント'),
+                ('next', '次回の配信で試すこと')):
+            card = SectionCard(scroll, title)
+            card.pack(fill='x', padx=6, pady=5)
+            label = ctk.CTkLabel(card.body, justify='left', anchor='w',
+                                 font=(theme.FONT_FAMILY, 14),
+                                 text='AI改善分析を実行すると、ここに表示されます。')
+            label.pack(fill='x', padx=2, pady=2)
+            self.ai_labels[key] = label
+            card.body.bind(
+                '<Configure>',
+                lambda _e, lb=label, bd=card.body: self._wrap_ai_label(lb, bd))
+        # The exact send payload stays available, but collapsed by
+        # default: it is reference material, not the reading surface.
+        self._ai_detail_open = False
+        self.ai_detail_button = ctk.CTkButton(
+            scroll, text='▶ 送信データの詳細を確認', anchor='w', height=34,
+            fg_color='transparent', text_color=TEXT, hover_color=theme.BORDER,
+            command=self._toggle_ai_detail)
+        self.ai_detail_button.pack(fill='x', padx=10, pady=(12, 2))
+        self.ai_detail_frame = ctk.CTkFrame(scroll, fg_color='transparent')
+        ctk.CTkLabel(
+            self.ai_detail_frame, text_color=MUTED, wraplength=850,
+            justify='left', anchor='w',
+            text='この内容がそのままAIへ送信されます。送信されるのは集計値のみで、'
+                 '配信者は匿名コード化されます。コメント本文・Cookie・LIVE映像・'
+                 '名前や@IDは含まれません。AIサービスの利用枠・料金が適用されます。'
+        ).pack(fill='x', padx=12, pady=(2, 0))
+        ctk.CTkLabel(self.ai_detail_frame, text='送信データのプレビュー',
                      text_color=MUTED, anchor='w').pack(fill='x', padx=12, pady=(8, 0))
-        self.ai_preview = ctk.CTkTextbox(scroll, wrap='word', height=110,
+        self.ai_preview = ctk.CTkTextbox(self.ai_detail_frame, wrap='word', height=110,
                                          font=(theme.FONT_FAMILY, 11))
         self.ai_preview.pack(fill='x', padx=12, pady=4)
         self.ai_preview.configure(state='disabled')
-        self.ai_boxes = {}
-        for key, title, height in (
-                ('summary', '観測結果の要約（AI）', 84),
-                ('good', '1. 良かった傾向', 110),
-                ('improve', '2. 改善を検討したい点', 110),
-                ('next', '3. 次回の配信で試すこと', 130)):
-            card = SectionCard(scroll, title)
-            card.pack(fill='x', padx=6, pady=5)
-            box = ctk.CTkTextbox(card.body, wrap='word', height=height,
-                                 font=(theme.FONT_FAMILY, 13))
-            box.pack(fill='both', expand=True)
-            box.insert('1.0', 'AI改善分析を実行すると、ここに表示されます。')
-            box.configure(state='disabled')
-            self.ai_boxes[key] = box
+
+    def _layout_ai_kpis(self, _event=None):
+        """KPI cards in one row, stacked full-width when narrow.
+
+        Also re-pins the result labels' wrap to the viewport so
+        long AI text wraps inside the visible width instead of the
+        (possibly wider) scrollable content width.
+        """
+        try:
+            scaling = ctk.ScalingTracker.get_widget_scaling(self) or 1.0
+            raw = getattr(_event, 'width', None) or 0
+            width_l = (raw if raw > 1
+                       else self._ai_scroll._parent_canvas.winfo_width()) / scaling
+        except Exception:
+            return
+        wrap = int(width_l) - 48
+        if wrap > 80:
+            for label in self.ai_labels.values():
+                label.configure(wraplength=wrap)
+        mode = 'row' if width_l >= 520 else 'stack'
+        if mode == self._ai_kpi_mode:
+            return
+        self._ai_kpi_mode = mode
+        cards = [self.ai_kpi_cards[key]
+                 for key in ('battles', 'score_max', 'viewer_peak')]
+        for card in cards:
+            card.grid_forget()
+        if mode == 'row':
+            for i, card in enumerate(cards):
+                self.ai_kpi_frame.grid_columnconfigure(
+                    i, weight=1, uniform='ai_kpi')
+                card.grid(row=0, column=i, sticky='ew', padx=3, pady=2)
+        else:
+            self.ai_kpi_frame.grid_columnconfigure(0, weight=1)
+            for i, card in enumerate(cards):
+                card.grid(row=i, column=0, sticky='ew', padx=3, pady=2)
+
+    def _wrap_ai_label(self, label, body):
+        try:
+            scaling = ctk.ScalingTracker.get_widget_scaling(self) or 1.0
+            wrap = int(body.winfo_width() / scaling) - 12
+        except Exception:
+            return
+        if wrap > 80:
+            label.configure(wraplength=wrap)
+
+    def _toggle_ai_detail(self):
+        self._ai_detail_open = not self._ai_detail_open
+        if self._ai_detail_open:
+            self.ai_detail_frame.pack(fill='x', padx=6, pady=2)
+            self.ai_detail_button.configure(text='▼ 送信データの詳細を閉じる')
+        else:
+            self.ai_detail_frame.pack_forget()
+            self.ai_detail_button.configure(text='▶ 送信データの詳細を確認')
+
+    def _update_ai_kpis(self, report):
+        summary = (report or {}).get('summary') or {}
+
+        def fmt(value):
+            return f'{int(value):,}' if isinstance(value, (int, float)) else '未取得'
+
+        self.ai_kpi_cards['battles'].set_value(fmt(summary.get('unique_battle_count')))
+        self.ai_kpi_cards['score_max'].set_value(fmt(summary.get('final_score_max')))
+        self.ai_kpi_cards['viewer_peak'].set_value(fmt(summary.get('viewer_peak_max')))
+
+    @staticmethod
+    def _report_token(report):
+        """Identity of the aggregation a report (and its AI result)
+        belongs to: the session when session-scoped, else its
+        window. Auto-refresh re-renders the same session, so its
+        token is stable while the window grows."""
+        session = (report or {}).get('session') or {}
+        if session.get('session_id'):
+            return ('session', session['session_id'])
+        summary = (report or {}).get('summary') or {}
+        return ('window', summary.get('window_start_jst'),
+                summary.get('window_end_jst'))
+
+    def _clear_ai_results(self):
+        for label in self.ai_labels.values():
+            label.configure(text='AI改善分析を実行すると、ここに表示されます。')
+        self.ai_status.configure(text='未実行')
+        self._ai_result_token = None
 
     def _build_export(self, tab):
         ctk.CTkLabel(
@@ -1291,6 +1444,7 @@ class UnattendedReportPage(ctk.CTkFrame):
                     if gen != self._load_gen:
                         continue  # stale: analysed the old source
                     self._ai_text = payload['answer']
+                    self._ai_result_token = self._ai_pending_token
                     self._render_ai(payload['answer'])
                     self.ai_status.configure(text=f'完了（保存: {path or "失敗"}）{warning}')
                     self.ai_button.configure(state='normal')
@@ -2354,6 +2508,14 @@ class UnattendedReportPage(ctk.CTkFrame):
         except Exception:
             self._set_text(self.ai_preview, 'プレビューを生成できませんでした。')
 
+        self._update_ai_kpis(report)
+        # An AI result belongs to the report it was run against:
+        # when the displayed aggregation changes to another session,
+        # clear it rather than letting two sessions' results mix.
+        if (self._ai_result_token is not None
+                and self._ai_result_token != self._report_token(report)):
+            self._clear_ai_results()
+
         if display_only:
             # No file was written and nothing was marked as generated;
             # the comparison box (a manual-generation feature) stays
@@ -2827,13 +2989,18 @@ class UnattendedReportPage(ctk.CTkFrame):
     def _render_ai(self, answer):
         sections, found = split_ai_sections(answer)
         if found:
-            for key, box in self.ai_boxes.items():
-                self._set_text(box, sections.get(key) or '（この区分の記載はありませんでした）')
+            for key, label in self.ai_labels.items():
+                label.configure(
+                    text=format_ai_section(sections.get(key))
+                    or '（この区分の記載はありませんでした）')
         else:
-            self._set_text(self.ai_boxes['good'], answer)
-            self._set_text(self.ai_boxes['summary'], '（AIの回答を区分できませんでした。全文を下に表示します）')
-            self._set_text(self.ai_boxes['improve'], '（全文は「1. 良かった傾向」欄に表示しています）')
-            self._set_text(self.ai_boxes['next'], '（全文は「1. 良かった傾向」欄に表示しています）')
+            self.ai_labels['good'].configure(text=str(answer))
+            self.ai_labels['summary'].configure(
+                text='（AIの回答を区分できませんでした。全文を「良かった点」に表示します）')
+            self.ai_labels['improve'].configure(
+                text='（全文は「良かった点」に表示しています）')
+            self.ai_labels['next'].configure(
+                text='（全文は「良かった点」に表示しています）')
 
     def run_ai(self):
         if self._report is None:
@@ -2842,6 +3009,7 @@ class UnattendedReportPage(ctk.CTkFrame):
         self.ai_button.configure(state='disabled')
         self.ai_status.configure(text='AI分析中…')
         report = self._report
+        self._ai_pending_token = self._report_token(report)
         gen = self._load_gen
 
         def worker():
