@@ -1,15 +1,15 @@
-# Livemetry Pulse BETA installer (test distribution only).
-# Separate from installer_release.iss in every identity that
-# matters: a different AppId, install folder, executable name and
-# start-menu group, so installing / uninstalling the beta NEVER
-# touches the released v1.6.0 installation. App data is separated
-# at runtime by the beta edition mechanism (core/app_edition.py):
-# the beta stores everything under
-#   %LOCALAPPDATA%\LivemetryPulseBeta\AI-TikTok-LIVE-Analyzer
-# and uses a separate keyring service (…-Beta).
-# MyAppVersion MUST match BETA_VERSION_LABEL in core/app_edition.py
-# and ProductVersion in version_info_beta.txt (build_beta.bat
-# verifies this and fails the build on a mismatch).
+﻿; Livemetry Pulse BETA installer (test distribution only).
+; Separate from installer_release.iss in every identity that
+; matters: a different AppId, install folder, executable name and
+; start-menu group, so installing / uninstalling the beta NEVER
+; touches the released v1.6.0 installation. App data is separated
+; at runtime by the beta edition mechanism (core/app_edition.py):
+; the beta stores everything under
+;   %LOCALAPPDATA%\LivemetryPulseBeta\AI-TikTok-LIVE-Analyzer
+; and uses a separate keyring service (…-Beta).
+; MyAppVersion MUST match BETA_VERSION_LABEL in core/app_edition.py
+; and ProductVersion in version_info_beta.txt (build_beta.bat
+; verifies this and fails the build on a mismatch).
 
 #define MyAppName "Livemetry Pulse Beta"
 #define MyAppVersion "1.6.0-beta.1"
@@ -63,3 +63,4 @@ Type: filesandordirs; Name: "{app}"
 ; intentionally NOT deleted on uninstall — it is test data the user
 ; may want to inspect. Delete it manually when it is no longer
 ; needed. The release build's data is never stored there.
+
